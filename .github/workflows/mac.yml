@@ -1,0 +1,73 @@
+# Builds the Mac version on GitHub's Macs, tests it, and attaches the .dmg to the release.
+#   - Actions tab → "Mac build" → Run workflow: builds and tests it, and puts the .dmg, a screenshot of
+#     FreeShape running and the logs on a "mac-test" pre-release.
+#   - Publishing a release: builds it and attaches the .dmg to that release.
+name: Mac build
+
+on:
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    runs-on: macos-14          # Apple Silicon (M1/M2/M3/M4)
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install requirements
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller pytest
+
+      - name: Run the tests
+        run: python -m pytest -q tests 2>&1 | tee test-results.txt
+
+      - name: Build FreeShape.app and the .dmg
+        run: bash packaging/mac/build_mac.sh 2>&1 | tee build-log.txt
+
+      - name: Start the app and take a screenshot
+        continue-on-error: true
+        run: |
+          export FREESHAPE_NO_RECOVERY=1
+          dist/FreeShape.app/Contents/MacOS/FreeShape examples/bracket.fshape > app-log.txt 2>&1 &
+          APP=$!
+          sleep 45
+          screencapture -x mac-screenshot.png || true
+          if kill -0 $APP 2>/dev/null; then echo "STILL RUNNING after 45 s (good)" >> app-log.txt; else echo "APP EXITED EARLY" >> app-log.txt; fi
+          kill $APP 2>/dev/null || true
+
+      - name: Keep the results
+        uses: actions/upload-artifact@v4
+        with:
+          name: freeshape-mac
+          path: |
+            dist/*.dmg
+            mac-screenshot.png
+            app-log.txt
+            build-log.txt
+            test-results.txt
+          if-no-files-found: warn
+
+      - name: Put the test build on the "mac-test" pre-release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view mac-test >/dev/null 2>&1 || gh release create mac-test --prerelease --title "Mac test build" --notes "Automatic test build of the Mac version - not a real release."
+          files=$(ls dist/*.dmg mac-screenshot.png app-log.txt build-log.txt test-results.txt 2>/dev/null)
+          gh release upload mac-test $files --clobber
+
+      - name: Attach the .dmg to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/*.dmg --clobber
