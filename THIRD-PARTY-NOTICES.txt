@@ -1,0 +1,43 @@
+FreeShape — third-party software notices
+=========================================
+
+FreeShape is Copyright (C) 2026 Richard Willmott and is licensed under the GNU General Public License,
+version 3 or (at your option) any later version — see LICENSE.
+
+FreeShape uses the open-source libraries below. They are separate programs with their own licences; the
+FreeShape Windows download includes them as separate library files (DLLs / Python packages), which you may
+replace with your own builds. Their source code is available from the links given.
+
+Open CASCADE Technology (OCCT) — the 3D geometry kernel
+  Licence: GNU Lesser General Public License v2.1, with the Open CASCADE Exception v1.0
+  https://dev.opencascade.org  ·  https://github.com/Open-Cascade-SAS/OCCT
+
+OCP / cadquery-ocp — Python bindings for OCCT
+  Licence: Apache License 2.0
+  https://github.com/CadQuery/OCP
+
+VTK (libraries shipped with cadquery-ocp)
+  Licence: BSD 3-Clause
+  https://vtk.org
+
+Qt for Python (PySide6) and Qt — the user interface
+  Licence: GNU Lesser General Public License v3 (LGPL-3.0)
+  https://www.qt.io/qt-for-python  ·  https://code.qt.io/cgit/pyside/pyside-setup.git
+
+PyOpenGL — 3D drawing
+  Licence: BSD-style (PyOpenGL licence)
+  https://github.com/mcfletch/pyopengl
+
+NumPy
+  Licence: BSD 3-Clause
+  https://numpy.org
+
+ezdxf — DXF export
+  Licence: MIT
+  https://github.com/mozman/ezdxf
+
+PyInstaller (used to build FreeShape.exe)
+  Licence: GPL v2 with a bootloader exception (allows distributing the built program under any licence)
+  https://pyinstaller.org
+
+The full texts of the GNU LGPL v2.1 and v3 are available at https://www.gnu.org/licenses/.

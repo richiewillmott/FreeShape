@@ -1,0 +1,336 @@
+{
+ "format": "freeshape",
+ "version": 1,
+ "name": "Hinge parts",
+ "uid": "cfe3fe9831bc46a7ac03775d3245114e",
+ "features": [
+  {
+   "id": "F1",
+   "type": "sketch",
+   "name": "Plate",
+   "suppressed": false,
+   "params": {
+    "plane": {
+     "kind": "std",
+     "name": "Top"
+    },
+    "sketch": {
+     "points": {
+      "origin": [
+       0.0,
+       0.0
+      ],
+      "p1": [
+       0.0,
+       0.0
+      ],
+      "p2": [
+       60.0,
+       0.0
+      ],
+      "p3": [
+       60.0,
+       40.0
+      ],
+      "p4": [
+       0.0,
+       40.0
+      ],
+      "p9": [
+       15.0,
+       20.0
+      ]
+     },
+     "entities": {
+      "l5": {
+       "type": "line",
+       "p1": "p1",
+       "p2": "p2",
+       "construction": false
+      },
+      "l6": {
+       "type": "line",
+       "p1": "p2",
+       "p2": "p3",
+       "construction": false
+      },
+      "l7": {
+       "type": "line",
+       "p1": "p3",
+       "p2": "p4",
+       "construction": false
+      },
+      "l8": {
+       "type": "line",
+       "p1": "p4",
+       "p2": "p1",
+       "construction": false
+      },
+      "c10": {
+       "type": "circle",
+       "c": "p9",
+       "r": 4.0,
+       "construction": false
+      }
+     },
+     "constraints": []
+    }
+   }
+  },
+  {
+   "id": "F2",
+   "type": "extrude",
+   "name": "Extrude 1",
+   "suppressed": false,
+   "params": {
+    "regions": [
+     {
+      "sketch": "F1",
+      "c": [
+       30.32087975523724,
+       20.0,
+       0.0
+      ],
+      "area": 2349.7345175425635,
+      "loops": 2,
+      "edges": 5,
+      "bb": [
+       [
+        -1e-07,
+        -1e-07,
+        -1e-07
+       ],
+       [
+        60.0000001,
+        40.0000001,
+        1e-07
+       ]
+      ]
+     }
+    ],
+    "faces": [],
+    "end": "blind",
+    "depth": 10,
+    "depth2": 10.0,
+    "second": false,
+    "flip": false,
+    "op": "new"
+   }
+  },
+  {
+   "id": "F3",
+   "type": "sketch",
+   "name": "Arm",
+   "suppressed": false,
+   "params": {
+    "plane": {
+     "kind": "std",
+     "name": "Top"
+    },
+    "sketch": {
+     "points": {
+      "origin": [
+       0.0,
+       0.0
+      ],
+      "p1": [
+       0.0,
+       60.0
+      ],
+      "p2": [
+       50.0,
+       60.0
+      ],
+      "p3": [
+       50.0,
+       72.0
+      ],
+      "p4": [
+       0.0,
+       72.0
+      ],
+      "p9": [
+       6.0,
+       66.0
+      ]
+     },
+     "entities": {
+      "l5": {
+       "type": "line",
+       "p1": "p1",
+       "p2": "p2",
+       "construction": false
+      },
+      "l6": {
+       "type": "line",
+       "p1": "p2",
+       "p2": "p3",
+       "construction": false
+      },
+      "l7": {
+       "type": "line",
+       "p1": "p3",
+       "p2": "p4",
+       "construction": false
+      },
+      "l8": {
+       "type": "line",
+       "p1": "p4",
+       "p2": "p1",
+       "construction": false
+      },
+      "c10": {
+       "type": "circle",
+       "c": "p9",
+       "r": 4.0,
+       "construction": false
+      }
+     },
+     "constraints": []
+    }
+   }
+  },
+  {
+   "id": "F4",
+   "type": "extrude",
+   "name": "Extrude 2",
+   "suppressed": false,
+   "params": {
+    "regions": [
+     {
+      "sketch": "F3",
+      "c": [
+       26.73728251767882,
+       66.0,
+       0.0
+      ],
+      "area": 549.7345175425634,
+      "loops": 2,
+      "edges": 5,
+      "bb": [
+       [
+        -1e-07,
+        59.9999999,
+        -1e-07
+       ],
+       [
+        50.0000001,
+        72.0000001,
+        1e-07
+       ]
+      ]
+     }
+    ],
+    "faces": [],
+    "end": "blind",
+    "depth": 6,
+    "depth2": 10.0,
+    "second": false,
+    "flip": false,
+    "op": "new"
+   }
+  },
+  {
+   "id": "F5",
+   "type": "sketch",
+   "name": "Pin",
+   "suppressed": false,
+   "params": {
+    "plane": {
+     "kind": "std",
+     "name": "Top"
+    },
+    "sketch": {
+     "points": {
+      "origin": [
+       0.0,
+       0.0
+      ],
+      "p1": [
+       80.0,
+       20.0
+      ]
+     },
+     "entities": {
+      "c2": {
+       "type": "circle",
+       "c": "p1",
+       "r": 3.9,
+       "construction": false
+      }
+     },
+     "constraints": []
+    }
+   }
+  },
+  {
+   "id": "F6",
+   "type": "extrude",
+   "name": "Extrude 3",
+   "suppressed": false,
+   "params": {
+    "regions": [
+     {
+      "sketch": "F5",
+      "c": [
+       80.0,
+       20.0,
+       0.0
+      ],
+      "area": 47.78362426110091,
+      "loops": 1,
+      "edges": 1,
+      "bb": [
+       [
+        76.0999999,
+        16.0999999,
+        -1e-07
+       ],
+       [
+        83.9000001,
+        23.9000001,
+        1e-07
+       ]
+      ]
+     }
+    ],
+    "faces": [],
+    "end": "blind",
+    "depth": 30,
+    "depth2": 10.0,
+    "second": false,
+    "flip": false,
+    "op": "new"
+   }
+  }
+ ],
+ "rollback": null,
+ "overrides": {
+  "F2:1": {
+   "name": "Base plate",
+   "color": [
+    0.62,
+    0.66,
+    0.72
+   ]
+  },
+  "F4:2": {
+   "name": "Arm",
+   "color": [
+    0.36,
+    0.56,
+    0.86
+   ]
+  },
+  "F6:3": {
+   "name": "Pin",
+   "color": [
+    0.86,
+    0.62,
+    0.3
+   ]
+  }
+ },
+ "hidden": [],
+ "hidden_features": []
+}

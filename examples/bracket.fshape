@@ -1,0 +1,548 @@
+{
+ "format": "freeshape",
+ "version": 1,
+ "name": "Bracket",
+ "features": [
+  {
+   "id": "F1",
+   "type": "sketch",
+   "name": "Bracket profile",
+   "suppressed": false,
+   "params": {
+    "plane": {
+     "kind": "std",
+     "name": "Front"
+    },
+    "sketch": {
+     "points": {
+      "origin": [
+       0.0,
+       0.0
+      ],
+      "p2": [
+       60.0,
+       0.0
+      ],
+      "p3": [
+       60.0,
+       6.0
+      ],
+      "p4": [
+       6.0,
+       6.0
+      ],
+      "p5": [
+       6.0,
+       45.0
+      ],
+      "p6": [
+       0.0,
+       45.0
+      ]
+     },
+     "entities": {
+      "l7": {
+       "type": "line",
+       "p1": "origin",
+       "p2": "p2",
+       "construction": false
+      },
+      "l8": {
+       "type": "line",
+       "p1": "p2",
+       "p2": "p3",
+       "construction": false
+      },
+      "l9": {
+       "type": "line",
+       "p1": "p3",
+       "p2": "p4",
+       "construction": false
+      },
+      "l10": {
+       "type": "line",
+       "p1": "p4",
+       "p2": "p5",
+       "construction": false
+      },
+      "l11": {
+       "type": "line",
+       "p1": "p5",
+       "p2": "p6",
+       "construction": false
+      },
+      "l12": {
+       "type": "line",
+       "p1": "p6",
+       "p2": "origin",
+       "construction": false
+      }
+     },
+     "constraints": [
+      {
+       "id": "k13",
+       "type": "horizontal",
+       "refs": [
+        "l7"
+       ]
+      },
+      {
+       "id": "k14",
+       "type": "vertical",
+       "refs": [
+        "l8"
+       ]
+      },
+      {
+       "id": "k15",
+       "type": "horizontal",
+       "refs": [
+        "l9"
+       ]
+      },
+      {
+       "id": "k16",
+       "type": "vertical",
+       "refs": [
+        "l10"
+       ]
+      },
+      {
+       "id": "k17",
+       "type": "horizontal",
+       "refs": [
+        "l11"
+       ]
+      },
+      {
+       "id": "k18",
+       "type": "vertical",
+       "refs": [
+        "l12"
+       ]
+      },
+      {
+       "id": "k19",
+       "type": "distance",
+       "refs": [
+        "l7"
+       ],
+       "value": 60.0,
+       "pos": [
+        30,
+        -8
+       ]
+      },
+      {
+       "id": "k20",
+       "type": "distance",
+       "refs": [
+        "l8"
+       ],
+       "value": 6.0,
+       "pos": [
+        68,
+        3
+       ]
+      },
+      {
+       "id": "k21",
+       "type": "distance",
+       "refs": [
+        "l12"
+       ],
+       "value": 45.0,
+       "pos": [
+        -8,
+        22
+       ]
+      },
+      {
+       "id": "k22",
+       "type": "distance",
+       "refs": [
+        "l11"
+       ],
+       "value": 6.0,
+       "pos": [
+        3,
+        52
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "F2",
+   "type": "extrude",
+   "name": "Extrude 1",
+   "suppressed": false,
+   "params": {
+    "regions": [
+     {
+      "sketch": "F1",
+      "c": [
+       19.363636363636363,
+       0.0,
+       11.863636363636363
+      ],
+      "area": 594.0,
+      "loops": 1,
+      "edges": 6,
+      "bb": [
+       [
+        -1e-07,
+        -1e-07,
+        -1e-07
+       ],
+       [
+        60.0000001,
+        1e-07,
+        45.0000001
+       ]
+      ]
+     }
+    ],
+    "faces": [],
+    "end": "symmetric",
+    "depth": 40.0,
+    "depth2": 10.0,
+    "second": false,
+    "flip": false,
+    "op": "new"
+   }
+  },
+  {
+   "id": "F3",
+   "type": "fillet",
+   "name": "Fillet 1",
+   "suppressed": false,
+   "params": {
+    "edges": [
+     {
+      "part": "F2:1",
+      "kind": "edge",
+      "len": 40.0,
+      "c": [
+       6.0,
+       -8.881784197001252e-16,
+       6.0
+      ],
+      "type": 0,
+      "d": [
+       0.0,
+       -1.0,
+       0.0
+      ],
+      "p0": [
+       6.0,
+       20.0,
+       6.0
+      ],
+      "p1": [
+       6.0,
+       -20.0,
+       6.0
+      ],
+      "bb": [
+       [
+        -1e-07,
+        -20.0000001,
+        -1e-07
+       ],
+       [
+        60.0000001,
+        20.0000001,
+        45.0000001
+       ]
+      ]
+     }
+    ],
+    "radius": 5.0
+   }
+  },
+  {
+   "id": "F4",
+   "type": "sketch",
+   "name": "Hole positions",
+   "suppressed": false,
+   "params": {
+    "plane": {
+     "kind": "std",
+     "name": "Top"
+    },
+    "sketch": {
+     "points": {
+      "origin": [
+       0.0,
+       0.0
+      ],
+      "p1": [
+       40.0,
+       -12.0
+      ],
+      "p5": [
+       40.0,
+       12.0
+      ]
+     },
+     "entities": {
+      "pt2": {
+       "type": "point",
+       "p": "p1",
+       "construction": true
+      },
+      "pt6": {
+       "type": "point",
+       "p": "p5",
+       "construction": true
+      }
+     },
+     "constraints": [
+      {
+       "id": "k3",
+       "type": "hdistance",
+       "refs": [
+        "p1",
+        "origin"
+       ],
+       "value": 40.0
+      },
+      {
+       "id": "k4",
+       "type": "vdistance",
+       "refs": [
+        "p1",
+        "origin"
+       ],
+       "value": 12.0
+      },
+      {
+       "id": "k7",
+       "type": "hdistance",
+       "refs": [
+        "p5",
+        "origin"
+       ],
+       "value": 40.0
+      },
+      {
+       "id": "k8",
+       "type": "vdistance",
+       "refs": [
+        "p5",
+        "origin"
+       ],
+       "value": 12.0
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "F5",
+   "type": "hole",
+   "name": "Hole 1",
+   "suppressed": false,
+   "params": {
+    "sketch": "F4",
+    "diameter": 6.5,
+    "depth": 10.0,
+    "end": "through",
+    "style": "simple",
+    "counterbore_dia": 9.0,
+    "counterbore_depth": 3.0
+   }
+  },
+  {
+   "id": "F6",
+   "type": "sketch",
+   "name": "Slot",
+   "suppressed": false,
+   "params": {
+    "plane": {
+     "kind": "std",
+     "name": "Right"
+    },
+    "sketch": {
+     "points": {
+      "origin": [
+       0.0,
+       0.0
+      ],
+      "p1": [
+       -8.0,
+       28.0
+      ],
+      "p2": [
+       8.0,
+       28.0
+      ],
+      "p3": [
+       8.0,
+       36.0
+      ],
+      "p4": [
+       -8.0,
+       36.0
+      ],
+      "p7": [
+       8.0,
+       32.0
+      ],
+      "p8": [
+       -8.0,
+       32.0
+      ]
+     },
+     "entities": {
+      "l5": {
+       "type": "line",
+       "p1": "p1",
+       "p2": "p2",
+       "construction": false
+      },
+      "l6": {
+       "type": "line",
+       "p1": "p3",
+       "p2": "p4",
+       "construction": false
+      },
+      "a9": {
+       "type": "arc",
+       "c": "p7",
+       "p1": "p2",
+       "p2": "p3",
+       "construction": false
+      },
+      "a10": {
+       "type": "arc",
+       "c": "p8",
+       "p1": "p4",
+       "p2": "p1",
+       "construction": false
+      }
+     },
+     "constraints": [
+      {
+       "id": "k11",
+       "type": "horizontal",
+       "refs": [
+        "l5"
+       ]
+      },
+      {
+       "id": "k12",
+       "type": "horizontal",
+       "refs": [
+        "l6"
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "F7",
+   "type": "extrude",
+   "name": "Slot cut",
+   "suppressed": false,
+   "params": {
+    "regions": [
+     {
+      "sketch": "F6",
+      "c": [
+       0.0,
+       7.971736602791311e-17,
+       32.0
+      ],
+      "area": 178.2654824574367,
+      "loops": 1,
+      "edges": 4,
+      "bb": [
+       [
+        -1e-07,
+        -12.0000001,
+        27.9999999
+       ],
+       [
+        1e-07,
+        12.0000001,
+        36.0000001
+       ]
+      ]
+     }
+    ],
+    "faces": [],
+    "end": "through",
+    "depth": 25.0,
+    "depth2": 10.0,
+    "second": false,
+    "flip": false,
+    "op": "remove"
+   }
+  },
+  {
+   "id": "F8",
+   "type": "chamfer",
+   "name": "Chamfer 1",
+   "suppressed": false,
+   "params": {
+    "edges": [
+     {
+      "part": "F2:1",
+      "kind": "edge",
+      "len": 40.0,
+      "c": [
+       0.0,
+       -8.881784197001252e-16,
+       45.0
+      ],
+      "type": 0,
+      "d": [
+       0.0,
+       -1.0,
+       0.0
+      ],
+      "p0": [
+       0.0,
+       20.0,
+       45.0
+      ],
+      "p1": [
+       0.0,
+       -20.0,
+       45.0
+      ],
+      "bb": [
+       [
+        -6e-07,
+        -20.0000006,
+        -6e-07
+       ],
+       [
+        60.0000006,
+        20.0000006,
+        45.0000006
+       ]
+      ]
+     }
+    ],
+    "distance": 2.0
+   }
+  }
+ ],
+ "rollback": null,
+ "overrides": {
+  "F2:1": {
+   "name": "Bracket"
+  }
+ },
+ "hidden": [],
+ "hidden_features": [
+  "F1",
+  "F4",
+  "F6"
+ ]
+}

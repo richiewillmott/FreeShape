@@ -1,0 +1,383 @@
+{
+ "format": "freeshape-assembly",
+ "version": 1,
+ "name": "Hinge",
+ "uid": "dfcda3d081ed483b992c9e3ab30dbf01",
+ "instances": [
+  {
+   "id": "I1",
+   "name": "Base plate <1>",
+   "source": {
+    "kind": "studio",
+    "uid": "cfe3fe9831bc46a7ac03775d3245114e",
+    "part": "F2:1",
+    "path": "hinge_parts.fshape",
+    "studio_name": "Hinge parts",
+    "relpath": "hinge_parts.fshape"
+   },
+   "T": [
+    [
+     1.0,
+     0.0,
+     0.0,
+     0.0
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.0,
+     1.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "fixed": true,
+   "hidden": false,
+   "part_name": "Base plate",
+   "_brep": "eJyNVU2P2jAQvc+v8LGFpvLYiZMct7A9Vd2qoN1jlULKIiGCoLTaf197bAc7MQU+TCYz8+a9GcfMP31vDz/mx+Zv83PXLl6bQwswe1jMHuaPbNkdul23eWPP8gN7t3rPng7tns2a06pZt/ClWzW/t93+xAQgsOiFscn4TRv+H3Ab8AbADUDUAMLczZBxmJ2Pf1qxPrEatMlyrhft0IYiywQ5y7zJYy+4v+wTPopKYlVIXmJZF5USvVMwLJiwWZn5yYcwGTqDCJ00ywufqHBk5n19fqEcRKiLIh7pCCM4Gwnqw7E2tPt4r8PfcHoym5HDt273tun2cq47666f9svjttlvzju3hTgszsdfzUqLVBcRDqmnmvmuhnzjcpHgDOPcYIoBqlc2BMfAE08sQBuKHemCJT1VJyY5PLeAbcZLsAzBfIEjR/2BCTyugZHfqtJUXH09dxfIOYepJAbSlJyEmPdBihSkqAykXg1kIklSUs7tQyK8NWZFQBN42XoWBrwmT0mr0utUr6bQ50bz7UtFfAqC6cWpuzuWJ+VJqi2vySsoSZE84eSpFASJHMoTBG5FIsnDkTwZy+MjefepUyl1SMPDq8Mrg+HJ9PAsBGkcqEM7NtKINDwcDy+P1KEdXoJJFfQ5v9JnL2bcZ2Ji+aAkJnLEpIiZiLjP7uS6o9G1b7Q0u0PNvl5pvT0a+LXWoz08Bv8CtdFfev0JX+WqpXy19omUj4dT87xGXaRtSotp8bQadVBFHSwTc1Buj9u9YOcwjMrsAENgEQGbPTLNKWjxGqLnhFjTaq/pjKVC9hkkyosOwGQYsMyOWcvWv/8ArZOHRA=="
+  },
+  {
+   "id": "I2",
+   "name": "Arm <1>",
+   "source": {
+    "kind": "studio",
+    "uid": "cfe3fe9831bc46a7ac03775d3245114e",
+    "part": "F4:2",
+    "path": "hinge_parts.fshape",
+    "studio_name": "Hinge parts",
+    "relpath": "hinge_parts.fshape"
+   },
+   "T": [
+    [
+     1.0,
+     0.0,
+     0.0,
+     9.0
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     -46.0
+    ],
+    [
+     0.0,
+     0.0,
+     1.0,
+     10.0
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "fixed": false,
+   "hidden": false,
+   "part_name": "Arm",
+   "_brep": "eJyNVcGO2jAQvc9X+NhCU43txEmOW9ieqm7VoN1jlULKIiGCSGm1f1977CQ2MQVAjofxvHlvxnaWn743xx/LU/23/rlvqtf62AAsHqrFw/KRrdpju2+3b+xZfmDv1u/Z07E5sEXdretNA1/adf171x46JoADCz48NBnetOH/C24D3gC4BagYCPNvwhnC4nz604hNx0rQJsuFHrRDGxlZZpGzFOopuWjuHEhfG6I+ikLyIpOY87zMCiUGp9BplaKgxMSmLnRASazTEuoYx5FPmDew8yEDjpy9FdkoCUMh/hKFIRfVW2RzNMyHCKekt52ixAak8K3dv23bg1zq4rr502F12tWH7XnvdhFCdT79qtdapxplOKSBbNKXFRleSRdIpjAv1muk8mB7ZSO6J39MlvhSB7hLtRNhsKKT1TGJ8NwAbxLMwVLUD+1Hjlz/YAaPG2Dkt7I0FZdegVuHiDCXxEaajDMf0rC+A1JEIEVhIPVoICMx0tZD2HMiemvKioBm8LLrSRjwkjw5jaZ4c6Eo0eda0x1SBXwyghnEZXcXLI2pk5RaXlOXUUyGRp1w6rQ1hSCNl+roNDmNnNTxiToZqsOJujt7pyLqOPWOX+1d7vVOxntnIUjjhTpuu2ZvDOodn/YuDdRx27sIk8Krc3qlzr2YaZ2JieXDJTGREyZZyESEdXb31h11Ll2dpdkcavE1Xnh7K+C1wnN7b1y8A0qjPu9PYcRX9MkivlL7RMyHfs96XpMa0ialwRR4Xkzqp4L65ZEuKLfD7U6wXbhcldj2+cAiADY7ZJ7SourVR08JsaTRzt2bUE/tCSTKVQtgIgxYYpusZevnPz54h9g="
+  },
+  {
+   "id": "I3",
+   "name": "Pin <1>",
+   "source": {
+    "kind": "studio",
+    "uid": "cfe3fe9831bc46a7ac03775d3245114e",
+    "part": "F6:3",
+    "path": "hinge_parts.fshape",
+    "studio_name": "Hinge parts",
+    "relpath": "hinge_parts.fshape"
+   },
+   "T": [
+    [
+     1.0,
+     0.0,
+     0.0,
+     -65.0
+    ],
+    [
+     0.0,
+     1.0,
+     0.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.0,
+     1.0,
+     0.0
+    ],
+    [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   ],
+   "fixed": false,
+   "hidden": false,
+   "part_name": "Pin",
+   "_brep": "eJyNUktTgzAQvu+v2KNa6eRRXscK9eRYRzr16EQa284whAGr039vEpBCyxQDhH1+3+4m8cOrLN7jUvyIj0wmO1FIgGieRPN4gStVqExtj7jm93iT3uKykDlGokrFRsKTSsXXXuUVMqCAvUX7KpJRHa4HjAOOAIwAcg3AjNWhSCA6lN+SbSp0Qav20XYte1MWcBq4nPjUD93AY62TYUCQETQJjvnxaUi6y/UbMLNb0eGNYvnsHDE4T/MMKGkSW5Y/Q8Pm1EB8GoT9BS8qO25VzmPdViMv81W5F/n2kDXnRyA5lJ8itSWcGGpc5x8kf0MaqgkuyGBl71mFIawlUOkQH0zblhXMB4QSql+4g8UG0IbUwJoKazZOgBuZRc8nS5OqxwaT0JQRat8gSH1wZ+cZmjvAr/hmDdWQzzXFDPnafk5FEV3U275jD4zdbr7eJr4t+1HoabSFd3vzLhF8a+qmsF7KzPqTXSfFNVTcXkTLlygA4zHxDrPxMDEN/wIdw8dh"
+  }
+ ],
+ "mates": [
+  {
+   "id": "M4",
+   "type": "fastened",
+   "name": "Fastened 1",
+   "a": {
+    "inst": "I1",
+    "kind": "edge",
+    "index": 13,
+    "click": null,
+    "ref": {
+     "kind": "edge",
+     "len": 25.132741228718345,
+     "c": [
+      15.000000000000018,
+      20.0,
+      0.0
+     ],
+     "type": 1,
+     "r": 4.0,
+     "center": [
+      15.0,
+      20.0,
+      0.0
+     ],
+     "axis": [
+      0.0,
+      0.0,
+      1.0
+     ],
+     "bb": [
+      [
+       -1e-07,
+       -1e-07,
+       -1e-07
+      ],
+      [
+       60.0000001,
+       40.0000001,
+       10.0000001
+      ]
+     ]
+    },
+    "frame": {
+     "o": [
+      15.0,
+      20.0,
+      0.0
+     ],
+     "z": [
+      -0.0,
+      -0.0,
+      -1.0
+     ],
+     "x": [
+      1.0,
+      0.0,
+      0.0
+     ],
+     "what": "circular edge"
+    }
+   },
+   "b": {
+    "inst": "I3",
+    "kind": "edge",
+    "index": 1,
+    "click": null,
+    "ref": {
+     "kind": "edge",
+     "len": 24.504422698000383,
+     "c": [
+      80.00000000000001,
+      20.000000000000004,
+      0.0
+     ],
+     "type": 1,
+     "r": 3.9,
+     "center": [
+      80.0,
+      20.0,
+      0.0
+     ],
+     "axis": [
+      0.0,
+      0.0,
+      1.0
+     ],
+     "bb": [
+      [
+       76.0999999,
+       16.0999999,
+       -1e-07
+      ],
+      [
+       83.9000001,
+       23.9000001,
+       30.0000001
+      ]
+     ]
+    },
+    "frame": {
+     "o": [
+      80.0,
+      20.0,
+      0.0
+     ],
+     "z": [
+      -0.0,
+      -0.0,
+      -1.0
+     ],
+     "x": [
+      1.0,
+      0.0,
+      0.0
+     ],
+     "what": "circular edge"
+    }
+   },
+   "flip": true,
+   "offset": 0.0,
+   "angle": 0.0,
+   "suppressed": false
+  },
+  {
+   "id": "M5",
+   "type": "revolute",
+   "name": "Revolute 1",
+   "a": {
+    "inst": "I1",
+    "kind": "edge",
+    "index": 14,
+    "click": null,
+    "ref": {
+     "kind": "edge",
+     "len": 25.132741228718345,
+     "c": [
+      15.000000000000018,
+      20.0,
+      10.0
+     ],
+     "type": 1,
+     "r": 4.0,
+     "center": [
+      15.0,
+      20.0,
+      10.0
+     ],
+     "axis": [
+      0.0,
+      0.0,
+      1.0
+     ],
+     "bb": [
+      [
+       -1e-07,
+       -1e-07,
+       -1e-07
+      ],
+      [
+       60.0000001,
+       40.0000001,
+       10.0000001
+      ]
+     ]
+    },
+    "frame": {
+     "o": [
+      15.0,
+      20.0,
+      10.0
+     ],
+     "z": [
+      0.0,
+      0.0,
+      1.0
+     ],
+     "x": [
+      1.0,
+      0.0,
+      0.0
+     ],
+     "what": "circular edge"
+    }
+   },
+   "b": {
+    "inst": "I2",
+    "kind": "edge",
+    "index": 13,
+    "click": null,
+    "ref": {
+     "kind": "edge",
+     "len": 25.132741228718345,
+     "c": [
+      6.000000000000018,
+      66.0,
+      0.0
+     ],
+     "type": 1,
+     "r": 4.0,
+     "center": [
+      6.0,
+      66.0,
+      0.0
+     ],
+     "axis": [
+      0.0,
+      0.0,
+      1.0
+     ],
+     "bb": [
+      [
+       -1e-07,
+       59.9999999,
+       -1e-07
+      ],
+      [
+       50.0000001,
+       72.0000001,
+       6.0000001
+      ]
+     ]
+    },
+    "frame": {
+     "o": [
+      6.0,
+      66.0,
+      0.0
+     ],
+     "z": [
+      -0.0,
+      -0.0,
+      -1.0
+     ],
+     "x": [
+      1.0,
+      0.0,
+      0.0
+     ],
+     "what": "circular edge"
+    }
+   },
+   "flip": false,
+   "offset": 0.0,
+   "angle": 0.0,
+   "suppressed": false
+  }
+ ],
+ "blobs": {}
+}

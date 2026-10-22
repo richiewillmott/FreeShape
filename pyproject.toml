@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "freeshape"
+version = "1.8.0"
+description = "Free, offline, Onshape-style parametric CAD: parts, assemblies, drawings and sheet metal"
+license = { text = "GPL-3.0-or-later" }
+authors = [{ name = "Richard Willmott" }]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["cadquery-ocp>=7.7", "PySide6>=6.5", "PyOpenGL>=3.1", "numpy>=1.24", "ezdxf>=1.1"]
+
+[project.scripts]
+freeshape = "freeshape.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["freeshape*"]
+
+[tool.setuptools.package-data]
+freeshape = ["assets/*"]
