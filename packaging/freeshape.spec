@@ -1,4 +1,5 @@
 # PyInstaller recipe for FreeShape.   Build with:  build_exe.bat   (or:  pyinstaller packaging/freeshape.spec)
+# On Linux, packaging/linux/build_appimage.sh uses this same recipe to make FreeShape-x86_64.AppImage.
 # Produces dist/FreeShape/FreeShape.exe plus its support files (a folder build starts much faster than a
 # single-file exe, which would unpack ~500 MB to a temp folder on every launch).
 import glob
@@ -45,9 +46,13 @@ try:
 except Exception:
     pass
 
-hidden = collect_submodules("freeshape") + ["ezdxf", "ezdxf.render.dimension", "OCP", "OCP.OCP", "PySide6.QtSvg", "PySide6.QtOpenGL",
+hidden = collect_submodules("freeshape")
+if sys.platform.startswith("linux"):
+    hidden += ["OpenGL.platform.egl", "OpenGL.raw.GLX._types"]
+hidden = hidden + ["ezdxf", "ezdxf.render.dimension", "OCP", "OCP.OCP", "PySide6.QtSvg", "PySide6.QtOpenGL",
                                             "PySide6.QtOpenGLWidgets", "OpenGL.GL", "OpenGL.GL.shaders",
-                                            "OpenGL.platform.win32", "OpenGL.arrays.numpymodule",
+                                            "OpenGL.platform.win32" if sys.platform == "win32" else "OpenGL.platform.glx",
+                                            "OpenGL.arrays.numpymodule",
                                             "OpenGL.arrays.ctypesarrays", "OpenGL.arrays.numbers"]
 
 a = Analysis(

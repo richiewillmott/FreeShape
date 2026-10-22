@@ -1,6 +1,9 @@
 # FreeShape revisions
 
 ## r8 — speed
+- **Linux AppImage**: one file that runs on recent Linux distros without installing Python
+  (`packaging/linux/build_appimage.sh` builds it).
+- Windows installer: fixed "The setup files are corrupted" (files are now compressed one by one).
 - **Drawings** stay smooth on big models:
   - The sheet is drawn once into a picture: panning just slides it, zooming stretches it and redraws sharply
     when the wheel stops, hovering and selecting only redraw the highlights.

@@ -48,6 +48,18 @@ real parts.
 
 ## Install and run
 
+**The easy way:** download from the [latest release](https://github.com/richiewillmott/FreeShape/releases/latest):
+
+- **Windows:** `FreeShape-Setup-r8.exe` — run it and follow the installer (no Python needed). Windows SmartScreen
+  may warn the first time because the installer isn't code-signed yet: click **More info → Run anyway**.
+- **Linux:** `FreeShape-r8-x86_64.AppImage` — make it executable and run it (no Python needed):
+  `chmod +x FreeShape-r8-x86_64.AppImage && ./FreeShape-r8-x86_64.AppImage`
+  (or right-click → Properties → "Allow executing as program", then double-click). Needs a 2024-or-newer
+  distro (Ubuntu 24.04+, Fedora 40+, Mint 22+, Debian 13+, Arch …). If it says FUSE is missing, run it with
+  `--appimage-extract-and-run`, or install `libfuse2` (Ubuntu: `sudo apt install libfuse2t64`).
+
+### From source
+
 You need Python 3.10–3.13 (64-bit) from https://www.python.org. On Windows, tick "Add python.exe to PATH" when installing.
 
 Then just start it — **the first run installs everything automatically**:
@@ -70,6 +82,13 @@ Python. It also makes **`dist\FreeShape-portable-r8.zip`** (unzip anywhere and r
 a normal installer with Start-menu and desktop shortcuts, FreeShape icons on `.fshape` / `.fasm` files
 (double-click to open them) and FreeShape in "Open with" for STEP files. The first build takes 5–10 minutes;
 the app folder is large (about 1 GB, mostly the geometry engine), the installer much smaller.
+
+### Make a Linux AppImage
+
+On Linux, with the requirements and PyInstaller installed (`python3 -m pip install -r requirements.txt pyinstaller`),
+run **`bash packaging/linux/build_appimage.sh`**. It packs FreeShape, checks the packed app with its self-test and
+makes **`dist/FreeShape-r8-x86_64.AppImage`** (about 200 MB). An AppImage runs on Linux systems at least as new as the
+one it was built on, so build on the oldest distro you want to support.
 
 ## Home page
 

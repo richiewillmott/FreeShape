@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=FreeShape
+GenericName=Parametric CAD
+Comment=Free, offline, Onshape-style parametric CAD
+Exec=FreeShape %F
+Icon=freeshape
+Terminal=false
+Categories=Graphics;Engineering;3DGraphics;
+MimeType=application/x-freeshape-part;application/x-freeshape-assembly;application/x-freeshape-drawing;model/step;
+Keywords=CAD;3D;STEP;DXF;sheet metal;drawing;
+StartupWMClass=FreeShape
