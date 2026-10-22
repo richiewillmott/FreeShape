@@ -6,7 +6,7 @@ make 2D drawings and sheet-metal flat patterns — all on your own computer, no 
 Geometry is real B-rep solid modelling on the OpenCascade kernel (the same open-source kernel FreeCAD uses),
 so exports are proper STEP solids, and drawings / flat patterns export to DXF for AutoCAD and laser cutting.
 
-![FreeShape](docs/screenshot.png)
+![FreeShape demo: change a number and the part rebuilds, then a 2D drawing with dimensions](docs/images/freeshape_demo.gif)
 
 ## Why I made it
 
@@ -42,9 +42,9 @@ real parts.
 - **Feels like Onshape** — view cube, home page with recent projects, mouse controls, dark / light theme,
   autosave and crash recovery, a Windows installer with file icons.
 
-| Assemblies | Drawings | Sheet metal |
-|---|---|---|
-| ![](docs/images/assembly.png) | ![](docs/images/drawing.png) | ![](docs/images/sheet_metal.png) |
+| Part Studio | Assemblies | Drawings | Sheet metal (folded and flat) |
+|---|---|---|---|
+| ![](docs/screenshot.png) | ![](docs/images/assembly.png) | ![](docs/images/drawing.png) | ![](docs/images/sheet_metal.png) |
 
 ## Install and run
 

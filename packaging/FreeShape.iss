@@ -17,12 +17,10 @@ UninstallDisplayIcon={app}\FreeShape.exe
 UninstallDisplayName={#AppName}
 SetupIconFile=..\freeshape\assets\freeshape.ico
 WizardStyle=modern
-; ~1 GB of files: moderate settings so the (32-bit) compiler doesn't run out of memory
-Compression=lzma2/max
-SolidCompression=yes
-LZMAUseSeparateProcess=yes
-LZMADictionarySize=32768
-LZMANumBlockThreads=1
+; ~1 GB of files: each file is compressed on its own (no single huge solid block, no separate compressor
+; process) - that combination produced installers that said "The setup files are corrupted".
+Compression=lzma2/normal
+SolidCompression=no
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\dist

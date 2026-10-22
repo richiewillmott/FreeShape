@@ -70,8 +70,27 @@ def _create_venv():
     _say("First run: creating a private Python environment in .venv …")
     try:
         venv.EnvBuilder(with_pip=True, clear=False, upgrade_deps=False).create(VENV)
-    except Exception as e:  # e.g. Debian/Ubuntu without python3-venv
-        _say(f"Could not create the environment: {e}")
+        return
+    except Exception as e:  # e.g. a half-made .venv left by an earlier attempt, or no python3-venv
+        first = e
+    # a half-made or locked .venv from an earlier attempt: start it again from scratch, once
+    _say("That didn't work - removing the half-made .venv and trying again …")
+    try:
+        import shutil
+        import stat
+
+        def _unlock(func, path, _exc):
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        shutil.rmtree(VENV, onerror=_unlock)
+        venv.EnvBuilder(with_pip=True, clear=False, upgrade_deps=False).create(VENV)
+        return
+    except Exception as e:
+        _say(f"Could not create the environment: {e}  (first try: {first})")
+        if sys.platform.startswith("win"):
+            _say("Close any FreeShape or Python windows, delete the .venv folder inside the FreeShape folder, "
+                 "and run this again. If the folder is on the Desktop or in OneDrive, try a folder such as "
+                 "C:\\FreeShape instead.")
         if sys.platform.startswith("linux"):
             _say("On Debian/Ubuntu install it with:  sudo apt install python3-venv   then run again.")
         sys.exit(1)

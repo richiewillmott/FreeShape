@@ -51,7 +51,11 @@ if exist "%LocalAppData%\Programs\Inno Setup 6\ISCC.exe" set ISCC=%LocalAppData%
 if defined ISCC (
   echo [FreeShape] Building the installer...
   "%ISCC%" /Q "packaging\FreeShape.iss"
-  if errorlevel 1 ( echo The installer build failed - the app itself is still in dist\FreeShape. ) else ( echo [FreeShape] Installer: dist\FreeShape-Setup-r8.exe )
+  if errorlevel 1 (
+    echo The installer build failed - the app itself is still in dist\FreeShape.
+  ) else (
+    echo [FreeShape] Installer: dist\FreeShape-Setup-r8.exe
+  )
 ) else (
   echo [FreeShape] Skipped the installer: Inno Setup isn't installed. Get it free from https://jrsoftware.org/isdl.php
   echo             and run this again if you want a FreeShape-Setup.exe with Start-menu and desktop shortcuts.
