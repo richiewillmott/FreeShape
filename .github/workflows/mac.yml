@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   mac:
-    runs-on: macos-14          # Apple Silicon (M1/M2/M3/M4)
+    runs-on: macos-latest       # Apple Silicon (M1/M2/M3/M4)
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
