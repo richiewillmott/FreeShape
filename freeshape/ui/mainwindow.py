@@ -1473,6 +1473,8 @@ class MainWindow(QMainWindow):
             pick = Pick("plane", ("std", ident))
         else:
             f = self.doc.feature(ident)
+            if f is not None and f["type"] == "sketch" and self._tree_sketch_to_dialog(ident):
+                return
             if f is None or f["type"] != "plane" or ident not in self.doc.state.planes:
                 return
             pick = Pick("plane", ("plane", ident))
@@ -1481,6 +1483,28 @@ class MainWindow(QMainWindow):
         elif self.viewport.pick_handler is not None:
             # an open dialog (e.g. a new sketch waiting for its plane) takes the plane
             self.viewport.pick_handler(pick)
+
+    def _tree_sketch_to_dialog(self, fid):
+        """A sketch clicked in the feature list while a feature dialog wants sketch areas (Extrude, Loft …): use the
+        sketch's closed areas, like Onshape. A loft profile is one area, so for Loft the sketch's biggest area (its
+        outline, with any holes in it) is used. Returns True if the click was used."""
+        d = self.dialog
+        fld = getattr(d, "active_field", None) if d is not None else None
+        if fld is None or "region" not in fld.want:
+            return False
+        sr = self.doc.state.sketches.get(fid)
+        if sr is None or not sr.regions:
+            self.status.showMessage("That sketch isn't a closed shape, so it has no area to use. Close its outline "
+                                    "(the inside turns blue) and pick it again.", 8000)
+            return True
+        idx = list(range(len(sr.regions)))
+        if d.feature.get("type") == "loft" and len(idx) > 1:
+            idx = [max(idx, key=lambda i: K.face_info(sr.regions[i]).get("area", 0.0))]
+        for i in idx:
+            item = ("region", F.region_ref(sr, fid, sr.regions[i]))
+            if not any(ex[0] == "region" and ex[1].get("sketch") == fid and ex[1] == item[1] for ex in fld.items):
+                fld.toggle(item)
+        return True
 
     def _tree_eye(self, key):
         """The eye in the feature list: show / hide a sketch or plane."""

@@ -2,6 +2,10 @@
 
 ## r8 — speed
 
+### 1.8.3 (next)
+- Extrude, Loft and other features that use sketch areas: **click a sketch in the feature list** to use it, like
+  Onshape (also works for hidden sketches). For Loft, a sketch with several areas gives its outline (with any holes).
+
 ### 1.8.2
 - Extrude, loft and other features that want a sketch's area: clicking the sketch's **line** now picks the
   area it outlines (the smallest one, so a hole's circle picks the hole), not just clicking inside it. If the
