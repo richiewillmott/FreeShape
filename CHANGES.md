@@ -2,7 +2,7 @@
 
 ## r8 — speed
 
-### 1.8.2 (next)
+### 1.8.2
 - Extrude, loft and other features that want a sketch's area: clicking the sketch's **line** now picks the
   area it outlines (the smallest one, so a hole's circle picks the hole), not just clicking inside it. If the
   sketch isn't a closed shape, the status bar says so instead of nothing happening.
