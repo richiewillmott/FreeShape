@@ -1,8 +1,12 @@
-# Builds the Mac version on GitHub's Macs, tests it, and attaches the .dmg to the release.
-#   - Actions tab → "Mac build" → Run workflow: builds and tests it, and puts the .dmg, a screenshot of
-#     FreeShape running and the logs on a "mac-test" pre-release.
-#   - Publishing a release: builds it and attaches the .dmg to that release.
-name: Mac build
+# Builds FreeShape for Windows, Mac and Linux on GitHub's own computers, tests each one, and attaches the
+# downloads to the release — so there's nothing to build by hand.
+#   - Publishing a release: builds all three and attaches
+#       FreeShape-Setup-<rev>.exe, FreeShape-<rev>-mac-arm64.dmg and FreeShape-<rev>-x86_64.AppImage
+#   - Actions tab → "Build (Windows, Mac, Linux)" → Run workflow: a test build. The files, a screenshot of
+#     FreeShape running on the Mac and the logs go on a "Test builds" DRAFT release instead — drafts are only
+#     visible to you (Releases page), never to the public. Each test run replaces the previous test files.
+# (The file is still called mac.yml because it started as the Mac build.)
+name: Build (Windows, Mac, Linux)
 
 on:
   workflow_dispatch:
@@ -13,27 +17,84 @@ permissions:
   contents: write
 
 jobs:
+  # ------------------------------------------------------------------ test runs: one private draft to put them on
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Make sure the "Test builds" draft exists
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release view test-builds >/dev/null 2>&1 || \
+            gh release create test-builds --draft --title "Test builds" \
+              --notes "Automatic test builds (draft - only visible to you). Each test run replaces these files."
+
+  # ------------------------------------------------------------------ Windows: installer
+  windows:
+    needs: prepare
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install requirements
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt "pyinstaller>=6.16"
+      - name: Build FreeShape.exe and check it starts
+        run: |
+          build() { python -m PyInstaller packaging/freeshape.spec --noconfirm --clean --distpath dist --workpath build; }
+          check() { rm -f selftest.txt; dist/FreeShape/FreeShape.exe --self-test "$PWD/selftest.txt"; grep -q '^OK' selftest.txt; }
+          build
+          if ! check; then
+            echo "Quick build is missing something - building again with every library included"
+            export FREESHAPE_FULL=1
+            build
+            check || { cat selftest.txt; exit 1; }
+          fi
+          cat selftest.txt
+      - name: Build the installer
+        run: |
+          ISCC="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
+          if [ ! -f "$ISCC" ]; then choco install innosetup -y --no-progress; fi
+          "$ISCC" //Q packaging/FreeShape.iss
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: freeshape-windows
+          path: dist/FreeShape-Setup-*.exe
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then TAG="${{ github.event.release.tag_name }}"; else TAG=test-builds; fi
+          gh release upload "$TAG" dist/FreeShape-Setup-*.exe --clobber
+
+  # ------------------------------------------------------------------ Mac: .dmg (Apple Silicon)
   mac:
+    needs: prepare
     runs-on: macos-latest      # GitHub's current Mac (Apple Silicon)
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
       - name: Install requirements
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt pyinstaller pytest
-
       - name: Run the tests
         run: python -m pytest -q tests 2>&1 | tee test-results.txt
-
       - name: Build FreeShape.app and the .dmg
         run: bash packaging/mac/build_mac.sh 2>&1 | tee build-log.txt
-
       - name: Start the app and take a screenshot
         continue-on-error: true
         run: |
@@ -45,37 +106,57 @@ jobs:
           for i in $(seq 1 90); do kill -0 $APP 2>/dev/null || break; sleep 1; done
           if [ -f mac-screenshot.png ]; then echo "SNAPSHOT OK" >> app-log.txt; else echo "NO SNAPSHOT" >> app-log.txt; fi
           kill $APP 2>/dev/null || true
-          # a picture of the whole screen too, in case the window didn't appear (may be blank without permission)
-          screencapture -x mac-desktop.png || true
-
-      - name: Keep the results
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: freeshape-mac
           path: |
             dist/*.dmg
             mac-screenshot.png
-            mac-desktop.png
             app-log.txt
             build-log.txt
             test-results.txt
           if-no-files-found: warn
-
-      - name: Put the test build on the "mac-test" pre-release
-        if: github.event_name == 'workflow_dispatch'
+      - name: Attach to the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view mac-test >/dev/null 2>&1 || gh release create mac-test --prerelease --title "Mac test build" --notes "Automatic test build of the Mac version - not a real release."
-          files=""
-          for f in dist/*.dmg mac-screenshot.png mac-desktop.png app-log.txt build-log.txt test-results.txt; do
-            [ -f "$f" ] && files="$files $f"
-          done
-          echo "Uploading:$files"
-          gh release upload mac-test $files --clobber
+          if [ "${{ github.event_name }}" = "release" ]; then
+            gh release upload "${{ github.event.release.tag_name }}" dist/*.dmg --clobber
+          else
+            files=""
+            for f in dist/*.dmg mac-screenshot.png app-log.txt build-log.txt test-results.txt; do [ -f "$f" ] && files="$files $f"; done
+            gh release upload test-builds $files --clobber
+          fi
 
-      - name: Attach the .dmg to the release
-        if: github.event_name == 'release'
+  # ------------------------------------------------------------------ Linux: AppImage
+  linux:
+    needs: prepare
+    runs-on: ubuntu-22.04      # an older Ubuntu, so the AppImage also runs on older Linux systems
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install system libraries Qt needs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libopengl0 libxkbcommon0 libxkbcommon-x11-0 libxcb-cursor0 \
+            libxcb-icccm4 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 libxcb-shape0 libxcb-xinerama0 \
+            libfontconfig1 libdbus-1-3 file
+      - name: Install requirements
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+      - name: Build the AppImage
+        run: PYTHON=python bash packaging/linux/build_appimage.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: freeshape-linux
+          path: dist/*.AppImage
+      - name: Attach to the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" dist/*.dmg --clobber
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then TAG="${{ github.event.release.tag_name }}"; else TAG=test-builds; fi
+          gh release upload "$TAG" dist/*.AppImage --clobber

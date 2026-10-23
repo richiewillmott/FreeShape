@@ -28,6 +28,36 @@ def _show(v):
 
 # ---------------------------------------------------------------------- pick <-> ref conversion
 
+def region_touching(sr, eid):
+    """Index of the sketch region whose outline runs along sketch entity `eid` (the smallest such region, so a
+    hole's circle picks the hole rather than the plate around it), or None."""
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
+    from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+    from OCP.gp import gp_Pnt
+    try:
+        pts = sr.sketch.polyline(eid, 16)
+    except Exception:
+        return None
+    if not len(pts):
+        return None
+    u, v = pts[len(pts) // 2]
+    P = sr.plane.to_world(u, v)
+    vert = BRepBuilderAPI_MakeVertex(gp_Pnt(*map(float, P))).Vertex()
+    best = None
+    for ri, face in enumerate(sr.regions):
+        dd = None
+        for e in K.edges(face):
+            ext = BRepExtrema_DistShapeShape(vert, e)
+            if ext.IsDone():
+                d = ext.Value()
+                dd = d if dd is None else min(dd, d)
+        if dd is not None and dd < 1e-5 * max(1.0, float(np.linalg.norm(P))) + 1e-6:
+            area = K.face_info(face).get("area", 0.0)
+            if best is None or area < best[0]:
+                best = (area, ri)
+    return None if best is None else best[1]
+
+
 def pick_to_item(vp, pick: Pick, want: set):
     """Convert a viewport pick into a (kind, ref) item for a selection field."""
     k = pick.kind
@@ -65,6 +95,16 @@ def pick_to_item(vp, pick: Pick, want: set):
             return ("edge", F.make_ref(pid, edge, "edge", shape))
         if "axis" in want:
             return ("axis", {"kind": "edge", "edge": F.make_ref(pid, edge, "edge", shape)})
+    if k == "sketch_line" and "region" in want:
+        # clicking a sketch's line (or circle) picks the closed area it bounds
+        fid, eid = pick.key
+        for sfid, sr, _ in vp.sketches:
+            if sfid != fid or not sr.regions:
+                continue
+            ri = region_touching(sr, eid)
+            if ri is not None:
+                return ("region", F.region_ref(sr, fid, sr.regions[ri]))
+        return None
     if k == "sketch_line" and "path" in want:
         fid, eid = pick.key
         return ("path", {"kind": "sketch_chain", "sketch": fid, "entity": eid})
@@ -813,7 +853,7 @@ class FeatureDialog(QFrame):
         want = field.want
         kinds = set()
         if "region" in want:
-            kinds.add("region")
+            kinds |= {"region", "sketch_line"}
         if "face" in want or "plane" in want:
             kinds.add("face")
         if "edge" in want:
@@ -879,6 +919,13 @@ class FeatureDialog(QFrame):
             return
         item = pick_to_item(self.main.viewport, pick, fld.want)
         if item is None:
+            if pick.kind == "sketch_line" and "region" in fld.want:
+                try:
+                    self.main.status.showMessage(
+                        "That sketch isn't a closed shape, so it has no area to use. Close its outline "
+                        "(the inside turns blue) and pick it again.", 8000)
+                except Exception:
+                    pass
             return
         fld.toggle(item)
 

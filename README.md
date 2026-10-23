@@ -87,12 +87,13 @@ a normal installer with Start-menu and desktop shortcuts, FreeShape icons on `.f
 (double-click to open them) and FreeShape in "Open with" for STEP files. The first build takes 5–10 minutes;
 the app folder is large (about 1 GB, mostly the geometry engine), the installer much smaller.
 
-### Make a Mac app
+### Automatic builds on GitHub (Windows, Mac and Linux)
 
-You don't need a Mac: on GitHub, **Actions → Mac build → Run workflow** builds `FreeShape.app` on GitHub's Apple
-Silicon Macs, runs the tests, starts the app and takes a screenshot, and puts the `.dmg` on a *mac-test*
-pre-release. Publishing a release builds it again and attaches the `.dmg` to that release. On a Mac of your own,
-`bash packaging/mac/build_mac.sh` does the same (needs the requirements and PyInstaller installed).
+You don't need to build anything by hand: **publishing a release on GitHub** builds the Windows installer, the Mac
+`.dmg` (Apple Silicon) and the Linux AppImage on GitHub's own computers, checks each one starts, and attaches all
+three to the release (`.github/workflows/mac.yml`). **Actions → Build (Windows, Mac, Linux) → Run workflow** makes a
+test build instead, with the files, a screenshot of FreeShape running on the Mac and the logs on a private
+*Test builds* draft release (only you can see it). On a Mac of your own, `bash packaging/mac/build_mac.sh` builds the Mac app locally.
 
 ### Make a Linux AppImage
 
