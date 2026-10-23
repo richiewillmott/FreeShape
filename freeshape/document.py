@@ -122,10 +122,38 @@ class Document:
                 break
         self.rebuild()
 
+    @staticmethod
+    def _sketches_used(feat):
+        """Ids of the sketches a feature uses (its regions, profiles, path, hole positions …)."""
+        out = set()
+
+        def walk(x):
+            if isinstance(x, dict):
+                for k, v in x.items():
+                    if k == "sketch" and isinstance(v, str):
+                        out.add(v)
+                    else:
+                        walk(v)
+            elif isinstance(x, (list, tuple)):
+                for v in x:
+                    walk(v)
+        if feat.get("type") != "sketch":
+            walk(feat.get("params", {}))
+        return out
+
     def delete_features(self, ids):
         self.checkpoint()
         idx = [i for i, f in enumerate(self.features) if f["id"] in ids]
+        freed = set()
+        for f in self.features:
+            if f["id"] in ids:
+                freed |= self._sketches_used(f)
         self.features = [f for f in self.features if f["id"] not in ids]
+        # sketches were hidden when a feature used them: show them again once nothing uses them any more
+        still = set()
+        for f in self.features:
+            still |= self._sketches_used(f)
+        self.hidden_features -= (freed - still)
         if self.rollback is not None:
             self.rollback -= sum(1 for i in idx if i < self.rollback)
             if self.rollback >= len(self.features):

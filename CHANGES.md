@@ -6,6 +6,10 @@
 - Extrude, loft and other features that want a sketch's area: clicking the sketch's **line** now picks the
   area it outlines (the smallest one, so a hole's circle picks the hole), not just clicking inside it. If the
   sketch isn't a closed shape, the status bar says so instead of nothing happening.
+- Deleting a feature shows the sketches it used again (they're hidden while a feature uses them), unless another
+  feature still uses them. Undo puts it all back.
+- **Show / hide eyes** in the feature and parts lists, like Onshape: hover a sketch, plane or part and click the
+  eye at the end of the row. Hidden ones keep a faint crossed-out eye so you can see what's hidden.
 
 ### 1.8.1
 - Drawings of flat patterns: the **bend lines can be dimensioned** (to an edge, a corner or another bend line),

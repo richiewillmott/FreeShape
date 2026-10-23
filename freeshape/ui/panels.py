@@ -1,11 +1,11 @@
 """Left-hand panels: the feature list (with rollback bar) and the parts list."""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal, QSize
-from PySide6.QtGui import QColor, QIcon, QPixmap, QPainter, QFont, QBrush
+from PySide6.QtCore import Qt, Signal, QSize, QRect, QPointF
+from PySide6.QtGui import QColor, QIcon, QPixmap, QPainter, QFont, QBrush, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QTabBar, QWidget, QVBoxLayout, QLabel, QListWidget, QListWidgetItem, QLineEdit, QFrame, QAbstractItemView,
-    QMenu, QHBoxLayout, QToolButton,
+    QMenu, QHBoxLayout, QToolButton, QStyledItemDelegate,
 )
 
 from .icons import icon
@@ -13,6 +13,7 @@ from . import theme
 
 ROLE_KIND = Qt.UserRole
 ROLE_ID = Qt.UserRole + 1
+ROLE_EYE = Qt.UserRole + 2        # None (no eye), "shown" or "hidden"
 STD_PLANES = ("Top", "Front", "Right")
 
 
@@ -28,6 +29,89 @@ def swatch(color, size=14):
     return QIcon(pm)
 
 
+def eye_rect(row_rect):
+    """Where a row's show / hide eye sits: at its right-hand end, like Onshape."""
+    return QRect(row_rect.right() - 24, row_rect.center().y() - 8, 18, 16)
+
+
+def paint_eye(p, r, hidden, hover):
+    """An eye (shown) or a crossed-out eye (hidden)."""
+    p.save()
+    p.setRenderHint(QPainter.Antialiasing)
+    col = QColor("#1f6fd1") if hover else QColor("#5f6b7a")
+    if hidden and not hover:
+        col = QColor("#a3acb8")
+    pen = QPen(col, 1.6)
+    p.setPen(pen)
+    p.setBrush(Qt.NoBrush)
+    cx, cy, w, h = r.center().x() + 0.5, r.center().y() + 0.5, r.width() - 2, r.height() * 0.55
+    path = QPainterPath(QPointF(cx - w / 2, cy))
+    path.quadTo(QPointF(cx, cy - h), QPointF(cx + w / 2, cy))
+    path.quadTo(QPointF(cx, cy + h), QPointF(cx - w / 2, cy))
+    p.drawPath(path)
+    p.setBrush(col)
+    p.drawEllipse(QPointF(cx, cy), 2.4, 2.4)
+    if hidden:
+        p.drawLine(QPointF(cx - w / 2 + 1, cy + h - 0.5), QPointF(cx + w / 2 - 1, cy - h + 0.5))
+    p.restore()
+
+
+class _EyeDelegate(QStyledItemDelegate):
+    """Draws the row as usual, plus Onshape's eye at the right: on the row under the mouse, and always (faint and
+    crossed out) on rows that are hidden."""
+
+    def __init__(self, view):
+        super().__init__(view)
+        self.view = view
+
+    def paint(self, p, opt, index):
+        super().paint(p, opt, index)
+        state = index.data(ROLE_EYE)
+        if not state:
+            return
+        hover_row = getattr(self.view, "_eye_hover_row", -1) == index.row()
+        if hover_row or state == "hidden":
+            over = hover_row and getattr(self.view, "_eye_over", False)
+            paint_eye(p, eye_rect(opt.rect), state == "hidden", over)
+
+
+class _EyeMixin:
+    """Gives a list the show / hide eye: hovering a row shows it, clicking it toggles that item's visibility."""
+
+    def _eye_setup(self):
+        self._eye_hover_row = -1
+        self._eye_over = False
+        self.setMouseTracking(True)
+        self.setItemDelegate(_EyeDelegate(self))
+
+    def _eye_hit(self, pos):
+        it = self.itemAt(pos)
+        if it is None or not it.data(ROLE_EYE):
+            return None
+        return it if eye_rect(self.visualItemRect(it)).adjusted(-3, -3, 3, 3).contains(pos) else None
+
+    def _eye_track(self, pos):
+        it = self.itemAt(pos)
+        row = self.row(it) if it is not None else -1
+        over = self._eye_hit(pos) is not None
+        if row != self._eye_hover_row or over != self._eye_over:
+            self._eye_hover_row, self._eye_over = row, over
+            self.viewport().update()
+        if over:
+            it = self.itemAt(pos)
+            name = it.text()
+            self.viewport().setToolTip(("Show " if it.data(ROLE_EYE) == "hidden" else "Hide ") + name)
+            self.viewport().setCursor(Qt.PointingHandCursor)
+        else:
+            self.viewport().setToolTip("")
+            self.viewport().unsetCursor()
+
+    def _eye_leave(self):
+        if self._eye_hover_row != -1:
+            self._eye_hover_row, self._eye_over = -1, False
+            self.viewport().update()
+
+
 class RollbackBar(QFrame):
     def __init__(self):
         super().__init__()
@@ -37,7 +121,8 @@ class RollbackBar(QFrame):
         self.setCursor(Qt.SizeVerCursor)
 
 
-class FeatureList(QListWidget):
+class FeatureList(_EyeMixin, QListWidget):
+    eyeClicked = Signal(str)                 # "std_plane:Top" / "feature:F3"
     editRequested = Signal(str)
     contextRequested = Signal(str, object)   # kind+id, global pos
     orderChanged = Signal(list, int)         # feature ids in order, rollback index
@@ -58,6 +143,7 @@ class FeatureList(QListWidget):
         self.itemDoubleClicked.connect(self._dbl)
         self.itemClicked.connect(self._clicked)
         self._filter = ""
+        self._eye_setup()
 
     def populate(self, doc, editing_id=None):
         self.blockSignals(True)
@@ -73,6 +159,7 @@ class FeatureList(QListWidget):
             it.setData(ROLE_KIND, "std_plane")
             it.setData(ROLE_ID, name)
             it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            it.setData(ROLE_EYE, "hidden" if name in doc.hidden_features else "shown")
             if name in doc.hidden_features:
                 it.setForeground(QColor("#9aa3ae"))
             self.addItem(it)
@@ -86,6 +173,8 @@ class FeatureList(QListWidget):
             it.setData(ROLE_KIND, "feature")
             it.setData(ROLE_ID, f["id"])
             it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled)
+            if f["type"] in ("sketch", "plane"):
+                it.setData(ROLE_EYE, "hidden" if f["id"] in doc.hidden_features else "shown")
             err = doc.errors.get(f["id"])
             if err:
                 it.setForeground(QColor("#d93025"))
@@ -116,14 +205,30 @@ class FeatureList(QListWidget):
             self._hover_fid = fid
             self.featureHovered.emit(fid)
 
+    def mousePressEvent(self, e):
+        it = self._eye_hit(e.position().toPoint()) if e.button() == Qt.LeftButton else None
+        if it is not None:
+            self.eyeClicked.emit(f"{it.data(ROLE_KIND)}:{it.data(ROLE_ID)}")
+            e.accept()
+            return
+        super().mousePressEvent(e)
+
+    def mouseDoubleClickEvent(self, e):
+        if self._eye_hit(e.position().toPoint()) is not None:
+            e.accept()
+            return
+        super().mouseDoubleClickEvent(e)
+
     def mouseMoveEvent(self, e):
         super().mouseMoveEvent(e)
+        self._eye_track(e.position().toPoint())
         if self.itemAt(e.position().toPoint()) is None and self._hover_fid is not None:
             self._hover_fid = None
             self.featureHovered.emit(None)
 
     def leaveEvent(self, e):
         super().leaveEvent(e)
+        self._eye_leave()
         if self._hover_fid is not None:
             self._hover_fid = None
             self.featureHovered.emit(None)
@@ -175,7 +280,8 @@ class FeatureList(QListWidget):
         return [it.data(ROLE_ID) for it in self.selectedItems() if it.data(ROLE_KIND) == "feature"]
 
 
-class PartsList(QListWidget):
+class PartsList(_EyeMixin, QListWidget):
+    eyeClicked = Signal(str)                 # part id
     partClicked = Signal(str, bool)
     contextRequested = Signal(str, object)
 
@@ -186,6 +292,23 @@ class PartsList(QListWidget):
         self.setContextMenuPolicy(Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self._ctx)
         self.itemClicked.connect(lambda it: self.partClicked.emit(it.data(ROLE_ID), False))
+        self._eye_setup()
+
+    def mousePressEvent(self, e):
+        it = self._eye_hit(e.position().toPoint()) if e.button() == Qt.LeftButton else None
+        if it is not None:
+            self.eyeClicked.emit(it.data(ROLE_ID))
+            e.accept()
+            return
+        super().mousePressEvent(e)
+
+    def mouseMoveEvent(self, e):
+        super().mouseMoveEvent(e)
+        self._eye_track(e.position().toPoint())
+
+    def leaveEvent(self, e):
+        super().leaveEvent(e)
+        self._eye_leave()
 
     def populate(self, doc):
         self.blockSignals(True)
@@ -193,6 +316,7 @@ class PartsList(QListWidget):
         for p in doc.state.parts.values():
             it = QListWidgetItem(swatch(p.color), p.name)
             it.setData(ROLE_ID, p.id)
+            it.setData(ROLE_EYE, "hidden" if p.id in doc.hidden_parts else "shown")
             if p.id in doc.hidden_parts:
                 it.setForeground(QColor("#9aa3ae"))
                 it.setToolTip("Hidden")

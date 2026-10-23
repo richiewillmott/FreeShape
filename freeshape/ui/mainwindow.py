@@ -202,6 +202,8 @@ class MainWindow(QMainWindow):
         self._hl_hover = None
         self._hl_cache = {}
         lp.filter.textChanged.connect(lambda t: (lp.features.set_filter(t), self._populate_lists()))
+        lp.features.eyeClicked.connect(self._tree_eye)
+        lp.parts.eyeClicked.connect(lambda pid: self.doc.toggle_part_hidden(pid) if self.doc is not None else None)
         lp.parts.partClicked.connect(self._part_clicked)
         lp.parts.contextRequested.connect(self._part_context)
         self.viewport.selectionChanged.connect(self._selection_changed)
@@ -1479,6 +1481,12 @@ class MainWindow(QMainWindow):
         elif self.viewport.pick_handler is not None:
             # an open dialog (e.g. a new sketch waiting for its plane) takes the plane
             self.viewport.pick_handler(pick)
+
+    def _tree_eye(self, key):
+        """The eye in the feature list: show / hide a sketch or plane."""
+        _kind, fid = key.split(":", 1)
+        if self.doc is not None and hasattr(self.doc, "toggle_feature_hidden"):
+            self.doc.toggle_feature_hidden(fid)
 
     def _tree_context(self, key, gpos):
         kind, fid = key.split(":", 1)
