@@ -56,3 +56,15 @@ def test_deleting_a_feature_shows_its_sketches_again():
     assert f["id"] not in doc.hidden_features      # nothing uses it now: shown again
     doc.undo()
     assert f["id"] in doc.hidden_features          # undo puts it back as it was
+
+
+def test_too_big_fillet_is_an_error_not_a_broken_part():
+    """OpenCascade can 'succeed' with overlapping rounds; FreeShape must refuse and say what would fit."""
+    import math
+    import pytest
+    cyl = K.cylinder((0, 0, 0), (0, 0, 1), 50, 80)
+    ends = [e for e in K.edges(cyl) if abs(K.edge_info(e).get("len", 0) - 2 * math.pi * 50) < 1e-3]
+    ok = K.fillet(cyl, ends, 30)
+    assert K.is_valid(ok) and len(K.solids(ok)) == 1
+    with pytest.raises(K.KernelError, match="largest that works here is about 39"):
+        K.fillet(cyl, ends, 45)

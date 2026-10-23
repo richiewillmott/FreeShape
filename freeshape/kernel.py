@@ -595,21 +595,65 @@ def touches_or_intersects(a, b) -> bool:
         return False
 
 
+def _blend_ok(before, after):
+    """A fillet / chamfer result we can trust: a valid solid with no more pieces than before. OpenCascade sometimes
+    'succeeds' with a too-big radius and returns overlapping, self-intersecting rounds instead of failing."""
+    try:
+        if after is None or after.IsNull() or not is_valid(after):
+            return False
+        if len(solids(after)) > max(1, len(solids(before))):
+            return False
+        v = volume(after)
+        return v > 1e-9 and abs(v - volume(before)) < volume(before)
+    except Exception:
+        return False
+
+
+def _try_blend(make, shape, edge_list, size):
+    mk = make(shape)
+    for e in edge_list:
+        mk.Add(float(size), e)
+    try:
+        mk.Build()
+    except Exception:
+        return None
+    if not mk.IsDone():
+        return None
+    out = mk.Shape()
+    return out if _blend_ok(shape, out) else None
+
+
+def _largest_blend(make, shape, edge_list, size):
+    """The largest size below `size` that works (binary search), or None — for a helpful error message."""
+    if len(edge_list) > 24:
+        return None
+    lo, hi = 0.0, float(size)
+    for _ in range(9):
+        mid = (lo + hi) / 2
+        if _try_blend(make, shape, edge_list, mid) is not None:
+            lo = mid
+        else:
+            hi = mid
+    return lo if lo > 1e-6 else None
+
+
+def _nice_down(x):
+    """Round down to a tidy number for the message (e.g. 39.06 -> 39, 2.47 -> 2.4)."""
+    step = 1.0 if x >= 10 else 0.1 if x >= 1 else 0.01
+    return math.floor(x / step) * step
+
+
 def fillet(shape, edge_list, radius: float):
     if not edge_list:
         raise KernelError("Select edges to fillet")
     if radius <= 0:
         raise KernelError("Radius must be positive")
-    mk = BRepFilletAPI_MakeFillet(shape)
-    for e in edge_list:
-        mk.Add(float(radius), e)
-    try:
-        mk.Build()
-    except Exception as exc:
-        raise KernelError("Fillet failed — radius may be too large") from exc
-    if not mk.IsDone():
-        raise KernelError("Fillet failed — radius may be too large")
-    return mk.Shape()
+    out = _try_blend(BRepFilletAPI_MakeFillet, shape, edge_list, radius)
+    if out is None:
+        best = _largest_blend(BRepFilletAPI_MakeFillet, shape, edge_list, radius)
+        hint = f" — the largest that works here is about {_nice_down(best):g} mm" if best else ""
+        raise KernelError(f"Fillet radius too large for these edges (the rounds would overlap or not fit){hint}")
+    return out
 
 
 def chamfer(shape, edge_list, dist: float):
@@ -617,16 +661,12 @@ def chamfer(shape, edge_list, dist: float):
         raise KernelError("Select edges to chamfer")
     if dist <= 0:
         raise KernelError("Distance must be positive")
-    mk = BRepFilletAPI_MakeChamfer(shape)
-    for e in edge_list:
-        mk.Add(float(dist), e)
-    try:
-        mk.Build()
-    except Exception as exc:
-        raise KernelError("Chamfer failed — distance may be too large") from exc
-    if not mk.IsDone():
-        raise KernelError("Chamfer failed — distance may be too large")
-    return mk.Shape()
+    out = _try_blend(BRepFilletAPI_MakeChamfer, shape, edge_list, dist)
+    if out is None:
+        best = _largest_blend(BRepFilletAPI_MakeChamfer, shape, edge_list, dist)
+        hint = f" — the largest that works here is about {_nice_down(best):g} mm" if best else ""
+        raise KernelError(f"Chamfer too large for these edges (the cuts would overlap or not fit){hint}")
+    return out
 
 
 def shell(shape, remove_faces, thickness: float, outward=False):
