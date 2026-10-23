@@ -1,6 +1,6 @@
 # FreeShape
 
-**A free, offline, Onshape-style parametric CAD program for Windows (and Linux).** Sketch, model, assemble,
+**A free, offline, Onshape-style parametric CAD program for Windows, Mac and Linux.** Sketch, model, assemble,
 make 2D drawings and sheet-metal flat patterns — all on your own computer, no cloud and no account.
 
 Geometry is real B-rep solid modelling on the OpenCascade kernel (the same open-source kernel FreeCAD uses),
@@ -46,61 +46,22 @@ real parts.
 |---|---|---|---|
 | ![](docs/screenshot.png) | ![](docs/images/assembly.png) | ![](docs/images/drawing.png) | ![](docs/images/sheet_metal.png) |
 
-## Install and run
+## Download and install
 
-**The easy way:** download from the [latest release](https://github.com/richiewillmott/FreeShape/releases/latest):
+Get it from the [**latest release**](https://github.com/richiewillmott/FreeShape/releases/latest) — no Python or anything
+else needed:
 
-- **Windows:** `FreeShape-Setup-r8.exe` — run it and follow the installer (no Python needed). Windows SmartScreen
-  may warn the first time because the installer isn't code-signed yet: click **More info → Run anyway**.
-- **Linux:** `FreeShape-r8-x86_64.AppImage` — make it executable and run it (no Python needed):
+- **Windows:** `FreeShape-Setup-r8.exe` — run it and follow the installer (it also updates an older version).
+  Windows SmartScreen may warn the first time because the installer isn't code-signed yet: click
+  **More info → Run anyway**.
+- **Mac (Apple Silicon, M1 or newer):** `FreeShape-r8-mac-arm64.dmg` — open it and drag FreeShape into Applications.
+  It isn't signed by Apple yet, so the first time: right-click FreeShape in Applications → **Open** → **Open**.
+- **Linux:** `FreeShape-r8-x86_64.AppImage` — make it executable and run it:
   `chmod +x FreeShape-r8-x86_64.AppImage && ./FreeShape-r8-x86_64.AppImage`
-  (or right-click → Properties → "Allow executing as program", then double-click). Needs a 2024-or-newer
-  distro (Ubuntu 24.04+, Fedora 40+, Mint 22+, Debian 13+, Arch …). If it says FUSE is missing, run it with
-  `--appimage-extract-and-run`, or install `libfuse2` (Ubuntu: `sudo apt install libfuse2t64`).
+  (or right-click → Properties → "Allow executing as program", then double-click). If it says FUSE is missing, run
+  it with `--appimage-extract-and-run`, or install `libfuse2` (Ubuntu: `sudo apt install libfuse2t64`).
 
-- **Mac:** coming soon. GitHub builds a test version automatically (see *Make a Mac app* below); once it's been
-  tried on real Macs, `FreeShape-r8-mac-arm64.dmg` will be on the release. It isn't signed by Apple yet, so the first
-  time, right-click FreeShape in Applications → **Open** → **Open**.
-
-### From source
-
-You need Python 3.10–3.13 (64-bit) from https://www.python.org. On Windows, tick "Add python.exe to PATH" when installing.
-
-Then just start it — **the first run installs everything automatically**:
-
-- **Windows:** double-click `run_freeshape.bat`
-- **Mac / Linux:** run `./run_freeshape.sh` (or `python3 start.py`)
-
-The first start creates a private `.venv` folder next to the app and downloads OpenCascade, Qt and the
-other requirements (about 300 MB, a few minutes). After that it opens straight away. To open a file:
-`python start.py examples/bracket.fshape`. To reinstall from scratch, delete the `.venv` folder.
-
-If you'd rather manage it yourself: `pip install -r requirements.txt` then `python -m freeshape`.
-
-### Make a Windows program (.exe)
-
-Double-click **`build_exe.bat`** (Windows). It uses the same Python setup, then packs everything — OpenCascade,
-Qt, the logo and icons — into **`dist\FreeShape\FreeShape.exe`**, which runs on any 64-bit Windows PC without
-Python. It also makes **`dist\FreeShape-portable-r8.zip`** (unzip anywhere and run). If
-[Inno Setup](https://jrsoftware.org/isdl.php) (free) is installed it also builds **`dist\FreeShape-Setup-r8.exe`**,
-a normal installer with Start-menu and desktop shortcuts, FreeShape icons on `.fshape` / `.fasm` files
-(double-click to open them) and FreeShape in "Open with" for STEP files. The first build takes 5–10 minutes;
-the app folder is large (about 1 GB, mostly the geometry engine), the installer much smaller.
-
-### Automatic builds on GitHub (Windows, Mac and Linux)
-
-You don't need to build anything by hand: **publishing a release on GitHub** builds the Windows installer, the Mac
-`.dmg` (Apple Silicon) and the Linux AppImage on GitHub's own computers, checks each one starts, and attaches all
-three to the release (`.github/workflows/mac.yml`). **Actions → Build (Windows, Mac, Linux) → Run workflow** makes a
-test build instead, with the files, a screenshot of FreeShape running on the Mac and the logs on a private
-*Test builds* draft release (only you can see it). On a Mac of your own, `bash packaging/mac/build_mac.sh` builds the Mac app locally.
-
-### Make a Linux AppImage
-
-On Linux, with the requirements and PyInstaller installed (`python3 -m pip install -r requirements.txt pyinstaller`),
-run **`bash packaging/linux/build_appimage.sh`**. It packs FreeShape, checks the packed app with its self-test and
-makes **`dist/FreeShape-r8-x86_64.AppImage`** (about 200 MB). An AppImage runs on Linux systems at least as new as the
-one it was built on, so build on the oldest distro you want to support.
+Want to run it from the source code, change it, or build the installers yourself? See **[BUILDING.md](BUILDING.md)**.
 
 ## Home page
 
@@ -315,26 +276,6 @@ This is a capable hobby/prototyping tool, not a replacement for Onshape:
 - The sketch solver is a numerical least-squares solver: it is fine for typical sketches (tens of entities),
   not for huge ones.
 - Default units are millimetres.
-
-## Layout
-
-```
-freeshape/
-  kernel.py      OpenCascade wrappers: extrude, revolve, booleans, fillet, shell, regions, tessellation, STEP/STL
-  sketch.py      sketch model + constraint solver
-  sketch_ops.py  sketch fillet, offset, slot, mirror and patterns
-  expr.py        numbers with units, expressions and #variables
-  measure.py     measurements between faces, edges and parts
-  features.py    feature implementations and reference re-finding
-  document.py    feature list, rollback, cached regeneration, undo/redo, save/load
-  drawing.py     2D drawings: views (hidden-line removal), dimensions, title block, DXF export
-  sheetmetal.py  sheet metal: panels and bends, flanges, exact flat patterns, flat-pattern DXF
-  dxf.py         a small DXF (AutoCAD R12) writer
-  assembly.py    assemblies: instances, mate connectors, the mate solver, interference, BOM, .fasm files
-  ui/            Qt interface: viewport (OpenGL), sketcher, feature dialogs, panels, main window
-tests/               headless tests (python -m pytest tests)
-examples/            example documents (bracket, hinge assembly) and the scripts that build them
-```
 
 ## Licence
 
