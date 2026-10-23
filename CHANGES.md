@@ -2,7 +2,10 @@
 
 ## r8 — speed
 
-### 1.8.3 (next)
+### 1.8.3
+- **Linux: fixed the 3D view breaking** on Wayland desktops (most modern Ubuntu / Fedora / KDE setups): the
+  sketch and model vanished with "Attempt to retrieve context when no valid context". The OpenGL library picked
+  Wayland's EGL while the window used X11's GLX; it now always matches the window.
 - Extrude, Loft and other features that use sketch areas: **click a sketch in the feature list** to use it, like
   Onshape (also works for hidden sketches). For Loft, a sketch with several areas gives its outline (with any holes).
 - Fillet and chamfer: a radius / distance too big for the edges is now an error that says the largest size that

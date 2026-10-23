@@ -103,6 +103,10 @@ def main():
         launch(sys.argv[1:])
         return
     os.environ.setdefault("QT_ENABLE_HIGHDPI_SCALING", "1")
+    if sys.platform.startswith("linux") and not os.environ.get("QT_QPA_PLATFORM") and os.environ.get("DISPLAY"):
+        # on Wayland desktops use X11 (XWayland): FreeShape's OpenGL drawing goes through GLX there, which works
+        # on every Linux graphics driver
+        os.environ["QT_QPA_PLATFORM"] = "xcb"
     from PySide6.QtWidgets import QApplication
     from PySide6.QtGui import QSurfaceFormat
     fmt = QSurfaceFormat()
@@ -111,6 +115,11 @@ def main():
     QSurfaceFormat.setDefaultFormat(fmt)
     app = QApplication(sys.argv)
     app.setApplicationName("FreeShape")
+    if sys.platform.startswith("linux"):
+        # PyOpenGL must talk to the same OpenGL as Qt: GLX under X11, EGL under Wayland. Left to itself it picks EGL
+        # whenever the desktop session is Wayland — even when Qt runs on X11 — and then every drawing call fails
+        # with "Attempt to retrieve context when no valid context" (the 3D view goes blank).
+        os.environ.setdefault("PYOPENGL_PLATFORM", "egl" if app.platformName().startswith("wayland") else "glx")
     # macOS sends files double-clicked in Finder (or dropped on the Dock icon) as events, not arguments
     opener = _FileOpener(app)
     if sys.platform == "win32":

@@ -7,5 +7,5 @@ Public License as published by the Free Software Foundation, either version 3 of
 option) any later version. It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
 without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the LICENSE file.
 """
-__version__ = "1.8.2"
+__version__ = "1.8.3"
 __revision__ = "r8"
