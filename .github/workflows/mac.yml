@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   mac:
-    runs-on: macos-latest       # Apple Silicon (M1/M2/M3/M4)
+    runs-on: macos-latest      # GitHub's current Mac (Apple Silicon)
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
@@ -38,12 +38,15 @@ jobs:
         continue-on-error: true
         run: |
           export FREESHAPE_NO_RECOVERY=1
-          dist/FreeShape.app/Contents/MacOS/FreeShape examples/bracket.fshape > app-log.txt 2>&1 &
+          # FreeShape saves a picture of its own window after 30 s and quits
+          FREESHAPE_SNAPSHOT="$PWD/mac-screenshot.png" FREESHAPE_SNAPSHOT_DELAY=30000 \
+            dist/FreeShape.app/Contents/MacOS/FreeShape examples/bracket.fshape > app-log.txt 2>&1 &
           APP=$!
-          sleep 45
-          screencapture -x mac-screenshot.png || true
-          if kill -0 $APP 2>/dev/null; then echo "STILL RUNNING after 45 s (good)" >> app-log.txt; else echo "APP EXITED EARLY" >> app-log.txt; fi
+          for i in $(seq 1 90); do kill -0 $APP 2>/dev/null || break; sleep 1; done
+          if [ -f mac-screenshot.png ]; then echo "SNAPSHOT OK" >> app-log.txt; else echo "NO SNAPSHOT" >> app-log.txt; fi
           kill $APP 2>/dev/null || true
+          # a picture of the whole screen too, in case the window didn't appear (may be blank without permission)
+          screencapture -x mac-desktop.png || true
 
       - name: Keep the results
         uses: actions/upload-artifact@v4
@@ -52,6 +55,7 @@ jobs:
           path: |
             dist/*.dmg
             mac-screenshot.png
+            mac-desktop.png
             app-log.txt
             build-log.txt
             test-results.txt
@@ -63,7 +67,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release view mac-test >/dev/null 2>&1 || gh release create mac-test --prerelease --title "Mac test build" --notes "Automatic test build of the Mac version - not a real release."
-          files=$(ls dist/*.dmg mac-screenshot.png app-log.txt build-log.txt test-results.txt 2>/dev/null)
+          files=""
+          for f in dist/*.dmg mac-screenshot.png mac-desktop.png app-log.txt build-log.txt test-results.txt; do
+            [ -f "$f" ] && files="$files $f"
+          done
+          echo "Uploading:$files"
           gh release upload mac-test $files --clobber
 
       - name: Attach the .dmg to the release

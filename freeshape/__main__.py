@@ -31,6 +31,57 @@ def _self_test(out_path):
     return 0 if msg == "OK" else 1
 
 
+def _snapshot(w, path):
+    """Save the main window, including its OpenGL view, as a picture."""
+    try:
+        from PySide6.QtCore import QPoint
+        from PySide6.QtGui import QPainter
+        from PySide6.QtWidgets import QWidget
+        img = w.grab().toImage()
+        vp = getattr(w, "viewport", None)
+        if vp is not None and vp.isVisible():
+            p = QPainter(img)
+            p.drawImage(vp.mapTo(w, QPoint(0, 0)), vp.grabFramebuffer())
+            for ch in vp.findChildren(QWidget):
+                if ch.isVisible() and ch.parent() is vp:
+                    p.drawPixmap(vp.mapTo(w, ch.pos()), ch.grab())
+            p.end()
+        img.save(path)
+        print(f"[FreeShape] snapshot saved: {path}", flush=True)
+    except Exception as e:
+        print(f"[FreeShape] snapshot failed: {e}", flush=True)
+
+
+class _FileOpener:
+    """Opens files that macOS hands over with a FileOpen event (Finder double-click, Dock drop)."""
+
+    def __init__(self, app):
+        from PySide6.QtCore import QObject, QEvent
+
+        outer = self
+        self.pending, self.window = [], None
+
+        class _Filter(QObject):
+            def eventFilter(self, obj, ev):
+                if ev.type() == QEvent.FileOpen:
+                    path = ev.file()
+                    if path:
+                        if outer.window is not None:
+                            outer.window.open_file(path)
+                        else:
+                            outer.pending.append(path)
+                    return True
+                return False
+
+        self._filter = _Filter(app)
+        app.installEventFilter(self._filter)
+
+    def attach(self, window):
+        self.window = window
+        while self.pending:
+            window.open_file(self.pending.pop(0))
+
+
 def main():
     if len(sys.argv) >= 4 and sys.argv[1] == "--step-worker":
         # the packaged .exe runs its own STEP reader this way (there's no separate python.exe to use)
@@ -60,6 +111,8 @@ def main():
     QSurfaceFormat.setDefaultFormat(fmt)
     app = QApplication(sys.argv)
     app.setApplicationName("FreeShape")
+    # macOS sends files double-clicked in Finder (or dropped on the Dock icon) as events, not arguments
+    opener = _FileOpener(app)
     if sys.platform == "win32":
         # so Windows shows FreeShape's icon in the taskbar instead of Python's
         try:
@@ -82,10 +135,20 @@ def main():
     from .ui.mainwindow import app_icon
     app.setWindowIcon(app_icon())
     from .ui.mainwindow import MainWindow
-    path = sys.argv[1] if len(sys.argv) > 1 else None
+    path = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("-psn") else None
+    app.processEvents()             # collect a Finder "open this file" event that arrived during start-up
+    if path is None and opener.pending:
+        path = opener.pending.pop(0)
     step(f"Opening {os.path.basename(path)}…" if path else "Getting the workspace ready…", 0.8)
     w = MainWindow(path)
     w.show()
+    opener.attach(w)
+    snap = os.environ.get("FREESHAPE_SNAPSHOT")
+    if snap:
+        # for automatic tests (e.g. the Mac build on GitHub): save a picture of the window after a while, then quit
+        from PySide6.QtCore import QTimer
+        delay = int(os.environ.get("FREESHAPE_SNAPSHOT_DELAY", "20000"))
+        QTimer.singleShot(delay, lambda: (_snapshot(w, snap), app.quit()))
     if splash is not None:
         splash.finish(w)
     sys.exit(app.exec())

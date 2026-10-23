@@ -178,3 +178,42 @@ def test_no_relief_when_switched_off():
     e = edge(m, m.panels[0], lambda a, b: abs(a[0] - b[0]) < 1e-9 and a[0] > 50)
     shape, m = SM.add_flange(shape, m, m.panels[0], *e, length=20, angle=90)
     assert not m.reliefs
+
+
+def test_bend_lines_can_be_dimensioned_on_the_flat_drawing():
+    """A flat-pattern drawing's bend lines are edges the Dimension tool can pick, and dimensions to them follow
+    the model."""
+    from freeshape.drawing import DIRECTIONS, DrawingDoc
+    state = {}
+
+    def build(length):
+        shape, m = base()
+        e = edge(m, m.panels[0], lambda a, b: abs(a[1]) < 1e-9 and abs(b[1]) < 1e-9)
+        shape, m = SM.add_flange(shape, m, m.panels[0], *e, length=length, angle=90)
+        fp = SM.flat_pattern(shape, m)
+        state["bends"] = [[list(map(float, a)), list(map(float, b)), lab] for a, b, lab in fp.bend_lines]
+        return fp.solid()
+
+    g = DrawingDoc()
+    g.source = {"kind": "studio", "flat": True}
+    g.resolver = lambda src: (src.update(bends=state["bends"]), state["shape"])[1]
+    state["shape"] = build(25)
+    g.refresh(notify=False)
+    v = g.add_view(*DIRECTIONS["Top"], (150, 150), checkpoint=False)
+    (bA, bB), = g.bend_lines(v)
+    sd = g.snap_data(v)
+    assert any(np.allclose(a, g.to_paper(v, bA)) and np.allclose(b, g.to_paper(v, bB))
+               for a, b in zip(sd["LA"], sd["LB"]))
+    # distance from the outline's far edge (y = 60) to the bend line
+    uv = lambda q: {"kind": "uv", "uv": [float(q[0]), float(q[1])]}
+    far = [c for c in g.curves(v)["visible"] if c[0] == "line" and abs(c[1][1] - 60) < 1e-6
+           and abs(c[2][1] - 60) < 1e-6][0]
+    a = g.add_annot({"type": "pl", "view": v["id"], "a": uv(far[1]), "b": uv(bA), "b2": uv(bB),
+                     "pos": [150, 150]})
+    assert abs(g.dim_geometry(a)[2] - (60 - bA[1])) < 1e-9
+    # a longer flange moves the bend line in the flat: the dimension follows it
+    state["shape"] = build(35)
+    g.refresh(notify=False)
+    (bA2, _), = g.bend_lines(v)
+    assert not any(isinstance(a.get(k), dict) and a[k].get("lost") for k in ("a", "b", "b2"))
+    assert abs(g.dim_geometry(a)[2] - (60 - bA2[1])) < 1e-6

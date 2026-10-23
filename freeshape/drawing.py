@@ -512,12 +512,26 @@ class DrawingDoc:
         lo, hi = self._bbox()
         return float(np.linalg.norm(hi - lo)) or 1.0
 
+    def bend_lines(self, v):
+        """Bend lines of a flat-pattern drawing in this view's 2D coordinates (model units): [(uvA, uvB)].
+        Only where the sheet is seen face-on, like where they're drawn."""
+        bends = (self.source or {}).get("bends") if (self.source or {}).get("flat") else None
+        if not bends or self.shape is None:
+            return []
+        n = self._sheet_normal()
+        _r, _u, dv = self.axes(v)
+        if n is None or abs(abs(float(n @ dv)) - 1) > 1e-6:
+            return []
+        return [(np.asarray(self.project(v, p0), float), np.asarray(self.project(v, p1), float))
+                for p0, p1, _lab in bends]
+
     def snap_data(self, v):
         """Everything the Dimension tool hit-tests in a view, as arrays in paper coordinates (cached until the
         view or the model changes)."""
         cv = self.curves(v)
         key = (id(self.shape), id(cv), tuple(v["d"]), tuple(v["up"]), tuple(v["o"]), self.view_scale(v),
-               bool(v.get("hidden")), bool(v.get("tangent")))
+               bool(v.get("hidden")), bool(v.get("tangent")),
+               json.dumps((self.source or {}).get("bends")) if (self.source or {}).get("flat") else "")
         cache = self.__dict__.setdefault("_snapview", {})
         hit = cache.get(v["id"])
         if hit is not None and hit[0] == key:
@@ -548,6 +562,12 @@ class DrawingDoc:
                     if len(q) >= 2:
                         sa.extend(q[:-1])
                         sb.extend(q[1:])
+        # flat patterns: the bend lines can be dimensioned to, like edges
+        for A, B in self.bend_lines(v):
+            la.append(A)
+            lb.append(B)
+            sa.append(A)
+            sb.append(B)
         circ = [(P3, r, self.to_paper(v, uv), ci) for P3, _ax, r, uv, ci in self.circles_in_view(v)]
         data = {
             "items": pts,
@@ -632,6 +652,7 @@ class DrawingDoc:
         faces (a cylinder seen from the side) can be dimensioned from."""
         cv = self.curves(v)
         pts = [c[i] for key in ("visible", "hidden") for c in cv.get(key, []) if c[0] == "line" for i in (1, 2)]
+        pts += [q for A, B in self.bend_lines(v) for q in (A, B)]
         return np.array(pts, float) if pts else np.zeros((0, 2))
 
     def _reattach(self):

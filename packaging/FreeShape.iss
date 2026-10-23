@@ -1,7 +1,7 @@
 ; Inno Setup script for the FreeShape installer. build_exe.bat runs it automatically if Inno Setup is installed;
 ; or open it in Inno Setup and press Compile. Needs dist\FreeShape (from build_exe.bat) first.
 #define AppName "FreeShape"
-#define AppVersion "1.8.0"
+#define AppVersion "1.8.1"
 #define AppRevision "r8"
 
 [Setup]

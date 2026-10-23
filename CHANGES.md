@@ -1,8 +1,16 @@
 # FreeShape revisions
 
 ## r8 — speed
+
+### 1.8.1
+- Drawings of flat patterns: the **bend lines can be dimensioned** (to an edge, a corner or another bend line),
+  and those dimensions follow the model.
 - **Linux AppImage**: one file that runs on recent Linux distros without installing Python
   (`packaging/linux/build_appimage.sh` builds it).
+- **Mac** (in testing): `FreeShape.app` / `.dmg`, built and tested automatically on GitHub's Macs
+  (Actions → Mac build); files double-clicked in Finder open in FreeShape.
+
+### 1.8.0
 - Windows installer: fixed "The setup files are corrupted" (files are now compressed one by one).
 - **Drawings** stay smooth on big models:
   - The sheet is drawn once into a picture: panning just slides it, zooming stretches it and redraws sharply

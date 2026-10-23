@@ -49,9 +49,12 @@ except Exception:
 hidden = collect_submodules("freeshape")
 if sys.platform.startswith("linux"):
     hidden += ["OpenGL.platform.egl", "OpenGL.raw.GLX._types"]
+if sys.platform == "darwin":
+    hidden += ["OpenGL.platform.darwin"]
 hidden = hidden + ["ezdxf", "ezdxf.render.dimension", "OCP", "OCP.OCP", "PySide6.QtSvg", "PySide6.QtOpenGL",
                                             "PySide6.QtOpenGLWidgets", "OpenGL.GL", "OpenGL.GL.shaders",
-                                            "OpenGL.platform.win32" if sys.platform == "win32" else "OpenGL.platform.glx",
+                                            "OpenGL.platform.win32" if sys.platform == "win32" else
+                                            "OpenGL.platform.darwin" if sys.platform == "darwin" else "OpenGL.platform.glx",
                                             "OpenGL.arrays.numpymodule",
                                             "OpenGL.arrays.ctypesarrays", "OpenGL.arrays.numbers"]
 
@@ -81,3 +84,32 @@ exe = EXE(
     upx=False,
 )
 coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name="FreeShape")
+
+if sys.platform == "darwin":
+    # a normal Mac app: dist/FreeShape.app (packaging/mac/build_mac.sh makes the icon and the .dmg)
+    import freeshape
+    icns = os.path.join(ROOT, "build", "FreeShape.icns")
+    doc = lambda name, exts, role="Editor", rank="Owner": {
+        "CFBundleTypeName": name, "CFBundleTypeExtensions": exts, "CFBundleTypeRole": role,
+        "LSHandlerRank": rank, "CFBundleTypeIconFile": "FreeShape.icns"}
+    app = BUNDLE(
+        coll,
+        name="FreeShape.app",
+        icon=icns if os.path.exists(icns) else None,
+        bundle_identifier="io.github.richiewillmott.freeshape",
+        info_plist={
+            "CFBundleName": "FreeShape",
+            "CFBundleDisplayName": "FreeShape",
+            "CFBundleShortVersionString": freeshape.__version__,
+            "CFBundleVersion": freeshape.__version__,
+            "NSHighResolutionCapable": True,
+            "LSMinimumSystemVersion": "11.0",
+            "NSHumanReadableCopyright": "GPL-3.0-or-later",
+            "CFBundleDocumentTypes": [
+                doc("FreeShape Part Studio", ["fshape"]),
+                doc("FreeShape Assembly", ["fasm"]),
+                doc("FreeShape Drawing", ["fdwg"]),
+                doc("STEP model", ["step", "stp"], "Viewer", "Alternate"),
+            ],
+        },
+    )

@@ -58,6 +58,10 @@ real parts.
   distro (Ubuntu 24.04+, Fedora 40+, Mint 22+, Debian 13+, Arch …). If it says FUSE is missing, run it with
   `--appimage-extract-and-run`, or install `libfuse2` (Ubuntu: `sudo apt install libfuse2t64`).
 
+- **Mac:** coming soon. GitHub builds a test version automatically (see *Make a Mac app* below); once it's been
+  tried on real Macs, `FreeShape-r8-mac-arm64.dmg` will be on the release. It isn't signed by Apple yet, so the first
+  time, right-click FreeShape in Applications → **Open** → **Open**.
+
 ### From source
 
 You need Python 3.10–3.13 (64-bit) from https://www.python.org. On Windows, tick "Add python.exe to PATH" when installing.
@@ -82,6 +86,13 @@ Python. It also makes **`dist\FreeShape-portable-r8.zip`** (unzip anywhere and r
 a normal installer with Start-menu and desktop shortcuts, FreeShape icons on `.fshape` / `.fasm` files
 (double-click to open them) and FreeShape in "Open with" for STEP files. The first build takes 5–10 minutes;
 the app folder is large (about 1 GB, mostly the geometry engine), the installer much smaller.
+
+### Make a Mac app
+
+You don't need a Mac: on GitHub, **Actions → Mac build → Run workflow** builds `FreeShape.app` on GitHub's Apple
+Silicon Macs, runs the tests, starts the app and takes a screenshot, and puts the `.dmg` on a *mac-test*
+pre-release. Publishing a release builds it again and attaches the `.dmg` to that release. On a Mac of your own,
+`bash packaging/mac/build_mac.sh` does the same (needs the requirements and PyInstaller installed).
 
 ### Make a Linux AppImage
 
