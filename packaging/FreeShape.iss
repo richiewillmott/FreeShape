@@ -1,14 +1,13 @@
 ; Inno Setup script for the FreeShape installer. build_exe.bat runs it automatically if Inno Setup is installed;
 ; or open it in Inno Setup and press Compile. Needs dist\FreeShape (from build_exe.bat) first.
 #define AppName "FreeShape"
-#define AppVersion "1.8.3"
-#define AppRevision "r8"
+#define AppVersion "1.8.4"
 
 [Setup]
 AppId={{6F3B2C1D-9A4E-4C7B-8E21-5D0F3A9B7C42}
 AppName={#AppName}
-AppVersion={#AppVersion} ({#AppRevision})
-AppVerName={#AppName} {#AppRevision}
+AppVersion={#AppVersion}
+AppVerName={#AppName} {#AppVersion}
 AppPublisher=FreeShape
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
@@ -24,7 +23,7 @@ SolidCompression=no
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir=..\dist
-OutputBaseFilename=FreeShape-Setup-{#AppRevision}
+OutputBaseFilename=FreeShape-Setup-{#AppVersion}
 ; install for everyone, or just for you (no admin needed)
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog

@@ -256,11 +256,12 @@ class Document:
         self._apply_overrides(self.state)
         self.notify()
 
-    def preview(self, feat, index):
-        """Model state with `feat` inserted (or replacing its old self) at index."""
+    def preview(self, feat, index, extra=()):
+        """Model state with `feat` inserted (or replacing its old self) at index. `extra` are not-yet-saved
+        features (e.g. a plane made for a new sketch) that go in just before it."""
         feats = [f for f in self.features if f["id"] != feat["id"]]
         index = min(index, len(feats))
-        feats = feats[:index] + [feat]
+        feats = feats[:index] + list(extra) + [feat]
         errors = {}
         st = self.compute(feats, None, errors).copy()
         self._apply_overrides(st)

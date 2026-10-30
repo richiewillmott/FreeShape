@@ -39,6 +39,8 @@ real parts.
   dimensions that follow the model, notes, title block; export **DXF with real AutoCAD dimensions** and PDF.
 - **Sheet metal** — flanges, exact flat patterns (K-factor), automatic corner reliefs, flat-pattern DXF with
   bend lines.
+- **Fast to drive** — a **Search tools** box (Ctrl+Space) finds any tool by name, box selection with a Select
+  filter, Space to deselect, arrow keys to turn the view, and smart sketch snapping (see *What's new in 1.8.4*).
 - **Feels like Onshape** — view cube, home page with recent projects, mouse controls, dark / light theme,
   autosave and crash recovery, a Windows installer with file icons.
 
@@ -46,18 +48,39 @@ real parts.
 |---|---|---|---|
 | ![](docs/screenshot.png) | ![](docs/images/assembly.png) | ![](docs/images/drawing.png) | ![](docs/images/sheet_metal.png) |
 
+## What's new in 1.8.4
+
+- **Box selection** in the 3D view and the sketcher: drag left-to-right (blue, solid) to select what is fully
+  inside, right-to-left (green, dashed) to also select what the box touches. Shift / Ctrl adds to the selection.
+- **Select menu** in the top bar: switch vertices, edges, faces, solids, sketches and planes on or off for clicks
+  and box selection. Vertices can now be selected too.
+- **Search tools** (`Ctrl+Space`, `Alt+C`, or the box in the top bar): type to filter tools and commands, Up / Down
+  to choose, `Enter` starts the tool, `Esc` closes it. Words like "round" find Fillet.
+- **Space bar** deselects everything; the **arrow keys** turn the view 15° per tap (from the Right view, three taps
+  give the edge between Right and Front, six give Front).
+- **Sketch snapping and inference**: hover a point or a line's midpoint, then move level or plumb with it and a
+  yellow dotted guide snaps the new point in line (adding a horizontal / vertical constraint). Lines also snap
+  **tangent** to circles and arcs. A **3-point arc keeps its three points**.
+- **Plane types**: Offset, Plane + point, Line + angle, Point + edge normal, Three points, Mid plane, Curve + point
+  and Tangent. *Automatic* picks the type from what you have selected, and **Sketch** does the same.
+- **Delete face** (heal, cap or leave the void open), **Move face** and **Offset surface**, for cleaning up and
+  editing imported STEP parts.
+- **Resizable feature windows** — drag the edge or corner of a feature or sketch panel.
+
+See [CHANGES.md](CHANGES.md) for the full history.
+
 ## Download and install
 
 Get it from the [**latest release**](https://github.com/richiewillmott/FreeShape/releases/latest) — no Python or anything
 else needed:
 
-- **Windows:** `FreeShape-Setup-r8.exe` — run it and follow the installer (it also updates an older version).
+- **Windows:** `FreeShape-Setup-1.8.4.exe` — run it and follow the installer (it also updates an older version).
   Windows SmartScreen may warn the first time because the installer isn't code-signed yet: click
   **More info → Run anyway**.
-- **Mac (Apple Silicon, M1 or newer):** `FreeShape-r8-mac-arm64.dmg` — open it and drag FreeShape into Applications.
+- **Mac (Apple Silicon, M1 or newer):** `FreeShape-1.8.4-mac-arm64.dmg` — open it and drag FreeShape into Applications.
   It isn't signed by Apple yet, so the first time: right-click FreeShape in Applications → **Open** → **Open**.
-- **Linux:** `FreeShape-r8-x86_64.AppImage` — make it executable and run it:
-  `chmod +x FreeShape-r8-x86_64.AppImage && ./FreeShape-r8-x86_64.AppImage`
+- **Linux:** `FreeShape-1.8.4-x86_64.AppImage` — make it executable and run it:
+  `chmod +x FreeShape-1.8.4-x86_64.AppImage && ./FreeShape-1.8.4-x86_64.AppImage`
   (or right-click → Properties → "Allow executing as program", then double-click). If it says FUSE is missing, run
   it with `--appimage-extract-and-run`, or install `libfuse2` (Ubuntu: `sudo apt install libfuse2t64`).
 
@@ -74,11 +97,13 @@ The **⌂ Home** button at the top goes back to it (and back to your work again)
 
 **Navigation** — right-drag to rotate (around the point under the cursor, or the centre of the model when you
 start over empty space — a small blue marker shows the centre of rotation; View → *Rotate around* can make it
-always the model centre or always the origin), middle-drag or Ctrl+right-drag to pan, wheel to zoom at the cursor. The view cube works like Onshape's: click a face, edge or corner for that view, the arrows turn the view 90°, the curved arrows roll it, and ▾ lists the named views. `F` zooms to fit,
+always the model centre or always the origin), middle-drag or Ctrl+right-drag to pan, wheel to zoom at the cursor. The arrow keys turn the view 15° at a time. The view cube works like Onshape's: click a face, edge or corner for that view, the arrows turn the view 90°, the curved arrows roll it, and ▾ lists the named views. `F` zooms to fit,
 `Shift+1…7` = Front, Back, Left, Right, Top, Bottom, Isometric.
 
 **Selecting** — hover pre-highlights faces, edges, sketch regions and planes; click to add to the
-selection, click empty space to clear. With one or two things selected, the bottom-right shows area,
+selection, click empty space (or press `Space`) to clear. Drag a box on empty space to box-select (left-to-right:
+only what is fully inside; right-to-left: also what it touches), and use the **Select** menu in the top bar to
+choose what can be picked (vertices, edges, faces, solids, sketches, planes). `Ctrl+Space` opens **Search tools**. With one or two things selected, the bottom-right shows area,
 length, radius or the minimum distance between them.
 
 **Sketching** — select a plane or flat face (or not — the dialog will ask) and press **Sketch** (`Shift+S`).
@@ -86,7 +111,7 @@ The view turns to face the sketch plane.
 
 | Tool | Key | Notes |
 |---|---|---|
-| Line | `L` | click-click; lines chain until `Esc` or you click an existing point |
+| Line | `L` | click-click; lines chain until `Esc` or you click an existing point. Hover a point or midpoint then move level / plumb for a yellow guide; start from an arc's end or hover a circle to snap tangent |
 | Corner / centre rectangle | `R` | adds horizontal/vertical constraints automatically |
 | Circle | `C` | centre, then radius |
 | 3-point arc / centre-point arc | `A` | |
@@ -136,7 +161,10 @@ Things selected before opening a feature are pre-filled. Extrude and Plane show 
 - **Draft** — tilt faces by an angle from a neutral plane, for moulded or 3D-printed parts.
 - **Split** — cut parts in two with a plane or flat face; keep both sides or one.
 - **Move** — move and/or rotate parts (or imports), optionally keeping the original as a copy.
-- **Plane** — offset from a plane or planar face.
+- **Plane** — offset, plane + point, line + angle, point + edge normal, three points, mid plane, curve + point or
+  tangent; *Automatic* picks the type from your selection.
+- **Delete face / Move face / Offset surface** — remove fillets, chamfers, bosses and holes from imported parts
+  (heal, cap or leave open), push or pull flat faces, or make a surface a set distance from faces.
 - **Mirror**, **Linear pattern**, **Circular pattern** — of parts.
 - **Boolean** — union, subtract, intersect parts.
 - **Import STEP** and **Export STEP / STL** (whole studio or one part from the Parts list).

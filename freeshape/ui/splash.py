@@ -22,8 +22,8 @@ ASSETS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))
 
 def _version():
     try:
-        from .. import __revision__, __version__
-        return f"{__version__}  ·  {__revision__}"
+        from .. import __version__
+        return f"{__version__}"
     except Exception:
         return ""
 

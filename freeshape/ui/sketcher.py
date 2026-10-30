@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QLineEdit
 from .. import kernel as K
 from ..sketch import Sketch, ORIGIN, DIMENSIONS, CONSTRAINT_LABELS
 from . import theme
+from . import boxsel
 from .icons import CONSTRAINT_GLYPHS
 from .numparse import parse_number, fmt, has_vars
 from .. import sketch_ops as OPS
@@ -76,9 +77,12 @@ class Sketcher:
         self._glyph_rects = []
         self._editor: QLineEdit | None = None
         self._drag = None
+        self._box_start = None      # rubber-band selection: press point (screen) while dragging on empty space
+        self._box = None
         self.cursor_uv = None
         self.snap_info = None
         self.infer = None
+        self.infer_tan = None
         self.sk.solve()
 
     # ================================================================== state
@@ -90,6 +94,10 @@ class Sketcher:
         self.cons_picks = []
         self.dim_first = None
         self.dim_second = None
+        self._infer_src = []    # points / line midpoints hovered recently (alignment sources)
+        self._first_cons = []   # inference constraints of the first click of a two-click tool
+        self.infer_hits = []
+        self._infer_cons = []
 
     def set_tool(self, tool):
         self._end_editor()
@@ -202,32 +210,162 @@ class Sketcher:
         Also sets self.infer to 'H'/'V' when the rubber band is near horizontal/vertical."""
         uv = self.uv(vp, x, y)
         self.infer = None
+        self.infer_hits = []        # [(source uv, "H"/"V")] drawn as yellow dotted guides
+        self._infer_cons = []       # [("horizontal"/"vertical", source ref)] applied to the new point on click
+        self.infer_tan = None       # circle / arc the line being drawn is tangent to
         if uv is None:
             return None, None
         h = self.hit(vp, x, y, kinds=("point",), exclude=exclude)
         if h:
+            self._acquire_source(h[1], anchor_uv)
             return np.array(self.sk.points[h[1]]), h
+        mid = self._hit_midpoint(vp, x, y, exclude)
+        if mid:
+            self._acquire_source(("mid", mid[0]), anchor_uv)
+            return mid[1], ("mid", mid[0])
+        if self.tool == "line" and anchor_uv is not None:
+            tan = self._tangent_infer(vp, x, y, uv, np.asarray(anchor_uv, float), exclude)
+            if tan:
+                t_uv, eid, kind = tan
+                self.infer_tan = eid
+                self.infer_hits.append((np.asarray(anchor_uv, float), "T"))
+                return t_uv, (("tan", eid) if kind == "on" else None)
+        # candidate alignment sources: the line's start point first, then points/midpoints hovered earlier
+        cands = []
         if anchor_uv is not None:
-            sa = self.scr(vp, anchor_uv)
-            dx, dy = x - sa[0], y - sa[1]
-            # inference in screen space, but apply in sketch space
-            su = self.scr(vp, anchor_uv + np.array([1.0, 0])) - sa
-            sv = self.scr(vp, anchor_uv + np.array([0, 1.0])) - sa
-            m = np.array([dx, dy])
-            if np.linalg.norm(m) > 12:
-                ang_u = abs(_cross2(su / np.linalg.norm(su), m / np.linalg.norm(m)))
-                ang_v = abs(_cross2(sv / np.linalg.norm(sv), m / np.linalg.norm(m)))
-                if ang_u < 0.06:
-                    uv = np.array([uv[0], anchor_uv[1]])
-                    self.infer = "H"
-                elif ang_v < 0.06:
-                    uv = np.array([anchor_uv[0], uv[1]])
-                    self.infer = "V"
+            cands.append((None, np.asarray(anchor_uv, float)))
+        for ref in self._infer_src:
+            s_uv = self._src_uv(ref)
+            if s_uv is not None:
+                cands.append((ref, s_uv))
+        pick = {}
+        for ref, s_uv in cands:
+            axis = self._axis_hit(vp, s_uv, x, y)
+            if axis and axis not in pick:
+                pick[axis] = (ref, s_uv)
+        if pick:
+            u, v = uv
+            if "H" in pick:
+                v = pick["H"][1][1]
+            if "V" in pick:
+                u = pick["V"][1][0]
+            uv = np.array([u, v])
+            for axis, (ref, s_uv) in pick.items():
+                self.infer_hits.append((s_uv, axis))
+                if ref is None:
+                    self.infer = axis       # the line being drawn gets its own horizontal/vertical constraint
+                else:
+                    self._infer_cons.append(("horizontal" if axis == "H" else "vertical", ref))
         h = self.hit(vp, x, y, kinds=("entity",), exclude=exclude)
-        if h and self.sk.entities[h[1]]["type"] != "point" and self.infer is None:
+        if h and self.sk.entities[h[1]]["type"] != "point" and not pick:
             uv = self._project_on(h[1], uv)
             return uv, ("on", h[1])
         return uv, None
+
+    def _tangent_infer(self, vp, x, y, uv, A, exclude=()):
+        """Tangent inference for the line being drawn from A: (uv, circle/arc id, "dir"|"on") or None.
+        - starting at an arc's end, moving along the arc's tangent there snaps onto that tangent;
+        - hovering near the point of a circle / arc where a line from A would touch it snaps to that point."""
+        sk = self.sk
+        sa = self.scr(vp, A)
+        m = np.array([x - sa[0], y - sa[1]])
+        nm = np.linalg.norm(m)
+        start = self.chain_anchor if isinstance(self.chain_anchor, str) else None
+        if start in sk.points and nm > 12:
+            for eid, e in sk.entities.items():
+                if e["type"] != "arc" or eid in exclude or start not in (e["p1"], e["p2"]):
+                    continue
+                rv = A - sk.P(e["c"])
+                n = np.linalg.norm(rv)
+                if n < 1e-9:
+                    continue
+                t = np.array([-rv[1], rv[0]]) / n
+                st = self.scr(vp, A + t) - sa
+                if np.linalg.norm(st) > 1e-9 and abs(_cross2(st / np.linalg.norm(st), m / nm)) < 0.05:
+                    return A + t * float((uv - A) @ t), eid, "dir"
+        best = (18.0, None)
+        for eid, e in sk.entities.items():
+            if e["type"] not in ("circle", "arc") or eid in exclude:
+                continue
+            c = sk.P(e["c"])
+            r = sk.radius(eid)
+            d = np.linalg.norm(A - c)
+            if d <= r * 1.001 or r < 1e-9:
+                continue
+            base = math.atan2(A[1] - c[1], A[0] - c[0])
+            ang = math.acos(r / d)
+            for sgn in (1, -1):
+                T = c + r * np.array([math.cos(base + sgn * ang), math.sin(base + sgn * ang)])
+                sT = self.scr(vp, T)
+                dist = math.hypot(sT[0] - x, sT[1] - y)
+                if dist < best[0]:
+                    best = (dist, (T, eid))
+        if best[1]:
+            return best[1][0], best[1][1], "on"
+        return None
+
+    # ---- inference sources: points / line midpoints the cursor has recently hovered over
+    def _acquire_source(self, ref, anchor_uv=None):
+        if anchor_uv is not None and not isinstance(ref, tuple) \
+                and np.linalg.norm(self.sk.P(ref) - np.asarray(anchor_uv, float)) < 1e-9:
+            return          # the line's own start point is already an inference source
+        if ref in self._infer_src:
+            self._infer_src.remove(ref)
+        self._infer_src.append(ref)
+        del self._infer_src[:-3]
+
+    def _src_uv(self, ref):
+        sk = self.sk
+        if isinstance(ref, tuple):
+            e = sk.entities.get(ref[1])
+            if not e or e["type"] != "line":
+                return None
+            return (sk.P(e["p1"]) + sk.P(e["p2"])) / 2
+        return sk.P(ref) if ref in sk.points else None
+
+    def _axis_hit(self, vp, src_uv, x, y):
+        """'H' / 'V' when the cursor is (on screen) nearly horizontal / vertical from src_uv."""
+        sa = self.scr(vp, src_uv)
+        m = np.array([x - sa[0], y - sa[1]])
+        nm = np.linalg.norm(m)
+        if nm <= 12:
+            return None
+        su = self.scr(vp, src_uv + np.array([1.0, 0])) - sa
+        sv = self.scr(vp, src_uv + np.array([0, 1.0])) - sa
+        if abs(_cross2(su / np.linalg.norm(su), m / nm)) < 0.06:
+            return "H"
+        if abs(_cross2(sv / np.linalg.norm(sv), m / nm)) < 0.06:
+            return "V"
+        return None
+
+    def _hit_midpoint(self, vp, x, y, exclude=()):
+        best = (8.0, None)
+        for eid, e in self.sk.entities.items():
+            if eid in exclude or e["type"] != "line":
+                continue
+            m = (self.sk.P(e["p1"]) + self.sk.P(e["p2"])) / 2
+            s = self.scr(vp, m)
+            d = math.hypot(s[0] - x, s[1] - y)
+            if d < best[0]:
+                best = (d, (eid, m))
+        return best[1]
+
+    def _source_point(self, ref):
+        """The sketch point behind an inference source; a line midpoint gets a construction point."""
+        sk = self.sk
+        if isinstance(ref, tuple):
+            eid = ref[1]
+            e = sk.entities.get(eid)
+            if not e:
+                return None
+            for c in sk.constraints:
+                if c["type"] == "midpoint" and c["refs"][1] == eid:
+                    return c["refs"][0]
+            m = sk.add_point(*((sk.P(e["p1"]) + sk.P(e["p2"])) / 2))
+            sk.add_constraint("midpoint", m, eid)
+            sk.add_point_entity(m)
+            return m
+        return ref if ref in sk.points else None
 
     def _project_on(self, eid, uv):
         e = self.sk.entities[eid]
@@ -244,13 +382,20 @@ class Sketcher:
             return c + (v / n * r if n > 1e-12 else np.array([r, 0]))
         return uv
 
-    def _point_at(self, uv, snap):
-        """Create (or reuse) a point for a click; returns pid."""
+    def _point_at(self, uv, snap, cons=None):
+        """Create (or reuse) a point for a click; returns pid. `cons` are the horizontal/vertical
+        inferences (from snap) to apply to a newly created point."""
         if snap and snap[0] == "point":
             return snap[1]
         pid = self.sk.add_point(*uv)
-        if snap and snap[0] == "on":
+        if snap and snap[0] in ("on", "tan"):
             self.sk.add_constraint("point_on", pid, snap[1])
+        elif snap and snap[0] == "mid":
+            self.sk.add_constraint("midpoint", pid, snap[1])
+        for ctype, ref in (cons or []):
+            src = self._source_point(ref)
+            if src and src != pid:
+                self.sk.add_constraint(ctype, src, pid)
         return pid
 
     # ================================================================== mouse
@@ -267,6 +412,8 @@ class Sketcher:
                 if not (mods & (Qt.ShiftModifier | Qt.ControlModifier)):
                     self.selection = []
                 self._drag = None
+                self._box_start = (x, y)
+                self._box = None
                 return True
             hid = h[1]
             if hid not in self.selection:
@@ -308,6 +455,10 @@ class Sketcher:
     def mouse_drag(self, vp, x, y, e):
         if self.tool in DRAW_TOOLS:
             self.mouse_move(vp, x, y, e)
+            return
+        if self._box_start is not None and self.tool == "select":
+            if self._box is not None or abs(x - self._box_start[0]) + abs(y - self._box_start[1]) > 3:
+                self._box = (self._box_start[0], self._box_start[1], x, y)
             return
         d = self._drag
         if not d or self.tool != "select":
@@ -360,7 +511,41 @@ class Sketcher:
             sk.solve()
         self.on_change(False)
 
+    def _box_pick(self, vp, box, additive):
+        """Select the curves and loose points inside a dragged box: left-to-right takes what is fully enclosed,
+        right-to-left also what the box touches."""
+        rect = boxsel.norm_rect(*box)
+        crossing = boxsel.is_crossing(*box)
+        sk = self.sk
+        ids, used = [], set()
+        for eid, ent in sk.entities.items():
+            if ent["type"] == "point":
+                continue
+            used.update(sk.entity_points(eid))
+            pts = sk.polyline(eid, 64)
+            if len(pts) < 2:
+                continue
+            S = np.array([self.scr(vp, q) for q in pts])
+            if boxsel.polyline_selected(S, rect, crossing):
+                ids.append(eid)
+        for pid, q in sk.points.items():
+            if pid in used:
+                continue
+            sx, sy = self.scr(vp, q)
+            if rect[0] <= sx <= rect[2] and rect[1] <= sy <= rect[3]:
+                ids.append(pid)
+        if not additive:
+            self.selection = []
+        for i in ids:
+            if i not in self.selection:
+                self.selection.append(i)
+
     def mouse_release(self, vp, x, y, e, moved):
+        if self._box_start is not None:
+            box, self._box, self._box_start = self._box, None, None
+            if box is not None and self.tool == "select":
+                self._box_pick(vp, box, bool(e.modifiers() & (Qt.ShiftModifier | Qt.ControlModifier)))
+            return
         d = self._drag
         self._drag = None
         if self.tool == "select" and d:
@@ -438,6 +623,10 @@ class Sketcher:
             return True
         if k in (Qt.Key_Delete, Qt.Key_Backspace):
             self.delete_selection()
+            return True
+        if k == Qt.Key_Space and not e.modifiers():
+            self.selection = []                  # Space deselects everything
+            self.cons_picks = []
             return True
         if e.modifiers() & Qt.ControlModifier:
             if k == Qt.Key_Z:
@@ -588,18 +777,20 @@ class Sketcher:
         uv, snap = self.snap(vp, x, y, anchor)
         if uv is None:
             return True
+        icons = list(self._infer_cons)      # alignment inferences for the point placed by this click
+        self._infer_src = []
         sk = self.sk
         cons = self.construction
         if t == "point":
             self.push_undo()
-            pid = self._point_at(uv, snap)
+            pid = self._point_at(uv, snap, icons)
             sk.add_point_entity(pid)
             self.changed(True)
             return True
         if t == "line":
             if self.chain_anchor is None:
                 self.push_undo()
-                self.chain_anchor = self._point_at(uv, snap)
+                self.chain_anchor = self._point_at(uv, snap, icons)
                 self._pending_line_start_new = snap is None
                 self.temp = ["started"]
                 return True
@@ -608,10 +799,12 @@ class Sketcher:
                 return True
             if not self.temp:
                 self.push_undo()
-            b = self._point_at(uv, snap)
+            b = self._point_at(uv, snap, icons)
             if a == b:
                 return True
             lid = sk.add_line(a, b, cons)
+            if self.infer_tan and self.infer_tan in sk.entities:
+                sk.add_constraint("tangent", lid, self.infer_tan)
             if self.infer == "H":
                 sk.add_constraint("horizontal", lid)
             elif self.infer == "V":
@@ -632,21 +825,22 @@ class Sketcher:
         if t in ("rect", "center_rect"):
             if not self.temp:
                 self.temp = [(uv, snap)]
+                self._first_cons = icons
                 return True
             (u0, s0) = self.temp[0]
             if np.linalg.norm(uv - u0) < 1e-9:
                 return True
             self.push_undo()
             if t == "rect":
-                a = self._point_at(u0, s0)
-                c = self._point_at(uv, snap)
+                a = self._point_at(u0, s0, self._first_cons)
+                c = self._point_at(uv, snap, icons)
                 b = sk.add_point(uv[0], u0[1])
                 d = sk.add_point(u0[0], uv[1])
             else:
-                ctr = self._point_at(u0, s0)
+                ctr = self._point_at(u0, s0, self._first_cons)
                 half = uv - u0
                 a = sk.add_point(*(u0 - half))
-                c = self._point_at(uv, snap)
+                c = self._point_at(uv, snap, icons)
                 b = sk.add_point(u0[0] + half[0], u0[1] - half[1])
                 d = sk.add_point(u0[0] - half[0], u0[1] + half[1])
             l1 = sk.add_line(a, b, cons)
@@ -673,13 +867,14 @@ class Sketcher:
         if t == "circle":
             if not self.temp:
                 self.temp = [(uv, snap)]
+                self._first_cons = icons
                 return True
             c_uv, cs = self.temp[0]
             r = float(np.linalg.norm(uv - c_uv))
             if r < 1e-6:
                 return True
             self.push_undo()
-            c = self._point_at(c_uv, cs)
+            c = self._point_at(c_uv, cs, self._first_cons)
             cid = sk.add_circle(c, r, cons)
             self.temp = []
             self.changed(True)
@@ -690,7 +885,7 @@ class Sketcher:
             self.temp.append((uv, snap))
             if len(self.temp) < 3:
                 return True
-            (p1, s1), (p2, s2), (p3, _) = self.temp
+            (p1, s1), (p2, s2), (p3, s3) = self.temp
             ctr = _circumcenter(p1, p2, p3)
             self.temp = []
             if ctr is None:
@@ -702,8 +897,15 @@ class Sketcher:
             a = self._point_at(p1, s1)
             b = self._point_at(p2, s2)
             aid = sk.add_arc(c, a, b, cons)
-            self.changed(True)
-            self._offer_arc(vp, aid)
+            # keep the third point: a real point on the arc, so it can be dragged, attached to other geometry
+            # or dimensioned, and the arc follows (the arc is defined by its three points, not just two + radius)
+            if not (s3 and s3[0] == "point" and s3[1] in (a, b)):
+                m = self._point_at(p3, s3)
+                if m not in (a, b, c):
+                    sk.add_constraint("point_on", m, aid)
+                    if m not in sk.points or not any(m in sk.entity_points(e) for e in sk.entities):
+                        sk.add_point_entity(m)
+            self.changed(True)           # no radius prompt: the arc stays defined by its three points
             return True
         if t == "arc_center":
             self.temp.append((uv, snap))
@@ -1448,6 +1650,18 @@ class Sketcher:
                 a, b = (p1, p2) if self.arc_sweep >= 0 else (p2, p1)
                 strip(_arc_pts(c, a, b))
         GL.glDisable(GL.GL_LINE_STIPPLE)
+        # yellow dotted alignment guides (horizontal / vertical inference from a hovered point or midpoint)
+        if self.infer_hits and (self.tool in DRAW_TOOLS or self.tool == "slot"):
+            GL.glColor3f(0.96, 0.78, 0.08)
+            GL.glLineWidth(1.4)
+            GL.glEnable(GL.GL_LINE_STIPPLE)
+            GL.glLineStipple(2, 0x3333)
+            for s_uv, _axis in self.infer_hits:
+                GL.glBegin(GL.GL_LINES)
+                GL.glVertex3f(*pl.to_world(float(s_uv[0]), float(s_uv[1])))
+                GL.glVertex3f(*pl.to_world(float(cur[0]), float(cur[1])))
+                GL.glEnd()
+            GL.glDisable(GL.GL_LINE_STIPPLE)
         # snap marker
         if self.tool in DRAW_TOOLS or self.tool in ("dimension", "slot"):
             GL.glPointSize(8)
@@ -1460,6 +1674,8 @@ class Sketcher:
         self._dim_rects = {}
         self._glyph_rects = []
         sk = self.sk
+        if self._box is not None:
+            boxsel.draw_box(p, self._box)
         f = QFont()
         f.setPixelSize(12)
         f.setBold(True)
@@ -1512,13 +1728,14 @@ class Sketcher:
                     p.drawText(r, Qt.AlignCenter, CONSTRAINT_GLYPHS.get(t, "?"))
                     self._glyph_rects.append((r, c["id"]))
         # ---- inference marker near cursor
-        if self.infer and self.cursor_uv is not None:
+        if self.infer_hits and self.cursor_uv is not None and self.tool in DRAW_TOOLS | {"slot"}:
             s = self.scr(vp, self.cursor_uv)
-            r = QRectF(s[0] + 12, s[1] + 10, 16, 16)
+            label = "".join(sorted({a for _u, a in self.infer_hits}))
+            r = QRectF(s[0] + 12, s[1] + 10, 16 * len(label), 16)
             p.setPen(QPen(QColor(theme.ACCENT), 1))
             p.setBrush(QColor("#eaf2fd"))
             p.drawRoundedRect(r, 3, 3)
-            p.drawText(r, Qt.AlignCenter, self.infer)
+            p.drawText(r, Qt.AlignCenter, label)
         # ---- live length readout while drawing
         if self.cursor_uv is not None:
             txt = None

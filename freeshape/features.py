@@ -28,7 +28,7 @@ FEATURE_LABELS = {
     "linear_pattern": "Linear pattern", "circular_pattern": "Circular pattern",
     "boolean": "Boolean", "import": "Import", "hole": "Hole", "variable": "Variable",
     "sweep": "Sweep", "loft": "Loft", "draft": "Draft", "split": "Split", "move": "Move", "thread": "Thread",
-    "sm_base": "Sheet metal", "sm_flange": "Flange",
+    "sm_base": "Sheet metal", "sm_flange": "Flange", "delete_face": "Delete face", "move_face": "Move face", "offset_surface": "Offset surface",
 }
 
 # ISO metric screw data (coarse threads).  clearance: close / normal / loose (ISO 273)
@@ -258,6 +258,210 @@ def resolve_plane(state: ModelState, ref) -> K.Plane:
                 pl = K.Plane(o, x / np.linalg.norm(x), pl.normal)
         return pl
     raise K.KernelError("Unknown plane reference")
+
+
+def make_vertex_ref(part_id, pos, part_shape=None):
+    ref = {"kind": "vertex", "part": part_id, "c": [float(x) for x in pos]}
+    if part_shape is not None:
+        lo, hi = K.bbox(part_shape)
+        ref["bb"] = [lo.tolist(), hi.tolist()]
+    return ref
+
+
+def resolve_point(state: ModelState, ref) -> np.ndarray:
+    """The position of the model vertex best matching a stored vertex reference."""
+    parts = [state.parts[ref["part"]]] if ref.get("part") in state.parts else list(state.parts.values())
+    if not parts:
+        raise K.KernelError("Missing vertex reference: no parts")
+    lo, hi = np.full(3, 1e18), np.full(3, -1e18)
+    for p in parts:
+        a, b = K.bbox(p.shape)
+        lo, hi = np.minimum(lo, a), np.maximum(hi, b)
+    scale = max(float(np.linalg.norm(hi - lo)), 1e-6)
+    c0 = np.array(ref["c"], float)
+    best, best_s = None, 1e9
+    for p in parts:
+        a, b = K.bbox(p.shape)
+        for v in K.vertex_points(p.shape):
+            sc = float(np.linalg.norm(v - c0)) / scale
+            if "bb" in ref:
+                sc = min(sc, 0.5 * float(np.linalg.norm(_norm_pos(v, [a, b]) - _norm_pos(c0, ref["bb"]))))
+            if sc < best_s:
+                best, best_s = v, sc
+    if best is None or best_s > 0.6:
+        raise K.KernelError("Missing vertex reference")
+    return np.asarray(best, float)
+
+
+# --------------------------------------------------------------------------- planes
+# A plane feature takes any mix of planes / planar faces, curved faces, edges and vertices; the plane type is
+# either chosen by the user or worked out from what was selected ("auto"), as in Onshape.
+
+PLANE_TYPES = [
+    ("auto", "Automatic"), ("offset", "Offset"), ("plane_point", "Plane + point"), ("line_angle", "Line + angle"),
+    ("point_normal", "Point + edge normal"), ("three_point", "Three points"), ("mid_plane", "Mid plane"),
+    ("curve_point", "Curve + point"), ("tangent", "Tangent"),
+]
+PLANE_TYPE_NAMES = dict(PLANE_TYPES)
+
+
+def plane_items(p):
+    """[(kind, ref)] a plane feature was built from: kind is plane | face | edge | vertex."""
+    refs = p.get("refs")
+    if refs:
+        return [(r["k"], r["ref"]) for r in refs]
+    if p.get("ref"):
+        return [("plane", p["ref"])]
+    return []
+
+
+def plane_role(kind, ref):
+    if kind == "vertex":
+        return "point"
+    if kind == "plane":
+        return "plane"
+    if kind == "face":
+        return "plane" if ref.get("type") == int(K.GeomAbs_Plane) else "surface"
+    if kind == "edge":
+        return "line" if ref.get("type") == int(K.GeomAbs_Line) else "curve"
+    return "?"
+
+
+def detect_plane_type(roles):
+    """The plane type that fits a selection (a list of roles from plane_role), or None."""
+    n = {r: roles.count(r) for r in ("plane", "surface", "line", "curve", "point", "?")}
+    total = len(roles)
+    if total == 0:
+        return "offset"
+    if n["?"]:
+        return None
+    if n["point"] == 3 and total == 3:
+        return "three_point"
+    if n["point"] == 1 and n["plane"] == 1 and total == 2:
+        return "plane_point"
+    if n["point"] == 1 and n["line"] == 1 and total == 2:
+        return "point_normal"
+    if n["point"] == 1 and n["curve"] == 1 and total == 2:
+        return "curve_point"
+    if n["plane"] == 2 and total == 2:
+        return "mid_plane"
+    if n["line"] == 1 and total - n["line"] - n["plane"] == 0 and n["plane"] <= 1:
+        return "line_angle"
+    if n["surface"] == 1 and n["point"] <= 1 and total == 1 + n["point"]:
+        return "tangent"
+    if n["plane"] == 1 and total == 1:
+        return "offset"
+    return None
+
+
+def plane_type(p):
+    """The effective type of a plane feature's params (resolves 'auto'); None when the selection fits nothing."""
+    t = p.get("type") or "auto"
+    if t == "auto":
+        return detect_plane_type([plane_role(k, r) for k, r in plane_items(p)])
+    return t
+
+
+def _frame(origin, normal, xhint=None):
+    n = np.asarray(normal, float)
+    n = n / np.linalg.norm(n)
+    o = np.asarray(origin, float)
+    if xhint is not None:
+        x = np.asarray(xhint, float)
+        x = x - (x @ n) * n
+        if np.linalg.norm(x) > 1e-6:
+            return K.Plane(o, x / np.linalg.norm(x), n)
+    for c in (np.array([1.0, 0, 0]), np.array([0, 1.0, 0]), np.array([0, 0, 1.0])):
+        x = c - (c @ n) * n
+        if np.linalg.norm(x) > 0.3:
+            return K.Plane(o, x / np.linalg.norm(x), n)
+    raise K.KernelError("Can't orient that plane")
+
+
+def build_plane(state, p):
+    """The datum plane a plane feature describes."""
+    items = plane_items(p)
+    typ = plane_type(p)
+    if typ is None:
+        raise K.KernelError("That selection doesn't fit a plane type — pick a plane or face, an edge, or points")
+    flip = bool(p.get("flip"))
+    by = {"plane": [], "surface": [], "line": [], "curve": [], "point": []}
+    for k, ref in items:
+        by.setdefault(plane_role(k, ref), []).append((k, ref))
+
+    def face_plane(k, ref):
+        return resolve_plane(state, ref if k == "plane" else {"kind": "face", "face": ref})
+
+    def one(role, what, n=1):
+        got = by[role] if isinstance(role, str) else [x for r in role for x in by[r]]
+        if len(got) < n:
+            raise K.KernelError(f"Select {what}")
+        return got[:n]
+
+    def done(pl):
+        return K.Plane(pl.origin, pl.xdir, -pl.normal) if flip and typ != "offset" else pl
+
+    if typ == "offset":
+        base = face_plane(*by["plane"][0]) if by["plane"] else K.std_plane("Top")
+        return base.offset(float(p.get("offset", 10)) * (-1 if flip else 1))
+    if typ == "plane_point":
+        base = face_plane(*one("plane", "a plane or planar face")[0])
+        pt = resolve_point(state, one("point", "a vertex for the plane to pass through")[0][1])
+        return done(K.Plane(pt, base.xdir, base.normal))
+    if typ in ("point_normal", "curve_point"):
+        _, eref = one(("line", "curve"), "an edge")[0]
+        pt = resolve_point(state, one("point", "a vertex")[0][1])
+        _, e = resolve(state, eref, "edge")
+        if typ == "point_normal" and eref.get("type") == int(K.GeomAbs_Line):
+            n = np.array(K.edge_info(e)["d"], float)          # perpendicular to a straight edge, through the point
+            return done(_frame(pt, n))
+        on, n = K.edge_closest(e, pt)                          # perpendicular to the curve where the point lies on it
+        return done(_frame(on, n))
+    if typ == "three_point":
+        pts = [resolve_point(state, r) for _, r in one("point", "three vertices", 3)]
+        n = np.cross(pts[1] - pts[0], pts[2] - pts[0])
+        if np.linalg.norm(n) < 1e-9 * max(1.0, float(np.linalg.norm(pts[1] - pts[0]))):
+            raise K.KernelError("The three points are in a straight line")
+        x = pts[1] - pts[0]
+        return done(_frame(pts[0], n / np.linalg.norm(n), x / np.linalg.norm(x)))
+    if typ == "mid_plane":
+        a, b = [face_plane(*it) for it in one("plane", "two planes or planar faces", 2)]
+        na, nb = a.normal, b.normal
+        if abs(float(na @ nb)) > 1 - 1e-9:                    # parallel: halfway between them
+            d = float(na @ (b.origin - a.origin)) / 2
+            return done(_frame(a.origin + d * na, na, a.xdir))
+        nm = na + nb if float(na @ nb) >= 0 else na - nb      # not parallel: the plane bisecting them
+        nm = nm / np.linalg.norm(nm)
+        M = np.array([na, nb, np.cross(na, nb)])
+        o = np.linalg.solve(M, np.array([na @ a.origin, nb @ b.origin, 0.0]))
+        return done(_frame(o, nm))
+    if typ == "line_angle":
+        _, eref = one("line", "a straight edge")[0]
+        _, e = resolve(state, eref, "edge")
+        info = K.edge_info(e)
+        a, d = np.array(info["p0"], float), np.array(info["d"], float)
+        d = d / np.linalg.norm(d)
+        u0 = None
+        if by["plane"]:                                       # zero degrees: parallel to the chosen plane
+            u0 = np.cross(face_plane(*by["plane"][0]).normal, d)
+        if u0 is None or np.linalg.norm(u0) < 1e-6:           # otherwise: the plane holding the edge and world Z
+            for c in (np.array([0, 0, 1.0]), np.array([1.0, 0, 0])):
+                u0 = c - (c @ d) * d
+                if np.linalg.norm(u0) > 1e-6:
+                    break
+        u0 = u0 / np.linalg.norm(u0)
+        ang = math.radians(float(p.get("angle", 45)))
+        u = math.cos(ang) * u0 + math.sin(ang) * np.cross(d, u0)
+        return done(K.Plane(a, d, np.cross(d, u)))
+    if typ == "tangent":
+        faces_ = by["surface"] + [it for it in by["plane"] if it[0] == "face"]
+        if not faces_:
+            raise K.KernelError("Select a curved face")
+        face = resolve(state, faces_[0][1], "face")[1]
+        pt = resolve_point(state, by["point"][0][1]) if by["point"] else None
+        on, n = K.surface_point_normal(face, pt)
+        return done(_frame(on, n))
+    raise K.KernelError("Unknown plane type")
 
 
 def region_signature(face):
@@ -564,11 +768,41 @@ def run_shell(state, f):
                                 part.color)
 
 
-def run_plane(state, f):
+def run_delete_face(state, f):
     p = f["params"]
-    base = resolve_plane(state, p["ref"])
-    pl = base.offset(float(p.get("offset", 10)) * (-1 if p.get("flip") else 1))
-    state.planes[f["id"]] = pl
+    groups = _group_by_part(state, p.get("faces", []), "face")
+    if not groups:
+        raise K.KernelError("Select faces to delete")
+    for pid, fs in groups.items():
+        part = state.parts[pid]
+        state.parts[pid] = Part(pid, part.name, K.delete_faces(part.shape, fs, p.get("mode", "heal")), part.color)
+
+
+def run_move_face(state, f):
+    p = f["params"]
+    refs = p.get("faces", [])
+    if not refs:
+        raise K.KernelError("Select flat faces to move")
+    dist = float(p.get("distance", 1)) * (-1 if p.get("flip") else 1)
+    for r in refs:                     # one at a time: each move changes the part the next face is found in
+        pid, face = resolve(state, r, "face")
+        part = state.parts[pid]
+        state.parts[pid] = Part(pid, part.name, K.move_face(part.shape, face, dist), part.color)
+
+
+def run_offset_surface(state, f):
+    p = f["params"]
+    refs = p.get("faces", [])
+    if not refs:
+        raise K.KernelError("Select faces to offset")
+    dist = float(p.get("distance", 1)) * (-1 if p.get("flip") else 1)
+    for r in refs:                     # each face becomes its own new surface body
+        _pid, face = resolve(state, r, "face")
+        state.new_part(K.offset_surface(face, dist), f["id"])
+
+
+def run_plane(state, f):
+    state.planes[f["id"]] = build_plane(state, f["params"])
 
 
 def _selected_parts(state, p):
@@ -984,6 +1218,7 @@ RUNNERS = {
     "boolean": run_boolean, "import": run_import, "hole": run_hole, "variable": run_variable,
     "sweep": run_sweep, "loft": run_loft, "draft": run_draft, "split": run_split, "move": run_move,
     "thread": run_thread, "sm_base": run_sm_base, "sm_flange": run_sm_flange,
+    "delete_face": run_delete_face, "move_face": run_move_face, "offset_surface": run_offset_surface,
 }
 
 
@@ -999,7 +1234,10 @@ def default_params(ftype: str, state: ModelState | None = None) -> dict:
         "fillet": {"edges": [], "radius": 2.0},
         "chamfer": {"edges": [], "distance": 1.0},
         "shell": {"faces": [], "thickness": 2.0, "outward": False},
-        "plane": {"ref": {"kind": "std", "name": "Top"}, "offset": 20.0, "flip": False},
+        "delete_face": {"faces": [], "mode": "heal"},
+        "move_face": {"faces": [], "distance": 2.0, "flip": False},
+        "offset_surface": {"faces": [], "distance": 2.0, "flip": False},
+        "plane": {"type": "auto", "refs": [], "offset": 20.0, "angle": 45.0, "flip": False},
         "mirror": {"parts": [], "plane": {"kind": "std", "name": "Right"}, "op": "add"},
         "linear_pattern": {"parts": [], "direction": {"kind": "std", "name": "X"}, "count": 3,
                            "spacing": 30.0, "flip": False, "op": "new"},

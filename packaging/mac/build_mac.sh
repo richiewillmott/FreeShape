@@ -8,7 +8,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 PY="${PYTHON:-python3}"
-REV="$("$PY" -c 'import freeshape; print(freeshape.__revision__)')"
+REV="$("$PY" -c 'import freeshape; print(freeshape.__version__)')"
 ARCH="$(uname -m)"; [ "$ARCH" = "arm64" ] || ARCH="intel"
 mkdir -p build dist
 

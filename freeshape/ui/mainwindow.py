@@ -301,6 +301,39 @@ class MainWindow(QMainWindow):
             self.theme_actions[mode] = a
         view_btn.setMenu(vm)
         h.addWidget(view_btn)
+        # ---- what a click / box selection may pick: vertices, edges, faces, solids, sketches, planes
+        self.sel_btn = QToolButton()
+        self.sel_btn.setObjectName("menuButton")
+        self.sel_btn.setText("Select")
+        self.sel_btn.setToolTip("Choose which kinds of things can be selected (vertices, edges, faces …)")
+        self.sel_btn.setPopupMode(QToolButton.InstantPopup)
+        selm = QMenu(self.sel_btn)
+        self.sel_actions = {}
+        for key, label, kinds, on in (
+                ("vertex", "Vertices", ("vertex",), False), ("edge", "Edges", ("edge",), True),
+                ("face", "Faces", ("face",), True), ("part", "Solids (whole parts)", ("part",), False),
+                ("sketch", "Sketches", ("sketch_line", "region"), True), ("plane", "Planes", ("plane",), True)):
+            a = QAction(label, self)
+            a.setCheckable(True)
+            a.setChecked(on)
+            a.setData(kinds)
+            a.toggled.connect(self._selection_filter_changed)
+            selm.addAction(a)
+            self.sel_actions[key] = a
+        selm.addSeparator()
+        ra = QAction("Reset to default", self)
+        ra.triggered.connect(self._reset_selection_filter)
+        selm.addAction(ra)
+        self.sel_btn.setMenu(selm)
+        h.addWidget(self.sel_btn)
+        search_btn = QToolButton()
+        search_btn.setObjectName("menuButton")
+        search_btn.setText("Search tools…")
+        search_btn.setIcon(icon("search"))
+        search_btn.setToolTip("Find a tool by name (Alt+C or Ctrl+Space)")
+        search_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        search_btn.clicked.connect(self.open_command_search)
+        h.addWidget(search_btn)
         h.addSpacing(16)
         self.doc_label = QLabel("Untitled document")
         self.doc_label.setObjectName("docname")
@@ -310,6 +343,108 @@ class MainWindow(QMainWindow):
         hint.setObjectName("muted")
         h.addWidget(hint)
         return bar
+
+    # ------------------------------------------------------------------ command search
+    def _palette_commands(self):
+        from .palette import Command
+        F_ = self.start_feature
+        C = lambda key, name, desc, fn, kw="", grp="Feature": Command(key, name, desc, fn, kw, grp)
+        cmds = [
+            C("sketch", "Sketch", "Draw 2D profiles on a plane or a flat face. With vertices, edges or faces selected "
+              "that define a plane, the plane is made for you.", lambda: self.start_sketch(), "draw 2d profile"),
+            C("extrude", "Extrude", "Add or remove material by extending sketch regions or flat faces. Blind, "
+              "symmetric or through all.", lambda: F_("extrude"), "boss cut pad pocket"),
+            C("revolve", "Revolve", "Spin a sketch region around an axis to make round parts.",
+              lambda: F_("revolve"), "lathe turn"),
+            C("sweep", "Sweep", "Move a profile along a path to make a pipe or rail.", lambda: F_("sweep"), "pipe path"),
+            C("loft", "Loft", "Blend smoothly between two or more profiles.", lambda: F_("loft"), "blend transition"),
+            C("fillet", "Fillet", "Round off edges or faces with a radius.", lambda: F_("fillet"), "round blend corner"),
+            C("chamfer", "Chamfer", "Create beveled edges or faces with a distance.", lambda: F_("chamfer"),
+              "bevel"),
+            C("draft", "Draft", "Angle side faces so a part releases from a mould.", lambda: F_("draft"), "taper"),
+            C("shell", "Shell", "Hollow a part, leaving walls of a thickness; chosen faces are left open.",
+              lambda: F_("shell"), "hollow"),
+            C("hole", "Hole", "Custom holes or ISO clearance, tapped, counterbore and countersink holes at sketch "
+              "points.", lambda: F_("hole"), "drill tap counterbore countersink screw"),
+            C("thread", "Thread", "Model real ISO metric threads on holes and shafts.", lambda: F_("thread"),
+              "screw bolt"),
+            C("delete_face", "Delete face", "Remove faces from a part. Heal closes the gap by extending the "
+              "surrounding faces, Cap covers it with a flat face, or leave the void open. Useful for imported "
+              "parts: removes fillets, chamfers, bosses and holes.", lambda: F_("delete_face"),
+              "defeature remove fillet chamfer protrusion step import heal cap"),
+            C("move_face", "Move face", "Push or pull flat faces along their normal to resize a part.",
+              lambda: F_("move_face"), "offset face resize push pull direct edit"),
+            C("offset_surface", "Offset surface", "Make a new surface a set distance from selected faces (flat or "
+              "curved). The result is a surface body you can use as a reference or delete faces from.",
+              lambda: F_("offset_surface"), "offset face surface copy shell skin"),
+            C("sm_base", "Sheet metal", "A flat sheet from a sketch with thickness, bend radius and K-factor.",
+              lambda: F_("sm_base"), "bracket enclosure"),
+            C("sm_flange", "Flange", "Bend the sheet up along edges.", lambda: F_("sm_flange"), "sheet metal bend"),
+            C("plane", "Plane", "Make a datum plane: offset, through a point, line and angle, three points, mid "
+              "plane, normal to a curve or tangent to a surface.", lambda: F_("plane"), "datum"),
+            C("mirror", "Mirror", "Copy parts across a plane.", lambda: F_("mirror"), "symmetry"),
+            C("linear_pattern", "Linear pattern", "Repeat parts along a direction.", lambda: F_("linear_pattern"),
+              "array copies"),
+            C("circular_pattern", "Circular pattern", "Repeat parts around an axis.",
+              lambda: F_("circular_pattern"), "array copies polar"),
+            C("boolean", "Boolean", "Add, subtract or intersect parts.", lambda: F_("boolean"),
+              "union subtract intersect combine merge"),
+            C("split", "Split", "Cut a part in two with a plane or a flat face.", lambda: F_("split"), "cut"),
+            C("move", "Move", "Move, rotate or copy parts by exact amounts.", lambda: F_("move"), "translate"),
+            C("variable", "Variable", "Define #name values to use in any dimension.", lambda: F_("variable"),
+              "parameter"),
+            C("import", "Import STEP", "Open a STEP file in a new tab.", lambda: self.import_step(), "open file",
+              "File"),
+            C("export", "Export", "Export the model as STEP or STL.", lambda: self.export(None, None),
+              "save stl step", "File"),
+            C("undo", "Undo", "Undo the last change (Ctrl+Z).", self.undo, "", "Edit"),
+            C("redo", "Redo", "Redo what was undone (Ctrl+Y).", self.redo, "", "Edit"),
+            C("section", "Section view", "Cut the model open with a plane to see inside (Ctrl+Shift+X).",
+              self.toggle_section, "cross", "View"),
+            C("fit", "Zoom to fit", "Fit the whole model in the view (F).", lambda: self.viewport.fit(), "", "View"),
+            C("iso", "Isometric view", "Look at the model from the isometric corner (Shift+7).",
+              lambda: self.viewport.set_standard_view("Isometric"), "", "View"),
+        ]
+        for i, name in enumerate(("Front", "Back", "Left", "Right", "Top", "Bottom"), 1):
+            cmds.append(C("iso", f"{name} view", f"Look at the model from the {name.lower()} (Shift+{i}).",
+                          lambda n=name: self.viewport.set_standard_view(n), "", "View"))
+        return cmds
+
+    def open_command_search(self):
+        if self.is_asm or self.is_dwg or self.mode != "idle":
+            self.status.showMessage("Search tools works in a Part Studio while no tool is open — finish or cancel "
+                                    "the current one first.", 5000)
+            return
+        if getattr(self, "_palette", None) is None:
+            from .palette import CommandPalette
+            self._palette = CommandPalette(self.viewport, self._palette_commands)
+        self._palette.open()
+
+    SELECT_DEFAULTS = {"vertex": False, "edge": True, "face": True, "part": False, "sketch": True, "plane": True}
+
+    def _selection_filter_changed(self, _checked=None):
+        kinds = set()
+        for a in self.sel_actions.values():
+            if a.isChecked():
+                kinds.update(a.data())
+        vp = self.viewport
+        is_default = all(a.isChecked() == self.SELECT_DEFAULTS[k] for k, a in self.sel_actions.items())
+        vp.user_filter = None if is_default else kinds
+        self.sel_btn.setText("Select" if is_default else "Select •")
+        # drop anything already selected that can no longer be selected
+        managed = {k for a in self.sel_actions.values() for k in a.data()}
+        keep = [pk for pk in vp.selection if pk.kind not in managed or vp._allowed(pk.kind)]
+        if len(keep) != len(vp.selection):
+            vp.set_selection(keep)
+        vp.hover = None
+        vp.update()
+
+    def _reset_selection_filter(self):
+        for k, a in self.sel_actions.items():
+            a.blockSignals(True)
+            a.setChecked(self.SELECT_DEFAULTS[k])
+            a.blockSignals(False)
+        self._selection_filter_changed()
 
     def _add_action(self, menu, text, slot, shortcut=None):
         a = QAction(text, self)
@@ -349,7 +484,11 @@ class MainWindow(QMainWindow):
                           ("sweep", "Sweep — a profile along a path"), ("loft", "Loft — blend between profiles"),
                           ("fillet", "Fillet (Shift+F)"), ("chamfer", "Chamfer"), ("draft", "Draft — angle side faces"),
                           ("shell", "Shell"), ("hole", "Hole — custom or ISO clearance / tapped"),
-                          ("thread", "Thread — real ISO threads on holes and shafts")):
+                          ("thread", "Thread — real ISO threads on holes and shafts"),
+                          ("delete_face", "Delete face — remove fillets, chamfers, bosses and holes from "
+                                          "imported parts (heal, cap or leave open)"),
+                          ("move_face", "Move face — push or pull flat faces"),
+                          ("offset_surface", "Offset surface — a new surface a set distance from faces")):
             self._tb(h, name, tip, lambda _=False, n=name: self.start_feature(n))
         h.addWidget(_sep())
         self._tb(h, "sm_base", "Sheet metal — a flat sheet from a sketch (thickness, bend radius, K-factor)",
@@ -535,6 +674,9 @@ class MainWindow(QMainWindow):
             s.setContext(Qt.WindowShortcut)
             s.activated.connect(fn)
             return s
+        sc("Alt+C", self.open_command_search)
+        sc("Ctrl+Space", self.open_command_search)
+        sc("Alt+`", self.open_command_search)
         sc("Ctrl+Z", self.undo)
         sc("Ctrl+Y", self.redo)
         sc("Ctrl+Shift+Z", self.redo)
@@ -730,6 +872,7 @@ class MainWindow(QMainWindow):
     def start_sketch(self, edit_fid=None):
         if self.mode != "idle" or self.is_asm or self.is_dwg:
             return
+        extra, base = [], None
         if edit_fid:
             feat = copy.deepcopy(self.doc.feature(edit_fid))
             index = self.doc.feature_index(edit_fid)
@@ -740,16 +883,24 @@ class MainWindow(QMainWindow):
             index = self.doc.insert_index()
             is_new = True
             has_plane = False
-            for pk in self.viewport.selection:
-                item = pick_to_item(self.viewport, pk, {"plane"})
-                if item:
-                    feat["params"]["plane"] = item[1]
-                    has_plane = True
-                    break
+            auto_plane = self._plane_for_selection(index)
+            if auto_plane is not None:
+                # e.g. three vertices are selected: make the plane they define and sketch on it
+                pf, base = auto_plane
+                extra = [pf]
+                feat["params"]["plane"] = {"kind": "plane", "fid": pf["id"]}
+                has_plane = True
+            else:
+                for pk in self.viewport.selection:
+                    item = pick_to_item(self.viewport, pk, {"plane"})
+                    if item:
+                        feat["params"]["plane"] = item[1]
+                        has_plane = True
+                        break
         self.mode = "sketch"
         self.viewport.feature_hl = None
         self.sk_ctx = {"feature": feat, "index": index, "is_new": is_new,
-                       "base": self.doc.state_before(index)}
+                       "extra": extra, "base": base if base is not None else self.doc.state_before(index)}
         self.viewport.clear_selection()
         self.measure.hide()
         self._show_state(self.sk_ctx["base"])
@@ -767,6 +918,29 @@ class MainWindow(QMainWindow):
             self.viewport.status_text = "Select a plane or planar face to sketch on"
             self.dialog.set_status("Select a plane or a planar face in the graphics area.")
         self._populate_lists()
+
+    # selections that define a plane by themselves, so Sketch can make the plane for you
+    AUTO_SKETCH_PLANES = {"three_point", "plane_point", "point_normal", "curve_point", "mid_plane", "tangent"}
+
+    def _plane_for_selection(self, index):
+        """When what is selected defines a plane (three vertices, a face and a vertex, two faces …), a new plane
+        feature for it and the model state with that plane, so a sketch can start on it. None otherwise —
+        including for a single plane or face, which is simply sketched on."""
+        vp = self.viewport
+        want = {"plane", "face", "edge", "vertex"}
+        items = [it for it in (pick_to_item(vp, pk, want) for pk in vp.selection) if it]
+        if len(items) < 2:
+            return None
+        roles = [F.plane_role(k, r) for k, r in items]
+        typ = F.detect_plane_type(roles)
+        if typ not in self.AUTO_SKETCH_PLANES or (typ == "tangent" and "point" not in roles):
+            return None
+        pf = self.doc.make_feature("plane")
+        pf["params"].update(type="auto", refs=[{"k": k, "ref": r} for k, r in items])
+        st, err = self.doc.preview(pf, index)
+        if err or pf["id"] not in st.planes:
+            return None
+        return pf, st
 
     def _sketch_plane_picked(self, ref):
         self.sk_ctx["feature"]["params"]["plane"] = ref
@@ -810,7 +984,7 @@ class MainWindow(QMainWindow):
             return
         ctx["feature"]["params"]["sketch"] = self.sketcher.sk.to_dict()
         if final:
-            st, err = self.doc.preview(ctx["feature"], ctx["index"])
+            st, err = self.doc.preview(ctx["feature"], ctx["index"], ctx.get("extra", ()))
             self._show_state(st, active_sketch=ctx["feature"]["id"])
         st = self.sketcher.sk.status
         if not st.get("ok", True):
@@ -863,7 +1037,10 @@ class MainWindow(QMainWindow):
             self._show_state(self.doc.state)
             return
         if ctx["is_new"]:
-            self.doc.add_feature(feat, ctx["index"])
+            extra = ctx.get("extra", [])
+            for k, ex in enumerate(extra):          # the plane made for this sketch goes in first
+                self.doc.add_feature(ex, ctx["index"] + k)
+            self.doc.add_feature(feat, ctx["index"] + len(extra))
         else:
             self.doc.replace_feature(feat)
         self.status.showMessage(f"{feat['name']} saved", 5000)
@@ -2377,9 +2554,9 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, APP_NAME, f"Export failed:\n{e}")
 
     def show_about(self):
-        from .. import __version__, __revision__
+        from .. import __version__
         QMessageBox.about(self, "About FreeShape", (
-            f"<h3>FreeShape {__version__} ({__revision__})</h3>"
+            f"<h3>FreeShape {__version__}</h3>"
             "<p>Free, offline, Onshape-style parametric CAD — parts, assemblies, drawings and sheet metal.</p>"
             "<p>Copyright © 2026 Richard Willmott</p>"
             "<p>This program is free software: you can redistribute it and/or modify it under the terms of the "
@@ -2392,8 +2569,12 @@ class MainWindow(QMainWindow):
     def show_shortcuts(self):
         QMessageBox.information(self, "Keyboard shortcuts", (
             "<b>Navigation</b><br>Right-drag: rotate · Middle-drag or Ctrl+right-drag: pan · Wheel: zoom<br>"
-            "F: zoom to fit · Shift+1…7: Front, Back, Left, Right, Top, Bottom, Isometric · N: normal to sketch<br><br>"
-            "<b>Features</b><br>Shift+S: sketch · Shift+E: extrude · Shift+W: revolve · Shift+F: fillet<br>"
+            "Arrow keys: turn the view 15° per tap · F: zoom to fit · "
+            "Shift+1…7: Front, Back, Left, Right, Top, Bottom, Isometric · N: normal to sketch<br><br>"
+            "<b>Selecting</b><br>Space: deselect all · Drag a box: left-to-right selects what is fully inside, "
+            "right-to-left also what it touches · Shift / Ctrl: add<br><br>"
+            "<b>Features</b><br>Alt+C or Ctrl+Space: search tools · "
+            "Shift+S: sketch · Shift+E: extrude · Shift+W: revolve · Shift+F: fillet<br>"
             "Ctrl+Z / Ctrl+Y: undo / redo · Enter: accept dialog · Esc: cancel<br><br>"
             "<b>Sketch</b><br>L line · R rectangle · C circle · A arc · P point · D dimension · Q construction<br>"
             "I coincident · H horizontal · V vertical · E equal · T tangent · U use edges · Del delete · Esc stop tool<br><br>"

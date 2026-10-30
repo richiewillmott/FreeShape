@@ -116,6 +116,15 @@ def pick_to_item(vp, pick: Pick, want: set):
     if k == "sketch_line" and "axis" in want:
         fid, eid = pick.key
         return ("axis", {"kind": "sketch_line", "sketch": fid, "line": eid})
+    if k == "vertex" and "vertex" in want:
+        pid, vi = pick.key
+        shape = vp.part_shapes.get(pid)
+        if shape is None:
+            return None
+        pts = K.vertex_points(shape)
+        if vi >= len(pts):
+            return None
+        return ("vertex", F.make_vertex_ref(pid, pts[vi], shape))
     if k == "plane" and "plane" in want:
         key = pick.key
         if key[0] == "std":
@@ -132,6 +141,8 @@ def item_label(doc, item):
         return "Face"
     if kind == "edge":
         return "Edge"
+    if kind == "vertex":
+        return "Vertex"
     if kind == "part":
         p = doc.state.parts.get(ref)
         return p.name if p else ref
@@ -166,6 +177,14 @@ def item_geometry(state, item, plane_half=40.0):
         if kind == "edge":
             _, e = F.resolve(state, ref, "edge")
             return ("poly", K.discretize_edge(e))
+        if kind == "vertex":
+            c = F.resolve_point(state, ref)
+            s = plane_half * 0.06
+            seg = [np.array(a) for a in ((s, 0, 0), (0, s, 0), (0, 0, s))]
+            pts = []
+            for d in seg:
+                pts += [c - d, c + d, c]
+            return ("poly", np.array(pts))
         if kind == "part":
             p = state.parts.get(ref)
             return ("mesh", K.tessellate(p.shape)) if p else None
@@ -213,6 +232,8 @@ class SelectionField(QFrame):
         lay.addLayout(top)
         self.list = QListWidget()
         self.list.setFixedHeight(22)
+        self.extra = 0              # extra height (px) the dialog has been dragged taller by
+        self._base_h = 22
         self.list.setStyleSheet("QListWidget { background: transparent; }")
         self.list.itemDoubleClicked.connect(self._remove_item)
         lay.addWidget(self.list)
@@ -241,7 +262,14 @@ class SelectionField(QFrame):
                 it.setToolTip("Double-click to remove")
             self.list.addItem(it)
         n = max(1, len(self.items))
-        self.list.setFixedHeight(min(6, n) * 20 + 4)
+        self._base_h = min(6, n) * 20 + 4
+        self.list.setFixedHeight(self._base_h + self.extra)
+
+    def set_extra(self, px):
+        self.extra = max(0, int(px))
+        self.list.setFixedHeight(self._base_h + self.extra)
+        self.layout().invalidate()          # Qt re-lays nested widgets lazily; the dialog needs the new size now
+        self.updateGeometry()
 
     def _remove_item(self, it):
         row = self.list.row(it)
@@ -288,6 +316,20 @@ def _isnum(v):
         return abs(float(v)) > 1e-12
     except (TypeError, ValueError):
         return True if isinstance(v, str) and v.strip() else False
+
+
+def _plane_info(p):
+    """What the plane dialog says about the current selection."""
+    items = F.plane_items(p)
+    typ = F.plane_type(p)
+    if typ is None:
+        return "⚠ That selection doesn't fit a plane type. Try a plane or face, an edge, or vertices."
+    name = F.PLANE_TYPE_NAMES.get(typ, typ)
+    if (p.get("type") or "auto") == "auto":
+        if not items:
+            return "Select a plane or face, an edge, or vertices — the plane type is picked from what you select."
+        return f"Type: {name}"
+    return ""
 
 
 def _hole_info(p):
@@ -378,10 +420,33 @@ SCHEMAS = {
         _num("thickness", "Thickness", minimum=1e-6),
         _check("outward", "Shell outside"),
     ],
-    "plane": [
-        _sel("ref_sel", "Plane or planar face", {"plane"}, multi=False),
-        _num("offset", "Offset distance"),
+    "delete_face": [
+        _sel("faces", "Faces to delete", {"face"}),
+        _choice("mode", "After deleting", [("heal", "Heal (extend the surrounding faces)"),
+                                           ("cap", "Cap (close with a flat face)"),
+                                           ("open", "Leave the void open")]),
+        {"t": "info", "key": "_info", "text": lambda p: {
+            "heal": "Removes fillets, chamfers, bosses and holes from an imported part.",
+            "cap": "Covers the opening with a flat face.",
+            "open": "The part becomes an open shell."}.get(p.get("mode", "heal"), "")},
+    ],
+    "move_face": [
+        _sel("faces", "Flat faces to move", {"face"}),
+        _num("distance", "Distance (outwards)"),
         _check("flip", "Flip direction"),
+    ],
+    "offset_surface": [
+        _sel("faces", "Faces to offset", {"face"}),
+        _num("distance", "Distance (outwards)"),
+        _check("flip", "Flip direction"),
+    ],
+    "plane": [
+        _choice("type", "Plane type", F.PLANE_TYPES),
+        _sel("refs_sel", "Planes, faces, edges and vertices", {"plane", "face", "edge", "vertex"}),
+        {"t": "info", "key": "_info", "text": lambda p: _plane_info(p)},
+        _num("offset", "Offset distance", visible=lambda p: F.plane_type(p) == "offset"),
+        _num("angle", "Angle", unit="deg", visible=lambda p: F.plane_type(p) == "line_angle"),
+        _check("flip", "Flip direction", visible=lambda p: F.plane_type(p) is not None),
     ],
     "mirror": [
         _ops([("new", "New"), ("add", "Add")]),
@@ -518,10 +583,10 @@ def params_to_fields(ftype, p):
         f["axis_sel"] = [("axis", ax)] if ax and ax.get("kind") != "std" else []
     if ftype in ("fillet", "chamfer"):
         f["edges"] = [("edge", r) for r in p.get("edges", [])]
-    if ftype in ("shell", "thread"):
+    if ftype in ("shell", "thread", "delete_face", "move_face", "offset_surface"):
         f["faces"] = [("face", r) for r in p.get("faces", [])]
     if ftype == "plane":
-        f["ref_sel"] = [("plane", p["ref"])] if p.get("ref") else []
+        f["refs_sel"] = [(k, r) for k, r in F.plane_items(p)]
     if ftype == "mirror":
         f["parts"] = [("part", i) for i in p.get("parts", [])]
         f["plane_sel"] = [("plane", p["plane"])] if p.get("plane") else []
@@ -578,11 +643,11 @@ def fields_to_params(ftype, fields, p):
             p["axis"] = {}
     if ftype in ("fillet", "chamfer"):
         p["edges"] = [r for k, r in fields.get("edges", [])]
-    if ftype in ("shell", "thread"):
+    if ftype in ("shell", "thread", "delete_face", "move_face", "offset_surface"):
         p["faces"] = [r for k, r in fields.get("faces", [])]
     if ftype == "plane":
-        sel = fields.get("ref_sel", [])
-        p["ref"] = sel[0][1] if sel else {"kind": "std", "name": "Top"}
+        p["refs"] = [{"k": k, "ref": r} for k, r in fields.get("refs_sel", [])]
+        p.pop("ref", None)
     if ftype in ("mirror", "linear_pattern", "circular_pattern"):
         p["parts"] = [r for k, r in fields.get("parts", [])]
     if ftype == "mirror":
@@ -609,13 +674,96 @@ def fields_to_params(ftype, fields, p):
 
 # ---------------------------------------------------------------------- the dialog
 
-class FeatureDialog(QFrame):
+class _ResizableFrame(QFrame):
+    """A floating panel over the viewport that can be resized by dragging its right edge, bottom edge or
+    bottom-right corner. Extra height goes to the selection lists (see adjustSize); the width is remembered
+    for the next dialog."""
+    GRIP = 9                    # px inside the edge that grabs the resize
+    _remembered_width: dict = {}
+
+    def _init_resizable(self, default_width, min_width=240):
+        self._w = self._remembered_width.get(type(self).__name__, default_width)
+        self._min_w = min_width
+        self._user_h = 0
+        self._rz = None
+        self.setMouseTracking(True)
+        self.setFixedWidth(self._w)
+
+    def _fit(self):
+        lay = self.layout()
+        if lay is not None:
+            lay.invalidate()
+            lay.activate()
+        QFrame.adjustSize(self)
+
+    def adjustSize(self):
+        fields = getattr(self, "fields", {})
+        for f in fields.values():
+            f.set_extra(0)
+        self._fit()
+        if self._user_h > self.height():
+            vis = [f for f in fields.values() if f.isVisibleTo(self)]
+            if vis:
+                extra = (self._user_h - self.height()) // len(vis)
+                for f in vis:
+                    f.set_extra(extra)
+                self._fit()
+
+    def _grip_at(self, pos):
+        return pos.x() >= self.width() - self.GRIP, pos.y() >= self.height() - self.GRIP
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton:
+            right, bottom = self._grip_at(e.position())
+            if right or bottom:
+                self._rz = (right, bottom, e.globalPosition(), self.width(), self.height())
+                e.accept()
+                return
+        super().mousePressEvent(e)
+
+    def mouseMoveEvent(self, e):
+        if self._rz is not None:
+            right, bottom, g0, w0, h0 = self._rz
+            d = e.globalPosition() - g0
+            par = self.parentWidget()
+            if right:
+                maxw = max(self._min_w, (par.width() - self.x() - 12) if par else 4000)
+                self._w = int(max(self._min_w, min(maxw, w0 + d.x())))
+                self.setFixedWidth(self._w)
+            if bottom:
+                maxh = max(120, (par.height() - self.y() - 12) if par else 4000)
+                self._user_h = int(max(0, min(maxh, h0 + d.y())))
+            self.adjustSize()
+            e.accept()
+            return
+        right, bottom = self._grip_at(e.position())
+        self.setCursor(Qt.SizeFDiagCursor if (right and bottom) else Qt.SizeHorCursor if right
+                       else Qt.SizeVerCursor if bottom else Qt.ArrowCursor)
+        super().mouseMoveEvent(e)
+
+    def mouseReleaseEvent(self, e):
+        if self._rz is not None:
+            self._rz = None
+            self._remembered_width[type(self).__name__] = self._w
+            e.accept()
+            return
+        super().mouseReleaseEvent(e)
+
+    def leaveEvent(self, e):
+        if self._rz is None:
+            self.unsetCursor()
+        super().leaveEvent(e)
+
+
+class FeatureDialog(_ResizableFrame):
     accepted = Signal()
     rejected = Signal()
 
     def __init__(self, main, feature, is_new, index, preselection=()):
         super().__init__(main.viewport)
         self.setObjectName("featureDialog")
+        self._init_resizable(300)
+        self.fields: dict = {}
         self.main = main
         self.doc = main.doc
         self.feature = copy.deepcopy(feature)
@@ -656,7 +804,6 @@ class FeatureDialog(QFrame):
             self.activate(first)
         self._sync_visibility()
         self.schedule_preview()
-        self.setFixedWidth(300)
         self.adjustSize()
         self.move(12, 12)
         self.show()
@@ -828,7 +975,11 @@ class FeatureDialog(QFrame):
     def _sync_visibility(self):
         p = self.feature["params"]
         for spec, lab in self._info_rows:
-            lab.setText(spec["text"](p))
+            txt = spec["text"](p)
+            lab.setText(txt)
+            if spec["key"] == "_info":           # warnings in red, hints in green
+                lab.setStyleSheet("color:#d93025; font-weight:600;" if txt.startswith("⚠")
+                                  else "color:#2e9e44; font-weight:600;")
         for spec, w in self.rows:
             vis = spec.get("visible")
             w.setVisible(True if vis is None else bool(vis(p)))
@@ -864,6 +1015,8 @@ class FeatureDialog(QFrame):
             kinds.add("plane")
         if "part" in want:
             kinds.add("part")
+        if "vertex" in want:
+            kinds.add("vertex")
         self.main.viewport.select_filter = kinds
         for f in self.fields.values():
             f.refresh(self.doc)
@@ -1030,7 +1183,14 @@ class FeatureDialog(QFrame):
                          "on_done": self.schedule_preview, "snap": self._snap_step(),
                          "min": 1e-3 if symmetric else None, "label": fmt(depth) + " mm"}]
             if self.ftype == "plane":
-                base = F.resolve_plane(self.base_state, p["ref"])
+                if F.plane_type(p) != "offset":
+                    return []
+                planes_ = [(k, r) for k, r in F.plane_items(p) if F.plane_role(k, r) == "plane"]
+                if planes_:
+                    k_, r_ = planes_[0]
+                    base = F.resolve_plane(self.base_state, r_ if k_ == "plane" else {"kind": "face", "face": r_})
+                else:
+                    base = K.std_plane("Top")
                 off = float(p.get("offset", 0))
                 value = -off if p.get("flip") else off
 
@@ -1093,7 +1253,7 @@ class FeatureDialog(QFrame):
         self.rejected.emit()
 
 
-class SketchDialog(QFrame):
+class SketchDialog(_ResizableFrame):
     """The small Sketch panel: plane selection and display toggles."""
     accepted = Signal()
     rejected = Signal()
@@ -1102,6 +1262,7 @@ class SketchDialog(QFrame):
     def __init__(self, main, feature, has_plane):
         super().__init__(main.viewport)
         self.setObjectName("featureDialog")
+        self._init_resizable(260)
         self.main = main
         self.feature = feature
         sh = QGraphicsDropShadowEffect(self)
@@ -1146,7 +1307,6 @@ class SketchDialog(QFrame):
         self.status.setWordWrap(True)
         self.status.setStyleSheet("color:#4b5563;")
         lay.addWidget(self.status)
-        self.setFixedWidth(260)
         self.plane_field.items = [("plane", feature["params"]["plane"])] if has_plane else []
         self.plane_field.refresh(main.doc)
         if not has_plane:

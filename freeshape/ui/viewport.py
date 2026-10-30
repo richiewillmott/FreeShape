@@ -13,6 +13,7 @@ from PySide6.QtOpenGLWidgets import QOpenGLWidget
 
 from .. import kernel as K
 from . import theme
+from . import boxsel
 from .camera import Camera, STANDARD_VIEWS, basis
 
 PLANE_HALF = 75.0          # the default planes are 150 x 150 mm
@@ -20,11 +21,11 @@ PLANE_HALF = 75.0          # the default planes are 150 x 150 mm
 
 @dataclass(frozen=True)
 class Pick:
-    kind: str           # face | edge | region | plane | sketch_line | part | sketch_point
+    kind: str           # face | edge | vertex | region | plane | sketch_line | part | sketch_point
     key: tuple          # identifying tuple, e.g. (part_id, face_index)
 
     def label(self):
-        names = {"face": "Face", "edge": "Edge", "region": "Sketch region", "plane": "Plane",
+        names = {"face": "Face", "edge": "Edge", "vertex": "Vertex", "region": "Sketch region", "plane": "Plane",
                  "sketch_line": "Sketch line", "part": "Part", "sketch_point": "Sketch point"}
         return names.get(self.kind, self.kind)
 
@@ -129,6 +130,9 @@ class Viewport(QOpenGLWidget):
         self.selection: list[Pick] = []
         self.hover: Pick | None = None
         self.select_filter: set | None = None     # None = default selectable kinds
+        self.user_filter: set | None = None       # kinds the user left switched on in the selection dropdown
+        self._box_start = None                    # left-drag rubber-band selection: press point
+        self._box = None                          # (x0, y0, x1, y1) while the box is being dragged
         self.sketcher = None                        # active sketch controller
         self.pick_handler = None                    # callable(Pick) while a feature dialog is open
         self._mesh_cache = {}
@@ -195,7 +199,8 @@ class Viewport(QOpenGLWidget):
             return hit[1]
         R, t = M[:3, :3], M[:3, 3]
         out = K.Mesh((m.verts @ R.T + t).astype(np.float32), (m.normals @ R.T).astype(np.float32), m.tris,
-                     m.tri_face, m.face_ranges, [(np.asarray(e) @ R.T + t) for e in m.edge_polys])
+                     m.tri_face, m.face_ranges, [(np.asarray(e) @ R.T + t) for e in m.edge_polys],
+                     (np.asarray(m.vertices, float) @ R.T + t).astype(np.float32))
         if len(self._placed_cache) > 400:
             self._placed_cache.clear()
         self._placed_cache[key] = (m, out)
@@ -234,7 +239,7 @@ class Viewport(QOpenGLWidget):
         self.update()
 
     def _pick_exists(self, p: Pick):
-        if p.kind in ("face", "edge", "part"):
+        if p.kind in ("face", "edge", "part", "vertex"):
             return any(pid == p.key[0] for pid, _, _ in self.parts)
         if p.kind == "region":
             return any(fid == p.key[0] and p.key[1] < len(sr.regions) for fid, sr, _ in self.sketches)
@@ -726,6 +731,24 @@ class Viewport(QOpenGLWidget):
                 GL.glDepthRange(0, 1)
         GL.glLineWidth(1.4)
 
+        # ---- hovered / selected vertices as dots
+        hv = [pk for pk in list(self.selection) + ([self.hover] if self.hover is not None else [])
+              if pk.kind == "vertex"]
+        if hv:
+            meshes = {pid: m for pid, m, _ in self.parts}
+            GL.glPointSize(9.0)
+            GL.glDepthRange(0, 0.99999)
+            GL.glBegin(GL.GL_POINTS)
+            for pk in hv:
+                m = meshes.get(pk.key[0])
+                col = self._sel_color(pk)
+                if m is None or not col or pk.key[1] >= len(m.vertices):
+                    continue
+                GL.glColor3f(*col)
+                GL.glVertex3f(*[float(c) for c in m.vertices[pk.key[1]]])
+            GL.glEnd()
+            GL.glDepthRange(0, 1)
+
         # ---- the feature picked in the feature list: its faces tinted, their edges and sketch curves outlined
         fh = self.feature_hl
         if fh:
@@ -1019,6 +1042,8 @@ class Viewport(QOpenGLWidget):
         p.setFont(f)
         if self.sketcher:
             self.sketcher.draw_overlay(self, p)
+        if self._box is not None:
+            boxsel.draw_box(p, self._box)
         self._draw_manipulators(p)
         if self.drag_handler is not None and hasattr(self.drag_handler, "draw_overlay") and not self._thumb_on():
             self.drag_handler.draw_overlay(p)
@@ -1152,10 +1177,14 @@ class Viewport(QOpenGLWidget):
         p.drawText(QPointF(x0 + px + 8, y0 + 4), label)
 
     # ================================================================== picking
+    DEFAULT_KINDS = ("face", "edge", "region", "plane", "sketch_line")
+
     def _allowed(self, kind):
-        if self.select_filter is None:
-            return kind in ("face", "edge", "region", "plane", "sketch_line")
-        return kind in self.select_filter
+        if self.select_filter is not None:          # a feature dialog asked for specific kinds
+            return kind in self.select_filter
+        if self.user_filter is not None:            # the selection-type dropdown
+            return kind in self.user_filter
+        return kind in self.DEFAULT_KINDS
 
     def _ray_parts(self, o, d, margin=0.0):
         """Parts whose bounding box the pick ray passes through (or within `margin` of) — so picking only
@@ -1238,7 +1267,7 @@ class Viewport(QOpenGLWidget):
                 return hit
         best_face = (np.inf, None)
         part_ok = allowed("part")
-        if allowed("face") or part_ok or allowed("edge"):
+        if allowed("face") or part_ok or allowed("edge") or allowed("vertex"):
             for pid, m in self._ray_parts(o, d):
                 t, ti = _ray_tris(o, d, m.verts, m.tris) if self.section is None else \
                     _ray_tris_kept(o, d, m.verts, m.tris, self._kept)
@@ -1247,6 +1276,24 @@ class Viewport(QOpenGLWidget):
                                  else Pick("face", (pid, int(m.tri_face[ti]))))
         face_z = self.cam.view_z_of_t(best_face[0]) if np.isfinite(best_face[0]) else -np.inf
         tol_z = self.cam.scale * 3 + 1e-6
+
+        # vertices: the nearest corner within a few pixels of the cursor, on the visible side of the model
+        if allowed("vertex"):
+            best_v = (9.0, None)
+            for pid, m in self._ray_parts(o, d, self.cam.scale * 10):
+                V = getattr(m, "vertices", None)
+                if V is None or len(V) == 0:
+                    continue
+                S = self.cam.to_screen(np.asarray(V, float))
+                dv = np.hypot(S[:, 0] - x, S[:, 1] - y)
+                for i in np.argsort(dv)[:3]:
+                    if dv[i] >= best_v[0]:
+                        break
+                    if S[i, 2] >= face_z - tol_z * 4:
+                        best_v = (float(dv[i]), Pick("vertex", (pid, int(i))))
+                        break
+            if best_v[1] is not None:
+                return best_v[1]
 
         # edges & sketch lines (screen-space proximity)
         want_edge = allowed("edge")
@@ -1349,6 +1396,59 @@ class Viewport(QOpenGLWidget):
         t = ((plane.origin - o) @ plane.normal) / denom
         return o + t * d
 
+    # ================================================================== box selection
+    def _items_in_rect(self, rect, crossing):
+        """Everything selectable (by the current filters) inside a screen rectangle: fully enclosed, or when
+        `crossing` also anything partly inside."""
+        want = self._allowed
+        out = []
+        for pid, m, _c in self.parts:
+            do_edge, do_face, do_part = want("edge"), want("face"), want("part") and not want("face")
+            if want("vertex") and len(m.vertices):
+                S = self.cam.to_screen(np.asarray(m.vertices, float))[:, :2]
+                for vi in np.nonzero(boxsel.points_in_rect(S, rect))[0]:
+                    out.append(Pick("vertex", (pid, int(vi))))
+            if not (do_edge or do_face or do_part):
+                continue
+            if do_edge:
+                for ei, poly in enumerate(m.edge_polys):
+                    if len(poly) >= 2:
+                        S = self.cam.to_screen(np.asarray(poly, float))[:, :2]
+                        if boxsel.polyline_selected(S, rect, crossing):
+                            out.append(Pick("edge", (pid, ei)))
+            if do_face or do_part:
+                S = self.cam.to_screen(np.asarray(m.verts, float))[:, :2]
+                inside_v = boxsel.points_in_rect(S, rect)
+                if do_face:
+                    for fi, (a, b) in enumerate(m.face_ranges):
+                        if boxsel.mesh_part_selected(S, m.tris[a:b], rect, crossing, inside_v):
+                            out.append(Pick("face", (pid, fi)))
+                elif boxsel.mesh_part_selected(S, m.tris, rect, crossing, inside_v):
+                    out.append(Pick("part", (pid,)))
+        want_sl, want_reg = want("sketch_line"), want("region") and not self.hidden_sketch_regions
+        for fid, sr, meshes in self.sketches:
+            if want_sl:
+                for eid, e in sr.sketch.entities.items():
+                    if e["type"] == "point":
+                        continue
+                    pts = np.array([sr.plane.to_world(u, v) for u, v in sr.sketch.polyline(eid, 32)], float)
+                    if len(pts) >= 2 and boxsel.polyline_selected(self.cam.to_screen(pts)[:, :2], rect, crossing):
+                        out.append(Pick("sketch_line", (fid, eid)))
+            if want_reg:
+                for ri, m in enumerate(meshes):
+                    S = self.cam.to_screen(np.asarray(m.verts, float))[:, :2]
+                    if boxsel.mesh_part_selected(S, m.tris, rect, crossing):
+                        out.append(Pick("region", (fid, ri)))
+        return out
+
+    def _box_select(self, x0, y0, x1, y1, additive):
+        found = self._items_in_rect(boxsel.norm_rect(x0, y0, x1, y1), boxsel.is_crossing(x0, y0, x1, y1))
+        keep = list(self.selection) if (additive or self.select_filter is not None) else []
+        for pk in found:
+            if pk not in keep:
+                keep.append(pk)
+        self.set_selection(keep)
+
     # ================================================================== selection api
     def set_selection(self, picks):
         self.selection = list(picks)
@@ -1398,6 +1498,8 @@ class Viewport(QOpenGLWidget):
             if self.drag_handler is not None and self.pick_handler is None and \
                     not (e.modifiers() & (Qt.ShiftModifier | Qt.ControlModifier)):
                 self._part_drag = bool(self.drag_handler.press(pos.x(), pos.y(), e))
+            self._box = None
+            self._box_start = (pos.x(), pos.y()) if (not self._part_drag and self.pick_handler is None) else None
 
     def mouseMoveEvent(self, e):
         pos = e.position()
@@ -1436,6 +1538,9 @@ class Viewport(QOpenGLWidget):
                 self.update()
             elif btn == Qt.LeftButton and self.sketcher:
                 self.sketcher.mouse_drag(self, x, y, e)
+                self.update()
+            elif btn == Qt.LeftButton and self._box_start is not None and self._moved:
+                self._box = (self._box_start[0], self._box_start[1], x, y)
                 self.update()
             elif btn == Qt.LeftButton and self._part_drag and self._moved:
                 self.setCursor(Qt.ClosedHandCursor)
@@ -1583,6 +1688,12 @@ class Viewport(QOpenGLWidget):
             if self._moved:
                 self.update()
                 return
+        if self._box is not None:
+            x0, y0, x1, y1 = self._box
+            self._box = None
+            self._box_start = None
+            self._box_select(x0, y0, x1, y1, bool(e.modifiers() & (Qt.ShiftModifier | Qt.ControlModifier)))
+            return
         if self._moved:
             return
         self.last_click = (pos.x(), pos.y())
@@ -1630,11 +1741,44 @@ class Viewport(QOpenGLWidget):
         self.cam.zoom(math.exp(step), *self._zoom_at)
         self.update()
 
+    ARROW_STEP_DEG = 15.0
+    ARROW_KEYS = {Qt.Key_Right: (-1, 0), Qt.Key_Left: (1, 0), Qt.Key_Up: (0, 1), Qt.Key_Down: (0, -1)}
+
+    def rotate_step(self, sign_h, sign_v, deg=None):
+        """Turn the view one step (15 degrees) with the arrow keys. Like turning the model: the right arrow brings
+        the model's right side towards you, so from the Right view six taps reach the Front view. Repeated taps add
+        up from where the turn is heading, not from the half-turned view."""
+        from .camera import rot_axis
+        deg = self.ARROW_STEP_DEG if deg is None else deg
+        R = self._anim[1][1] if self._anim else self.cam.R
+        Rr, Ru, Rb = R[0], R[1], R[2]
+        if sign_h:
+            M = rot_axis(Ru, math.radians(deg) * sign_h)
+        else:
+            M = rot_axis(Rr, math.radians(deg) * sign_v)
+        pivot = np.zeros(3) if self.orbit_mode == "origin" else self.orbit_pivot(-1e6, -1e6)
+        self.rotate_view_about(M @ Rb, M @ Ru, pivot, duration=0.15)
+
     def keyPressEvent(self, e):
         if self.sketcher and self.sketcher.key_press(self, e):
             self.update()
             return
+        k = e.key()
+        plain = not (e.modifiers() & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))
+        if k == Qt.Key_Space and plain and not e.isAutoRepeat():
+            self.clear_selection()                       # Space: deselect all, even what is off-screen
+            self.set_hover_none()
+            return
+        if k in self.ARROW_KEYS and plain and not self.sketcher:
+            self.rotate_step(*self.ARROW_KEYS[k])
+            return
         super().keyPressEvent(e)
+
+    def set_hover_none(self):
+        if self.hover is not None:
+            self.hover = None
+            self.hoverChanged.emit(None)
+            self.update()
 
     def leaveEvent(self, e):
         if self.hover:

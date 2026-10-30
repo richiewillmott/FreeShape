@@ -1,6 +1,35 @@
 # FreeShape revisions
 
-## r8 — speed
+## 1.8.4
+- **Space bar** deselects everything, in the 3D view and in the sketcher.
+- **Arrow keys turn the view** 15° per tap (Right, Left, Up, Down), animated. From the Right view, three taps
+  give the edge between Right and Front, six taps give Front.
+- **Search tools** (Ctrl+Space, Alt+C, or the "Search tools…" box in the top bar): type to filter tools and
+  commands (words like "round" find Fillet), Up / Down to choose, a description on the right, Enter starts the
+  tool, Esc closes.
+- **Delete face** for imported (STEP) bodies: remove faces and **Heal** the gap, **Cap** it, or **Leave void open**.
+  **Move face** pushes or pulls faces. **Offset surface** makes a new surface body a set distance from flat or
+  curved faces.
+- **3-point arc keeps its three points**: the third point is a real point on the arc instead of being turned
+  into a two-point arc with a radius.
+- **Sketch snapping / inference** (issue #1): hover a point or a line's midpoint, then move the cursor roughly
+  level or plumb with it — a yellow dotted guide appears and the new point snaps in line, with a horizontal /
+  vertical constraint added when you click. Hovering a line's midpoint snaps to it (midpoint constraint) and can
+  be used as an alignment source too. Works for lines, rectangles, circles and points. **Tangent inference**:
+  start a line at an arc's end and move along its tangent, or hover a circle / arc to snap to the point where the
+  line touches it — a "T" guide appears and a tangent constraint is added.
+- **Box selection** (issue #2), in the 3D view and in the sketcher: drag a box on empty space. Left-to-right (blue,
+  solid) selects what is fully inside; right-to-left (green, dashed) also selects what it touches. Hold Shift or
+  Ctrl to add to the selection.
+- **Select menu** (issue #3) in the top bar: switch vertices, edges, faces, solids, sketches and planes on or off, for
+  clicks and for box selection. **Vertices can now be selected** (off by default; tick Vertices in the menu).
+- **Resizable feature windows** (issue #4): drag the right edge, bottom edge or corner of a feature or sketch
+  panel. The width is remembered, and extra height goes to the selection lists.
+- **Plane types** (issue #5): Offset, Plane + point, Line + angle, Point + edge normal, Three points, Mid plane,
+  Curve + point and Tangent. The default *Automatic* picks the type from what is selected (three vertices → three
+  point plane, a face and a vertex → plane through the point, two faces → mid plane …), and you can select first
+  and press Plane. **Sketch does the same**: with a selection that defines a plane it creates that plane and starts
+  the sketch on it. Existing planes open as Offset planes, unchanged.
 
 ### 1.8.3
 - **Linux: fixed the 3D view breaking** on Wayland desktops (most modern Ubuntu / Fedora / KDE setups): the

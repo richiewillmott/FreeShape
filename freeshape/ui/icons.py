@@ -143,6 +143,24 @@ def draw(name: str, p: QPainter):
         p.drawRect(QRectF(4, 10, 18, 18))
         p.setBrush(QColor("#7d93ad"))
         p.drawPolygon(QPolygonF([QPointF(7, 10), QPointF(10, 8), QPointF(23, 8), QPointF(19, 10)]))
+    elif name == "delete_face":
+        _box(p, 4, 12, 18, 14, 6)
+        p.setPen(_pen(RED, 2.6))
+        p.drawLine(QPointF(9, 17), QPointF(17, 25))
+        p.drawLine(QPointF(17, 17), QPointF(9, 25))
+    elif name == "move_face":
+        _box(p, 4, 14, 16, 13, 6)
+        _arrow(p, 12, 20, 25, 7, ORANGE, 2.4)
+    elif name == "offset_surface":
+        _box(p, 4, 14, 16, 13, 6)
+        p.setPen(_pen(ORANGE, 2.2))
+        p.drawLine(QPointF(8, 9), QPointF(22, 9))
+        p.drawLine(QPointF(22, 9), QPointF(27, 6))
+    elif name == "search":
+        p.setPen(_pen(INK, 2.2))
+        p.setBrush(Qt.NoBrush)
+        p.drawEllipse(QPointF(14, 14), 8, 8)
+        p.drawLine(QPointF(20, 20), QPointF(27, 27))
     elif name == "hole":
         _box(p, 4, 12, 18, 14, 6)
         p.setPen(_pen(INK, 1.3))

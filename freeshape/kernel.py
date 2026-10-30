@@ -56,6 +56,8 @@ _as_face = _caster("Face")
 _as_edge = _caster("Edge")
 _as_solid = _caster("Solid")
 _as_vertex = _caster("Vertex")
+_as_wire = _caster("Wire")
+_as_shell = _caster("Shell")
 
 
 class KernelError(Exception):
@@ -284,6 +286,58 @@ def edge_info(edge) -> dict:
         info["center"] = _np(ci.Location()).tolist()
         info["axis"] = _np(ci.Axis().Direction()).tolist()
     return info
+
+
+def edge_closest(edge, pt):
+    """(point on the edge nearest `pt`, unit tangent of the edge there)."""
+    from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
+    from OCP.gp import gp_Vec
+    ext = BRepExtrema_DistShapeShape(BRepBuilderAPI_MakeVertex(_pnt(pt)).Vertex(), edge)
+    if not ext.IsDone() or ext.NbSolution() < 1:
+        raise KernelError("Couldn't find that point on the edge")
+    from OCP.BRepExtrema import BRepExtrema_IsOnEdge
+    from OCP.BRep import BRep_Tool as _BT
+    on = _np(ext.PointOnShape2(1))
+    ad = BRepAdaptor_Curve(edge)
+    if ext.SupportTypeShape2(1) == BRepExtrema_IsOnEdge:
+        t = ext.ParOnEdgeS2(1)[0]
+    else:                                   # the nearest point is one of the edge's end vertices
+        t = _BT.Parameter_s(_as_vertex(ext.SupportOnShape2(1)), edge)
+    p, v = gp_Pnt(), gp_Vec()
+    ad.D1(t, p, v)
+    d = np.array([v.X(), v.Y(), v.Z()])
+    if np.linalg.norm(d) < 1e-12:
+        raise KernelError("The edge has no direction at that point")
+    return on, d / np.linalg.norm(d)
+
+
+def surface_point_normal(face, pt=None):
+    """(point, outward unit normal) on a face: the point of the face nearest `pt`, or its middle when pt is None."""
+    from OCP.GeomAPI import GeomAPI_ProjectPointOnSurf
+    from OCP.BRepGProp import BRepGProp_Face
+    from OCP.BRep import BRep_Tool
+    from OCP.BRepTools import BRepTools
+    from OCP.gp import gp_Vec
+    if pt is None:
+        u0, u1, v0, v1 = BRepTools.UVBounds_s(face)
+        u, v = (u0 + u1) / 2, (v0 + v1) / 2
+    else:
+        proj = GeomAPI_ProjectPointOnSurf(_pnt(pt), BRep_Tool.Surface_s(face))
+        if proj.NbPoints() < 1:
+            raise KernelError("Couldn't find that point on the surface")
+        u, v = proj.LowerDistanceParameters()
+    p, n = gp_Pnt(), gp_Vec()
+    BRepGProp_Face(face).Normal(u, v, p, n)
+    nv = np.array([n.X(), n.Y(), n.Z()])
+    if np.linalg.norm(nv) < 1e-12:
+        raise KernelError("The surface has no direction there")
+    return _np(p), nv / np.linalg.norm(nv)
+
+
+def vertex_points(shape):
+    """Positions of a shape's vertices, in the same order the viewport numbers them."""
+    return _vertices_np(shape)
 
 
 def planar_face_plane(face) -> Plane | None:
@@ -684,6 +738,113 @@ def shell(shape, remove_faces, thickness: float, outward=False):
     return mk.Shape()
 
 
+def delete_faces(shape, faces, mode="heal"):
+    """Remove faces from a body (for cleaning up imported parts): heal = the surrounding faces grow to close the
+    gap (removes fillets, chamfers, bosses, holes), cap = fill the opening with a flat face, open = leave the
+    void open (the result is an open shell)."""
+    faces = list(faces)
+    if not faces:
+        raise KernelError("Select faces to delete")
+    if mode == "heal":
+        from OCP.BRepAlgoAPI import BRepAlgoAPI_Defeaturing
+        try:
+            d = BRepAlgoAPI_Defeaturing()
+            d.SetShape(shape)
+            for f in faces:
+                d.AddFaceToRemove(f)
+            d.Build()
+            ok = d.IsDone()
+        except Exception:
+            ok = False
+        if not ok or not solids(d.Shape()) or not is_valid(d.Shape()):
+            raise KernelError("Couldn't heal over those faces — select the whole fillet / chamfer / hole, "
+                              "or try Cap")
+        return clean(d.Shape())
+    from OCP.BRepTools import BRepTools_ReShape
+    rs = BRepTools_ReShape()
+    for f in faces:
+        rs.Remove(f)
+    from OCP.TopExp import TopExp_Explorer as _E
+    from OCP.TopAbs import TopAbs_SHELL as _SH
+    ex0 = _E(rs.Apply(shape), _SH)
+    shells = []
+    while ex0.More():                         # the body without those faces is an open shell, not a solid
+        shells.append(ex0.Current())
+        ex0.Next()
+    if not shells:
+        raise KernelError("Those faces can't be deleted from this part")
+    opened = compound(shells)
+    if mode == "open":
+        return opened
+    if mode == "cap":
+        from OCP.ShapeAnalysis import ShapeAnalysis_FreeBounds
+        from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeFace, BRepBuilderAPI_Sewing, BRepBuilderAPI_MakeSolid
+        from OCP.TopExp import TopExp_Explorer as _Exp
+        from OCP.TopAbs import TopAbs_WIRE, TopAbs_SHELL
+        fb = ShapeAnalysis_FreeBounds(opened, 1e-5, False, False)
+        sew = BRepBuilderAPI_Sewing(1e-4)
+        sew.Add(opened)
+        n = 0
+        ex = _Exp(fb.GetClosedWires(), TopAbs_WIRE)
+        while ex.More():
+            mk = BRepBuilderAPI_MakeFace(_as_wire(ex.Current()), True)     # a flat cap over each opening
+            if not mk.IsDone():
+                raise KernelError("Can't cap that opening with a flat face — try Heal")
+            sew.Add(mk.Face())
+            n += 1
+            ex.Next()
+        if not n:
+            raise KernelError("The faces leave no opening to cap")
+        sew.Perform()
+        res = sew.SewedShape()
+        sh = _Exp(res, TopAbs_SHELL)
+        if sh.More():
+            sol = BRepBuilderAPI_MakeSolid(_as_shell(sh.Current()))
+            if sol.IsDone() and is_valid(sol.Shape()):
+                return sol.Shape()
+        raise KernelError("Couldn't close the part after capping — try Heal or Leave open")
+    raise KernelError("Unknown delete-face mode")
+
+
+def move_face(shape, face, distance):
+    """Push (distance > 0) or pull (distance < 0) a flat face along its normal, growing or cutting the body."""
+    info = face_info(face)
+    if "n" not in info:
+        raise KernelError("Move face works on flat faces")
+    n = np.array(info["n"], float)
+    if abs(distance) < 1e-9:
+        return shape
+    if distance > 0:
+        return clean(fuse(shape, extrude([face], n, distance)))
+    return clean(cut(shape, extrude([face], -n, -distance)))
+
+
+def offset_surface(face, distance):
+    """A new surface (one face) at `distance` from `face`, measured along the face's outward normal (negative =
+    the other way). Works on flat and curved faces; the result is a surface body, not a solid."""
+    from OCP.BRepOffsetAPI import BRepOffsetAPI_MakeOffsetShape
+    from OCP.TopExp import TopExp_Explorer as _E
+    from OCP.TopAbs import TopAbs_FACE
+    if abs(distance) < 1e-9:
+        raise KernelError("Offset distance is zero")
+    try:
+        mk = BRepOffsetAPI_MakeOffsetShape()
+        mk.PerformByJoin(face, float(distance), 1e-4)
+        ok = mk.IsDone()
+    except Exception:
+        ok = False
+    if not ok:
+        raise KernelError("Couldn't offset that surface by this distance")
+    ex = _E(mk.Shape(), TopAbs_FACE)
+    faces = []
+    while ex.More():
+        faces.append(ex.Current())
+        ex.Next()
+    if not faces:
+        raise KernelError("Couldn't offset that surface by this distance")
+    return compound(faces)
+
+
 # --------------------------------------------------------------------------- tessellation
 
 @dataclass
@@ -694,6 +855,7 @@ class Mesh:
     tri_face: np.ndarray     # (m,) face index for each triangle
     face_ranges: list = field(default_factory=list)   # per face (tri_start, tri_end)
     edge_polys: list = field(default_factory=list)    # per edge (k,3) polyline
+    vertices: np.ndarray = field(default_factory=lambda: np.zeros((0, 3), np.float32))   # shape vertices, in order
 
 
 def tessellate(shape, lin_defl: float | None = None, ang_defl: float = 0.3) -> Mesh:
@@ -751,12 +913,13 @@ def tessellate(shape, lin_defl: float | None = None, ang_defl: float = 0.3) -> M
     for i, e in enumerate(edges(shape)):
         # seam edges (where a cylinder closes on itself) aren't shown or pickable, as in Onshape
         polys.append(np.zeros((0, 3), np.float32) if i in seams else discretize_edge(e, lin_defl))
+    vpts = np.array(_vertices_np(shape), np.float32).reshape(-1, 3)
     if V:
         mesh = Mesh(np.vstack(V).astype(np.float32), np.vstack(N).astype(np.float32),
-                    np.vstack(T).astype(np.uint32), np.concatenate(TF), ranges, polys)
+                    np.vstack(T).astype(np.uint32), np.concatenate(TF), ranges, polys, vpts)
     else:
         mesh = Mesh(np.zeros((0, 3), np.float32), np.zeros((0, 3), np.float32),
-                    np.zeros((0, 3), np.uint32), np.zeros(0, np.int32), ranges, polys)
+                    np.zeros((0, 3), np.uint32), np.zeros(0, np.int32), ranges, polys, vpts)
     return mesh
 
 

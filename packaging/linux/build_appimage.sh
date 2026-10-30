@@ -9,7 +9,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 PY="${PYTHON:-python3}"
-REV="$("$PY" -c 'import freeshape; print(freeshape.__revision__)')"
+REV="$("$PY" -c 'import freeshape; print(freeshape.__version__)')"
 OUT="dist/FreeShape-$REV-x86_64.AppImage"
 
 echo "[FreeShape] Packing FreeShape with PyInstaller (a few minutes)..."
