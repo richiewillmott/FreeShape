@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QLabel
 from .. import kernel as K
 from . import theme
 from . import boxsel
+from . import navstyles
 from .camera import Camera, STANDARD_VIEWS, basis
 
 PLANE_HALF = 75.0          # the default planes are 150 x 150 mm
@@ -162,7 +163,7 @@ class Viewport(QOpenGLWidget):
         self.ghosts = []          # translucent highlight meshes: [(Mesh, (r, g, b, a))]
         self.drag_handler = None  # assemblies: object with press(x, y, e) -> bool, move(x, y, e), release(x, y, e)
         self._part_drag = False
-        self.nav_style = "onshape"     # onshape | touchpad (Shift/Alt/Ctrl+Shift + move, no buttons)
+        self._nav = navstyles.get_style(navstyles.DEFAULT_STYLE)   # mouse style: see navstyles.STYLES
         self.zoom_speed = 1.0          # multiplier on the zoom per wheel notch
         self._tp = None
         self.orbit_mode = "cursor"     # what right-drag rotates about: cursor | centre | origin
@@ -1524,7 +1525,8 @@ class Viewport(QOpenGLWidget):
         self._last = (pos.x(), pos.y())
         self._moved = False
         self._pivot = None
-        if e.button() == Qt.RightButton:
+        nav = self._nav_action(e.buttons(), e.modifiers())
+        if nav == "orbit":
             self._pivot = self.orbit_pivot(pos.x(), pos.y())
         if e.button() == Qt.LeftButton:
             cube = self._cube_pick(pos.x(), pos.y())
@@ -1537,6 +1539,14 @@ class Viewport(QOpenGLWidget):
                 m = self.manipulators[mi]
                 t = self._manip_param(m, pos.x(), pos.y())
                 self._manip_drag = {"i": mi, "offset": (t - m["value"]) if t is not None else 0.0}
+                return
+            if nav in navstyles.NAV_ACTIONS:      # this style gives the left button a navigation job
+                self._part_drag = False
+                if self.drag_handler is not None and self.pick_handler is None and not self.sketcher and \
+                        not (e.modifiers() & (Qt.ShiftModifier | Qt.ControlModifier)):
+                    self._part_drag = bool(self.drag_handler.press(pos.x(), pos.y(), e))   # a part under it wins
+                self._box = None
+                self._box_start = None
                 return
             if self.sketcher and self.sketcher.mouse_press(self, pos.x(), pos.y(), e):
                 self.update()
@@ -1592,14 +1602,24 @@ class Viewport(QOpenGLWidget):
                 self._last = (x, y)
                 self.update()
                 return
-            if btn == Qt.RightButton and not (e.modifiers() & Qt.ControlModifier):
+            action = self._nav_action(e.buttons(), e.modifiers())
+            if btn == Qt.LeftButton and self._part_drag:
+                action = "select"                 # dragging a part, not navigating
+            if action == "orbit":
                 if self._moved:
+                    if self._pivot is None:       # the orbit started part-way through the drag (a chord)
+                        self._pivot = self.orbit_pivot(x, y)
                     self.cam.orbit(dx, dy, self._pivot)
                     self._orbiting = True
                     self.update()
-            elif btn == Qt.MiddleButton or (btn == Qt.RightButton and e.modifiers() & Qt.ControlModifier):
+            elif action == "pan":
                 self.cam.pan(dx, dy)
                 self.update()
+            elif action == "zoom":
+                self.cam.zoom(math.exp(dy * 0.01), self._press[0], self._press[1])
+                self.update()
+            elif btn != Qt.LeftButton:
+                pass
             elif btn == Qt.LeftButton and self.sketcher:
                 self.sketcher.mouse_drag(self, x, y, e)
                 self.update()
@@ -1612,7 +1632,7 @@ class Viewport(QOpenGLWidget):
                 self.update()
             self._last = (x, y)
             return
-        if self.nav_style == "touchpad" and self._touchpad_move(e, x, y):
+        if self._nav_hover_move(e, x, y):
             return
         # hover
         cube = self._cube_pick(x, y)
@@ -1649,17 +1669,11 @@ class Viewport(QOpenGLWidget):
             self._hover_pending = True
             QTimer.singleShot(0, self._do_hover)
 
-    def _touchpad_move(self, e, x, y):
-        """Touchpad navigation, no buttons held: Shift+move pans, Alt+move orbits, Ctrl+Shift+move zooms."""
-        m = e.modifiers()
-        shift, ctrl, alt = bool(m & Qt.ShiftModifier), bool(m & Qt.ControlModifier), bool(m & Qt.AltModifier)
-        if ctrl and shift and not alt:
-            mode = "zoom"
-        elif shift and not ctrl and not alt:
-            mode = "pan"
-        elif alt and not ctrl and not shift:
-            mode = "orbit"
-        else:
+    def _nav_hover_move(self, e, x, y):
+        """Navigation with no button held (the Touchpad style: Shift+move pans, Alt+move orbits,
+        Ctrl+Shift+move zooms). True when the move was consumed."""
+        mode = self._nav_action(e.buttons(), e.modifiers())
+        if mode not in navstyles.NAV_ACTIONS:
             self._tp = None
             return False
         if self._tp is None or self._tp[0] != mode:
@@ -1732,13 +1746,31 @@ class Viewport(QOpenGLWidget):
         img = img.copy((iw - cw_px) // 2, (ih - ch_px) // 2, cw_px, ch_px)
         return img.scaled(w, h, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
 
+    @property
+    def nav_style(self):
+        return self._nav.key
+
+    @nav_style.setter
+    def nav_style(self, key):
+        self._nav = navstyles.get_style(key)
+        self._tp = None
+
+    def _nav_action(self, buttons, mods):
+        """What the held buttons + modifiers do in the current mouse style: orbit | pan | zoom | select | None."""
+        b = "".join(c for c, f in (("L", Qt.LeftButton), ("M", Qt.MiddleButton), ("R", Qt.RightButton))
+                    if buttons & f)
+        m = "".join(c for c, f in (("S", Qt.ShiftModifier), ("C", Qt.ControlModifier), ("A", Qt.AltModifier))
+                    if mods & f)
+        return self._nav.resolve(b, m, editing=bool(self.sketcher) or self.pick_handler is not None)
+
     def orbit_pivot(self, x, y):
         """The point the view rotates about, by the 'Rotate around' setting:
         cursor = the model point under the mouse (Onshape-style), or the model's centre over empty space;
         centre = always the centre of the model; origin = always the origin."""
-        if self.orbit_mode == "origin":
+        mode = self._nav.pivot or self.orbit_mode
+        if mode == "origin":
             return np.zeros(3)
-        if self.orbit_mode == "cursor":
+        if mode == "cursor":
             p = self.surface_point(x, y)
             if p is not None:
                 return p
@@ -1832,7 +1864,7 @@ class Viewport(QOpenGLWidget):
         """Zoom at the cursor, gliding over a few frames rather than jumping, like Onshape. In Touchpad style a
         two-finger scroll pans and Ctrl+scroll (pinch) zooms."""
         self._anim = None
-        if self.nav_style == "touchpad" and not (e.modifiers() & Qt.ControlModifier):
+        if self._nav.wheel == "scroll" and not (e.modifiers() & Qt.ControlModifier):
             pd, ad = e.pixelDelta(), e.angleDelta()
             if not pd.isNull():
                 dx, dy = pd.x(), pd.y()

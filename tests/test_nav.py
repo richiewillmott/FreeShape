@@ -133,3 +133,146 @@ def test_touchpad_scroll_pans_and_ctrl_scroll_zooms(vp):
     _wheel(vp, angle=120, mods=Qt.ControlModifier)
     _settle(vp)
     assert vp.cam.scale < 0.1
+
+
+# ---------------------------------------------------------------- mouse styles (table driven)
+from PySide6.QtCore import Qt as _Qt  # noqa: E402
+
+_B = {"L": _Qt.LeftButton, "M": _Qt.MiddleButton, "R": _Qt.RightButton}
+_M = {"S": _Qt.ShiftModifier, "C": _Qt.ControlModifier, "A": _Qt.AltModifier}
+
+
+def _bm(buttons, mods):
+    b, m = _Qt.NoButton, _Qt.NoModifier
+    for c in buttons:
+        b |= _B[c]
+    for c in mods:
+        m |= _M[c]
+    return b, m
+
+
+def _drag(vp, buttons, mods, x0=300, y0=300, x1=340, y1=320):
+    """Press `buttons` (in order) with `mods`, move, release. Returns (target, R, scale) deltas as a tuple of bools."""
+    t0, R0, s0 = vp.cam.target.copy(), vp.cam.R.copy(), vp.cam.scale
+    held = _Qt.NoButton
+    for c in buttons:
+        held |= _B[c]
+        _, m = _bm("", mods)
+        vp.mousePressEvent(QMouseEvent(QEvent.MouseButtonPress, QPointF(x0, y0), QPointF(x0, y0), _B[c], held, m))
+    _, m = _bm("", mods)
+    vp.mouseMoveEvent(QMouseEvent(QEvent.MouseMove, QPointF(x0 + 10, y0 + 5), QPointF(x0 + 10, y0 + 5),
+                                  _Qt.NoButton, held, m))
+    vp.mouseMoveEvent(QMouseEvent(QEvent.MouseMove, QPointF(x1, y1), QPointF(x1, y1), _Qt.NoButton, held, m))
+    for c in reversed(buttons):
+        held &= ~_B[c]
+        vp.mouseReleaseEvent(QMouseEvent(QEvent.MouseButtonRelease, QPointF(x1, y1), QPointF(x1, y1),
+                                         _B[c], held, m))
+    zoomed = vp.cam.scale != s0
+    return (not np.allclose(vp.cam.R, R0), not zoomed and not np.allclose(vp.cam.target, t0), zoomed)
+
+
+ORBIT, PAN, ZOOM = (True, False, False), (False, True, False), (False, False, True)
+NONE = (False, False, False)
+
+# style -> [(buttons, mods, expected)]: one orbit, one pan, one zoom (plus the quirks) per FreeCAD style
+STYLE_CASES = {
+    "cad": [("R", "S", ORBIT), ("M", "", PAN), ("R", "C", PAN), ("R", "CS", ZOOM), ("MR", "", ORBIT),
+            ("LM", "", ORBIT), ("R", "", NONE)],
+    "gesture": [("L", "", ORBIT), ("R", "", PAN), ("M", "", NONE)],
+    "blender": [("M", "", ORBIT), ("M", "S", PAN), ("M", "C", ZOOM), ("LR", "", PAN), ("R", "CS", ZOOM)],
+    "solidworks": [("M", "", ORBIT), ("M", "C", PAN), ("M", "S", ZOOM), ("R", "", NONE)],
+    "openinventor": [("L", "", ORBIT), ("M", "", PAN), ("L", "CS", PAN), ("LM", "", ZOOM), ("M", "C", ZOOM)],
+    "revit": [("M", "S", ORBIT), ("M", "", PAN), ("LR", "", PAN), ("M", "C", ZOOM), ("R", "CS", ZOOM)],
+    "openscad": [("L", "", ORBIT), ("R", "", PAN), ("M", "", ZOOM), ("R", "S", ZOOM)],
+    "onshape": [("R", "", ORBIT), ("M", "", PAN), ("R", "C", PAN)],
+}
+
+
+@pytest.mark.parametrize("style,buttons,mods,expect", [(s, b, m, e) for s, cs in STYLE_CASES.items()
+                                                       for b, m, e in cs])
+def test_mouse_style_mapping(vp, style, buttons, mods, expect):
+    vp.nav_style = style
+    assert _drag(vp, buttons, mods) == expect
+
+
+@pytest.mark.parametrize("style", ["cad", "gesture", "blender", "solidworks", "openinventor", "revit", "openscad"])
+def test_mouse_style_wheel_zooms(vp, style):
+    vp.nav_style = style
+    assert _zoom_for(vp, [120]) == pytest.approx(0.88, rel=1e-6)
+
+
+@pytest.mark.parametrize("style", ["cad", "blender", "solidworks", "revit"])
+def test_left_drag_selects_not_navigates(vp, style):
+    vp.nav_style = style
+    assert _drag(vp, "L", "") == NONE
+
+
+def test_left_orbit_styles_keep_left_for_sketch(vp):
+    class Sk:
+        dragged = 0
+        sk = type("S", (), {"constraints": [], "entities": {}})()
+        plane = None
+
+        def mouse_press(self, *a):
+            return True
+
+        def mouse_drag(self, *a):
+            Sk.dragged += 1
+
+        def mouse_release(self, *a):
+            pass
+
+    vp.sketcher = Sk()
+    for style in ("gesture", "openinventor", "openscad"):
+        vp.nav_style = style
+        assert _drag(vp, "L", "") == NONE
+        assert _drag(vp, "L", "A") == ORBIT       # Alt+left still orbits while a sketch is active
+
+
+def test_left_orbit_style_drag_part_wins(vp):
+    class DH:
+        def press(self, *a):
+            return True
+
+        def move(self, *a):
+            pass
+
+        def release(self, *a):
+            pass
+
+    vp.drag_handler = DH()
+    vp.nav_style = "openinventor"
+    assert _drag(vp, "L", "") == NONE
+
+
+def test_every_style_has_help_line_and_orbit_pan_zoom():
+    from freeshape.ui import navstyles
+    assert set(navstyles.STYLES) >= {"onshape", "touchpad", "cad", "gesture", "blender", "solidworks",
+                                     "openinventor", "revit", "openscad"}
+    for st in navstyles.STYLES.values():
+        h = st.help_line()
+        assert h.startswith("Orbit: ") and "Pan: " in h and "Zoom: " in h
+
+
+def test_old_nav_style_setting_loads(tmp_path):
+    from PySide6.QtCore import QSettings
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from freeshape.ui import mainwindow
+    from freeshape.ui.viewport import Viewport
+
+    class W:
+        set_nav_style = mainwindow.MainWindow.set_nav_style
+
+    w = W()
+    w.viewport = Viewport()
+    w.nav_actions = {}
+    w.settings = QSettings(str(tmp_path / "s.ini"), QSettings.IniFormat)
+    w.settings.setValue("nav_style", "touchpad")
+    mode = str(w.settings.value("mouse_style", w.settings.value("nav_style", "onshape")))
+    w.set_nav_style(mode, save=False)
+    assert w.viewport.nav_style == "touchpad"
+    w.set_nav_style("bogus", save=False)
+    assert w.viewport.nav_style == "onshape"
+    w.set_nav_style("cad")
+    assert w.settings.value("mouse_style") == "cad"

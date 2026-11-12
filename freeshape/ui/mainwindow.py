@@ -20,7 +20,7 @@ from ..document import Document
 from ..assembly import AssemblyDoc
 from ..drawing import DrawingDoc
 from ..sketch import Sketch
-from . import theme
+from . import theme, navstyles
 from .icons import icon
 from .viewport import Viewport, Pick
 from .panels import LeftPanel, STD_PLANES, DocTabBar
@@ -82,7 +82,8 @@ class MainWindow(QMainWindow):
         self._bind_shortcuts()
         self.set_theme(str(self.settings.value("theme", "light")), save=False)
         self.set_orbit_mode(str(self.settings.value("orbit", "cursor")), save=False)
-        self.set_nav_style(str(self.settings.value("nav_style", "onshape")), save=False)
+        self.set_nav_style(str(self.settings.value("mouse_style", self.settings.value("nav_style", "onshape"))),
+                           save=False)
         self.set_zoom_speed(str(self.settings.value("zoom_speed", "normal")), save=False)
         self.set_shiny(str(self.settings.value("shiny", "true")).lower() != "false", save=False)
         self._add_tab(self._new_document())
@@ -299,12 +300,14 @@ class MainWindow(QMainWindow):
             rgrp.addAction(a)
             rm.addAction(a)
             self.orbit_actions[mode] = a
-        nm = vm.addMenu("Navigation style")
+        nm = vm.addMenu("Mouse style")
+        nm.setToolTipsVisible(True)
         ngrp = _AG(self)
         self.nav_actions = {}
-        for mode, label in (("onshape", "Onshape (mouse buttons)"),
-                            ("touchpad", "Touchpad (Shift = pan, Alt = orbit, Ctrl+Shift = zoom)")):
-            a = QAction(label, self)
+        for mode, st in navstyles.STYLES.items():
+            a = QAction(st.label, self)
+            a.setToolTip(st.help_line())
+            a.setStatusTip(st.help_line())
             a.setCheckable(True)
             a.triggered.connect(lambda _=False, md=mode: self.set_nav_style(md))
             ngrp.addAction(a)
@@ -1150,13 +1153,12 @@ class MainWindow(QMainWindow):
             self.settings.setValue("orbit", mode)
 
     def set_nav_style(self, mode, save=True):
-        mode = mode if mode in ("onshape", "touchpad") else "onshape"
+        mode = mode if mode in navstyles.STYLES else navstyles.DEFAULT_STYLE
         self.viewport.nav_style = mode
-        self.viewport._tp = None
         for m_, a in self.nav_actions.items():
             a.setChecked(m_ == mode)
         if save:
-            self.settings.setValue("nav_style", mode)
+            self.settings.setValue("mouse_style", mode)
 
     def set_zoom_speed(self, name, save=True):
         name = name if name in self.viewport.ZOOM_SPEEDS else "normal"
