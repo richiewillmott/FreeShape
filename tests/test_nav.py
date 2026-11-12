@@ -72,12 +72,12 @@ def test_ctrl_shift_arrow_pans(vp):
     t0 = vp.cam.target.copy()
     R0 = vp.cam.R.copy()
     _key(vp, Qt.Key_Right, Qt.ControlModifier | Qt.ShiftModifier)
-    expect = R0[0] * 0.1 * 800 * 0.1
+    expect = -R0[0] * 0.1 * 800 * 0.1   # model moves right = camera moves left
     assert np.allclose(vp.cam.target - t0, expect)
     assert np.allclose(vp.cam.R, R0)
     t1 = vp.cam.target.copy()
     _key(vp, Qt.Key_Up, Qt.ControlModifier | Qt.ShiftModifier)
-    assert np.allclose(vp.cam.target - t1, R0[1] * 0.1 * 600 * 0.1)
+    assert np.allclose(vp.cam.target - t1, -R0[1] * 0.1 * 600 * 0.1)
 
 
 def test_plain_arrow_still_rotates(vp):

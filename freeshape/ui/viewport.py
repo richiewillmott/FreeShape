@@ -1917,7 +1917,7 @@ class Viewport(QOpenGLWidget):
     PAN_KEY_FRACTION = 0.10
 
     def pan_step(self, sign_h, sign_v):
-        """Pan the view by 10% of what is visible (Ctrl+Shift+arrow). The view moves towards the arrow."""
+        """Pan the view by 10% of what is visible (Ctrl+Shift+arrow). sign_h/sign_v move the camera; callers pass the opposite of the arrow so the model follows it, as in Onshape."""
         self._anim = None
         c = self.cam
         c.target = c.target + c.R[0] * sign_h * self.PAN_KEY_FRACTION * c.w * c.scale \
@@ -1933,7 +1933,7 @@ class Viewport(QOpenGLWidget):
         if k in self.ARROW_KEYS and (mods & Qt.ControlModifier) and (mods & Qt.ShiftModifier) \
                 and not (mods & (Qt.AltModifier | Qt.MetaModifier)) and not self.sketcher:
             h, v = self.ARROW_KEYS[k]
-            self.pan_step(-h, v)       # ARROW_KEYS is the rotation sign: right = (-1, 0)
+            self.pan_step(h, -v)       # Onshape: the model moves with the arrow (camera moves the other way)
             return
         plain = not (e.modifiers() & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))
         if k == Qt.Key_Space and plain and not e.isAutoRepeat():
