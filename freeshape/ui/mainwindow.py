@@ -28,6 +28,7 @@ from .dialogs import FeatureDialog, SketchDialog, pick_to_item
 from .section import SectionPanel
 from .sketcher import Sketcher, CONSTRAINT_TOOLS
 from .numparse import fmt
+from .filedirs import start_dir, remember_dir
 from .assembly_ui import AssemblyController
 
 APP_NAME = "FreeShape"
@@ -42,6 +43,12 @@ def app_icon():
         if os.path.exists(path):
             ic.addFile(path)
     return ic
+
+
+def regions_of_sketch(state, fid):
+    """Region picks for every closed region of sketch `fid` (empty if it has none)."""
+    sr = state.sketches.get(fid)
+    return [Pick("region", (fid, i)) for i in range(len(sr.regions))] if sr is not None else []
 
 
 def _sep():
@@ -707,8 +714,10 @@ class MainWindow(QMainWindow):
         sc("Ctrl+Y", self.redo)
         sc("Ctrl+Shift+Z", self.redo)
         sc("Shift+S", lambda: self.start_sketch() if self.mode == "idle" and not self.is_dwg else None)
-        sc("Shift+E", lambda: self.start_feature("extrude"))
-        sc("Shift+W", lambda: self.start_feature("revolve"))
+        sc("Shift+E", lambda: self.finish_sketch_and_start("extrude") if self.mode == "sketch"
+           else self.start_feature("extrude"))
+        sc("Shift+W", lambda: self.finish_sketch_and_start("revolve") if self.mode == "sketch"
+           else self.start_feature("revolve"))
         sc("Shift+F", lambda: self.asm.start_mate("fastened") if self.is_asm else self.start_feature("fillet"))
 
         sc("N", lambda: self.dwg.set_tool("note") if self.is_dwg else self._normal_to_sketch())
@@ -801,7 +810,19 @@ class MainWindow(QMainWindow):
         self.viewport.set_scene(parts, self._planes_for(state), sketches)
 
     # ================================================================== feature dialogs
-    def start_feature(self, ftype, edit_fid=None):
+    def finish_sketch_and_start(self, ftype):
+        """Shift+E / Shift+W while sketching: save the sketch, then open the feature with its regions selected."""
+        if self.mode != "sketch":
+            return
+        if self.sketcher is not None and self.sketcher._editor is not None:
+            return                                   # typing in the dimension box
+        fid = self.sk_ctx["feature"]["id"]
+        self.finish_sketch()
+        if self.mode != "idle":
+            return
+        self.start_feature(ftype, preselect=regions_of_sketch(self.doc.state, fid))
+
+    def start_feature(self, ftype, edit_fid=None, preselect=None):
         if self.is_asm or self.is_dwg:
             return
         if self.mode != "idle":
@@ -819,7 +840,7 @@ class MainWindow(QMainWindow):
             feat = self.doc.make_feature(ftype)
             index = self.doc.insert_index()
             is_new = True
-            pre = list(self.viewport.selection)
+            pre = list(preselect) if preselect else list(self.viewport.selection)
         self.mode = "dialog"
         self.viewport.feature_hl = None
         self.dialog = FeatureDialog(self, feat, is_new, index, pre)
@@ -1543,10 +1564,12 @@ class MainWindow(QMainWindow):
                 return
             pid = ids[names.index(name)]
         part = state.parts[pid]
-        path, _ = QFileDialog.getSaveFileName(self, "Export flat pattern", part.name.replace(" ", "_") + "_flat.dxf",
-                                              "DXF (*.dxf)")
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export flat pattern", self._dialog_dir("export", part.name.replace(" ", "_") + "_flat.dxf"),
+            "DXF (*.dxf)")
         if not path:
             return
+        remember_dir(self.settings, "export", path)
         if not path.lower().endswith(".dxf"):
             path += ".dxf"
         try:
@@ -2551,11 +2574,17 @@ class MainWindow(QMainWindow):
     def open_dialog(self):
         self._leave_modes()
         path, _ = QFileDialog.getOpenFileName(
-            self, "Open", "", "FreeShape documents, STEP and BREP files (*.fshape *.fasm *.fdwg *.fcad *.step *.stp *.brep *.brp);;"
+            self, "Open", self._dialog_dir("doc"), "FreeShape documents, STEP and BREP files (*.fshape *.fasm *.fdwg *.fcad *.step *.stp *.brep *.brp);;"
             "Part Studios (*.fshape *.fcad);;Assemblies (*.fasm);;Drawings (*.fdwg);;STEP files (*.step *.stp);;BREP files (*.brep *.brp);;"
             "All files (*)")
         if path:
+            remember_dir(self.settings, "doc", path)
             self.open_any(path)
+
+    def _dialog_dir(self, kind, name=""):
+        """Start folder (joined with a default file name) for a file dialog."""
+        d = start_dir(self.settings, kind, getattr(self.doc, "path", None))
+        return os.path.join(d, name) if name else d
 
     def open_file(self, path):
         # already open? just switch to it
@@ -2633,9 +2662,11 @@ class MainWindow(QMainWindow):
         ext = ".fdwg" if self.is_dwg else ".fasm" if self.is_asm else ".fshape"
         filt = "FreeShape drawings (*.fdwg)" if self.is_dwg else "FreeShape assemblies (*.fasm)" if self.is_asm \
             else "FreeShape documents (*.fshape)"
-        path, _ = QFileDialog.getSaveFileName(self, "Save as", self.doc.path or f"{self.doc.name}{ext}", filt)
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save as", self.doc.path or self._dialog_dir("doc", f"{self.doc.name}{ext}"), filt)
         if not path:
             return False
+        remember_dir(self.settings, "doc", path)
         if not path.lower().endswith(ext):
             path += ext
         self.doc.path = path
@@ -2644,9 +2675,11 @@ class MainWindow(QMainWindow):
     def import_step(self, into_current=False):
         if self.mode != "idle":
             self._leave_modes()
-        path, _ = QFileDialog.getOpenFileName(self, "Import", "", "STEP or BREP files (*.step *.stp *.brep *.brp);;"
+        path, _ = QFileDialog.getOpenFileName(self, "Import", self._dialog_dir("doc"),
+                                              "STEP or BREP files (*.step *.stp *.brep *.brp);;"
                                               "STEP files (*.step *.stp);;BREP files (*.brep *.brp);;All files (*)")
         if path:
+            remember_dir(self.settings, "doc", path)
             self.import_step_file(path, into_current)
 
     def import_step_file(self, path, into_current=False):
@@ -2720,9 +2753,10 @@ class MainWindow(QMainWindow):
         filters = ";;".join(f for _k, f, _e in self.EXPORT_FORMATS)
         sel = next(f for k, f, _e in self.EXPORT_FORMATS if k == fmt_)
         ext = next(e for k, _f, e in self.EXPORT_FORMATS if k == fmt_)
-        path, chosen = QFileDialog.getSaveFileName(self, title, base + ext, filters, sel)
+        path, chosen = QFileDialog.getSaveFileName(self, title, self._dialog_dir("export", base + ext), filters, sel)
         if not path:
             return None
+        remember_dir(self.settings, "export", path)
         if not os.path.splitext(path)[1]:
             path += next((e for _k, f, e in self.EXPORT_FORMATS if f == chosen), ".step")
         return path
