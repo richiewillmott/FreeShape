@@ -75,6 +75,8 @@ class MainWindow(QMainWindow):
         self._bind_shortcuts()
         self.set_theme(str(self.settings.value("theme", "light")), save=False)
         self.set_orbit_mode(str(self.settings.value("orbit", "cursor")), save=False)
+        self.set_nav_style(str(self.settings.value("nav_style", "onshape")), save=False)
+        self.set_zoom_speed(str(self.settings.value("zoom_speed", "normal")), save=False)
         self.set_shiny(str(self.settings.value("shiny", "true")).lower() != "false", save=False)
         self._add_tab(self._new_document())
         self._autosave_timer = QTimer(self)
@@ -290,6 +292,27 @@ class MainWindow(QMainWindow):
             rgrp.addAction(a)
             rm.addAction(a)
             self.orbit_actions[mode] = a
+        nm = vm.addMenu("Navigation style")
+        ngrp = _AG(self)
+        self.nav_actions = {}
+        for mode, label in (("onshape", "Onshape (mouse buttons)"),
+                            ("touchpad", "Touchpad (Shift = pan, Alt = orbit, Ctrl+Shift = zoom)")):
+            a = QAction(label, self)
+            a.setCheckable(True)
+            a.triggered.connect(lambda _=False, md=mode: self.set_nav_style(md))
+            ngrp.addAction(a)
+            nm.addAction(a)
+            self.nav_actions[mode] = a
+        zm = vm.addMenu("Zoom speed")
+        zgrp = _AG(self)
+        self.zoom_actions = {}
+        for mode, label in (("slow", "Slow"), ("normal", "Normal"), ("fast", "Fast")):
+            a = QAction(label, self)
+            a.setCheckable(True)
+            a.triggered.connect(lambda _=False, md=mode: self.set_zoom_speed(md))
+            zgrp.addAction(a)
+            zm.addAction(a)
+            self.zoom_actions[mode] = a
         vm.addSeparator()
         tm = vm.addMenu("Theme")
         from PySide6.QtGui import QActionGroup
@@ -1104,6 +1127,23 @@ class MainWindow(QMainWindow):
             a.setChecked(m_ == mode)
         if save:
             self.settings.setValue("orbit", mode)
+
+    def set_nav_style(self, mode, save=True):
+        mode = mode if mode in ("onshape", "touchpad") else "onshape"
+        self.viewport.nav_style = mode
+        self.viewport._tp = None
+        for m_, a in self.nav_actions.items():
+            a.setChecked(m_ == mode)
+        if save:
+            self.settings.setValue("nav_style", mode)
+
+    def set_zoom_speed(self, name, save=True):
+        name = name if name in self.viewport.ZOOM_SPEEDS else "normal"
+        self.viewport.zoom_speed = self.viewport.ZOOM_SPEEDS[name]
+        for m_, a in self.zoom_actions.items():
+            a.setChecked(m_ == name)
+        if save:
+            self.settings.setValue("zoom_speed", name)
 
     # ================================================================== theme
     def set_theme(self, mode, save=True):

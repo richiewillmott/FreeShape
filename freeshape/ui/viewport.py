@@ -162,6 +162,9 @@ class Viewport(QOpenGLWidget):
         self.ghosts = []          # translucent highlight meshes: [(Mesh, (r, g, b, a))]
         self.drag_handler = None  # assemblies: object with press(x, y, e) -> bool, move(x, y, e), release(x, y, e)
         self._part_drag = False
+        self.nav_style = "onshape"     # onshape | touchpad (Shift/Alt/Ctrl+Shift + move, no buttons)
+        self.zoom_speed = 1.0          # multiplier on the zoom per wheel notch
+        self._tp = None
         self.orbit_mode = "cursor"     # what right-drag rotates about: cursor | centre | origin
         self._thumb = False            # drawing a clean picture for the home page
         self._orbiting = False
@@ -1609,6 +1612,8 @@ class Viewport(QOpenGLWidget):
                 self.update()
             self._last = (x, y)
             return
+        if self.nav_style == "touchpad" and self._touchpad_move(e, x, y):
+            return
         # hover
         cube = self._cube_pick(x, y)
         if cube != getattr(self, "_cube_hover", None):
@@ -1643,6 +1648,36 @@ class Viewport(QOpenGLWidget):
         if not getattr(self, "_hover_pending", False):
             self._hover_pending = True
             QTimer.singleShot(0, self._do_hover)
+
+    def _touchpad_move(self, e, x, y):
+        """Touchpad navigation, no buttons held: Shift+move pans, Alt+move orbits, Ctrl+Shift+move zooms."""
+        m = e.modifiers()
+        shift, ctrl, alt = bool(m & Qt.ShiftModifier), bool(m & Qt.ControlModifier), bool(m & Qt.AltModifier)
+        if ctrl and shift and not alt:
+            mode = "zoom"
+        elif shift and not ctrl and not alt:
+            mode = "pan"
+        elif alt and not ctrl and not shift:
+            mode = "orbit"
+        else:
+            self._tp = None
+            return False
+        if self._tp is None or self._tp[0] != mode:
+            pivot = self.orbit_pivot(x, y) if mode == "orbit" else None
+            self._tp = (mode, (x, y), pivot)
+            return True
+        _, (lx, ly), pivot = self._tp
+        dx, dy = x - lx, y - ly
+        self._tp = (mode, (x, y), pivot)
+        if mode == "pan":
+            self.cam.pan(dx, dy)
+        elif mode == "orbit":
+            self.cam.orbit(dx, dy, pivot)
+        else:
+            self.cam.zoom(math.exp(dy * 0.01), x, y)
+        self._anim = None
+        self.update()
+        return True
 
     def _do_hover(self):
         self._hover_pending = False
@@ -1779,14 +1814,41 @@ class Viewport(QOpenGLWidget):
         pk = self.pick(pos.x(), pos.y())
         self.doubleClicked.emit(pk)
 
+    ZOOM_PER_NOTCH = 0.88          # one 120-unit mouse notch zooms by 12%, like Onshape
+    ZOOM_MAX_NOTCHES = 1.0         # cap on a single wheel event, so a burst of big deltas cannot jump the view
+    ZOOM_SPEEDS = {"slow": 0.5, "normal": 1.0, "fast": 2.0}
+    PAN_PX_PER_NOTCH = 40.0        # touchpad style: pixels panned per 120 wheel units when no pixelDelta is given
+
+    @staticmethod
+    def wheel_notches(e):
+        """Wheel travel in mouse notches (120 angle units = 1). High-resolution devices send many small deltas that
+        add up to a notch; devices with only pixelDelta are taken as ~60 px per notch."""
+        d = e.angleDelta().y()
+        if d:
+            return d / 120.0
+        return e.pixelDelta().y() / 60.0
+
     def wheelEvent(self, e):
-        """Zoom at the cursor — glides over a few frames rather than jumping, like Onshape."""
+        """Zoom at the cursor, gliding over a few frames rather than jumping, like Onshape. In Touchpad style a
+        two-finger scroll pans and Ctrl+scroll (pinch) zooms."""
         self._anim = None
-        delta = e.angleDelta().y()
-        if delta == 0:
+        if self.nav_style == "touchpad" and not (e.modifiers() & Qt.ControlModifier):
+            pd, ad = e.pixelDelta(), e.angleDelta()
+            if not pd.isNull():
+                dx, dy = pd.x(), pd.y()
+            else:
+                dx, dy = ad.x() / 120.0 * self.PAN_PX_PER_NOTCH, ad.y() / 120.0 * self.PAN_PX_PER_NOTCH
+            if dx or dy:
+                self.cam.pan(dx, dy)
+                self.update()
             return
+        notches = self.wheel_notches(e)
+        if notches == 0:
+            return
+        notches = max(-self.ZOOM_MAX_NOTCHES, min(self.ZOOM_MAX_NOTCHES, notches))
         pos = e.position()
-        self._zoom_left += (delta / 120.0) * math.log(0.85)
+        self._zoom_left += notches * self.zoom_speed * math.log(self.ZOOM_PER_NOTCH)
+        self._zoom_left = max(-1.5, min(1.5, self._zoom_left))
         self._zoom_at = (pos.x(), pos.y())
         if not self._zoom_timer.isActive():
             self._zoom_timer.start(12)
@@ -1820,11 +1882,27 @@ class Viewport(QOpenGLWidget):
         pivot = np.zeros(3) if self.orbit_mode == "origin" else self.orbit_pivot(-1e6, -1e6)
         self.rotate_view_about(M @ Rb, M @ Ru, pivot, duration=0.15)
 
+    PAN_KEY_FRACTION = 0.10
+
+    def pan_step(self, sign_h, sign_v):
+        """Pan the view by 10% of what is visible (Ctrl+Shift+arrow). The view moves towards the arrow."""
+        self._anim = None
+        c = self.cam
+        c.target = c.target + c.R[0] * sign_h * self.PAN_KEY_FRACTION * c.w * c.scale \
+            + c.R[1] * sign_v * self.PAN_KEY_FRACTION * c.h * c.scale
+        self.update()
+
     def keyPressEvent(self, e):
         if self.sketcher and self.sketcher.key_press(self, e):
             self.update()
             return
         k = e.key()
+        mods = e.modifiers()
+        if k in self.ARROW_KEYS and (mods & Qt.ControlModifier) and (mods & Qt.ShiftModifier) \
+                and not (mods & (Qt.AltModifier | Qt.MetaModifier)) and not self.sketcher:
+            h, v = self.ARROW_KEYS[k]
+            self.pan_step(-h, v)       # ARROW_KEYS is the rotation sign: right = (-1, 0)
+            return
         plain = not (e.modifiers() & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))
         if k == Qt.Key_Space and plain and not e.isAutoRepeat():
             self.clear_selection()                       # Space: deselect all, even what is off-screen
