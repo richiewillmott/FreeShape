@@ -1614,6 +1614,113 @@ def draft(shape, face_list, pull_dir, angle_deg, neutral: Plane):
     return mk.Shape()
 
 
+def section_cut(shape, p0, n):
+    """The model with everything in front of the cutting plane removed (the side `n` points to), for a section
+    view. Each solid is cut on its own, so a multi-part model stays separate parts."""
+    p0, n = np.asarray(p0, float), _unit_np(n)
+    lo, hi = bbox(shape)
+    size = float(np.linalg.norm(hi - lo)) * 2 + 10
+    pl = Plane(p0, _any_perp(n), n)
+    tool = BRepBuilderAPI_MakeFace(gp_Pln(pl.gp_ax3()), -size, size, -size, size).Face()
+    keep = []
+    for sol in solids(shape) or [shape]:
+        sp = BRepAlgoAPI_Splitter()
+        sp.SetArguments(_list([sol]))
+        sp.SetTools(_list([tool]))
+        sp.SetFuzzyValue(1e-7)
+        sp.Build()
+        pieces = solids(sp.Shape()) if sp.IsDone() else [sol]
+        for q in pieces:
+            c = interior_point_solid(q)
+            if float((c - p0) @ n) < 0:
+                keep.append(q)
+    return compound(keep)
+
+
+def interior_point_solid(sol) -> np.ndarray:
+    """A point inside a solid (its centre of mass if that is inside, else the middle of a face nudged in)."""
+    from OCP.BRepClass3d import BRepClass3d_SolidClassifier
+    from OCP.TopAbs import TopAbs_IN
+    c = mass_props(sol)["centroid"]
+    if BRepClass3d_SolidClassifier(sol, _pnt(c), 1e-7).State() == TopAbs_IN:
+        return c
+    lo, hi = bbox(sol)
+    eps = float(np.linalg.norm(hi - lo)) * 1e-4 + 1e-6
+    for f in faces(sol):
+        m = tessellate(f)
+        if not len(m.tris):
+            continue
+        tri = m.verts[m.tris].astype(float)
+        cr = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+        i = int(np.argmax(np.linalg.norm(cr, axis=1)))
+        q, nrm = tri[i].mean(0), _unit_np(cr[i])
+        for sgn in (-1, 1):
+            t = q + sgn * eps * nrm
+            if BRepClass3d_SolidClassifier(sol, _pnt(t), 1e-7).State() == TopAbs_IN:
+                return t
+    return c
+
+
+def _unit_np(v):
+    v = np.asarray(v, float)
+    return v / (np.linalg.norm(v) + 1e-300)
+
+
+def _any_perp(n):
+    a = np.array([1.0, 0, 0]) if abs(n[0]) < 0.9 else np.array([0, 1.0, 0])
+    x = np.cross(n, a)
+    return x / np.linalg.norm(x)
+
+
+def section_faces(cut_shape, p0, n, tol=1e-6):
+    """The cut faces of a section (those lying in the cutting plane), grouped by solid: [[faces of solid 0], …]."""
+    p0, n = np.asarray(p0, float), _unit_np(n)
+    out = []
+    for sol in solids(cut_shape):
+        fs = []
+        for f in faces(sol):
+            pl = planar_face_plane(f)
+            if pl is not None and abs(abs(float(pl.normal @ n)) - 1) < 1e-7 and \
+                    abs(float((np.asarray(pl.origin) - p0) @ n)) < tol * 100 + 1e-7:
+                fs.append(f)
+        out.append(fs)
+    return out
+
+
+def hatch_segments(face, origin, along, across, spacing):
+    """Hatch lines filling a flat face: straight lines running `along`, `spacing` apart in the `across`
+    direction (both in the face's plane), clipped to the face (holes stay empty). [(P, Q)] in 3D."""
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Common
+    along, across = _unit_np(along), _unit_np(across)
+    pts = np.array(_vertices_np(face) or [interior_point(face)])
+    m = tessellate(face)
+    if len(m.verts):
+        pts = np.vstack([pts, m.verts.astype(float)])
+    o = np.asarray(origin, float)
+    a = (pts - o) @ along
+    b = (pts - o) @ across
+    if spacing <= 0 or (b.max() - b.min()) / spacing > 4000:
+        return []
+    k0, k1 = math.floor(b.min() / spacing), math.ceil(b.max() / spacing)
+    lines = []
+    for k in range(k0, k1 + 1):
+        base = o + across * k * spacing
+        P, Q = base + along * (a.min() - 1), base + along * (a.max() + 1)
+        lines.append(BRepBuilderAPI_MakeEdge(_pnt(P), _pnt(Q)).Edge())
+    if not lines:
+        return []
+    cm = BRepAlgoAPI_Common(compound(lines), face)
+    cm.Build()
+    if not cm.IsDone():
+        return []
+    out = []
+    for e in edges(cm.Shape()):
+        pl = discretize_edge(e)
+        if len(pl) >= 2:
+            out.append((np.asarray(pl[0], float), np.asarray(pl[-1], float)))
+    return out
+
+
 def split_by_plane(shape, plane: Plane):
     lo, hi = bbox(shape)
     size = float(np.linalg.norm(hi - lo)) * 2 + 10

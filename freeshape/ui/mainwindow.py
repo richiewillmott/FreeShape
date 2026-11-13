@@ -255,6 +255,7 @@ class MainWindow(QMainWindow):
         self._add_action(m, "Export STEP…", lambda: self.export(None, "step"))
         self._add_action(m, "Export STL…", lambda: self.export(None, "stl"))
         self._add_action(m, "Export BREP…", lambda: self.export(None, "brep"))
+        self._add_action(m, "Nest sheet metal for cutting…", self.nest_for_cutting)
         m.addSeparator()
         self._add_action(m, "Keyboard shortcuts", self.show_shortcuts)
         self._add_action(m, "About FreeShape", self.show_about)
@@ -501,6 +502,8 @@ class MainWindow(QMainWindow):
                                  checkable=True)
         self._tb(h, "flat_dxf", "Export the flat pattern as DXF (for laser / plasma cutting)",
                  lambda: self.export_flat_dxf())
+        self._tb(h, "nest", "Nest for cutting — lay several flat patterns out on stock sheets, one DXF",
+                 self.nest_for_cutting)
         h.addWidget(_sep())
         self._tb(h, "plane", "Plane", lambda: self.start_feature("plane"))
         h.addWidget(_sep())
@@ -562,10 +565,20 @@ class MainWindow(QMainWindow):
         self._dwg_buttons["projected"] = self._tb(h, "proj_view", "Projected view — pick a view, then click beside "
                                                   "it (off a corner for an isometric)", lambda: d.set_tool("projected"),
                                                   checkable=True)
+        self._dwg_buttons["section"] = self._tb(h, "section_view", "Section view — draw the cutting line across a "
+                                                "view, then place the section", lambda: d.set_tool("section"),
+                                                checkable=True)
+        self._dwg_buttons["detail"] = self._tb(h, "detail_view", "Detail view — circle an area to show it larger",
+                                               lambda: d.set_tool("detail"), checkable=True)
         h.addWidget(_sep())
         self._dwg_buttons["dim"] = self._tb(h, "dim", "Dimension (D) — click an edge, a circle, or two points, then "
                                             "where it goes", lambda: d.set_tool("dim"), checkable=True)
         self._dwg_buttons["note"] = self._tb(h, "note", "Note (N)", lambda: d.set_tool("note"), checkable=True)
+        h.addWidget(_sep())
+        self._tb(h, "bom", "Parts list — the bill of materials as a table on the sheet", d.add_parts_list)
+        self._dwg_buttons["balloon"] = self._tb(h, "balloon", "Balloon — click a part, then where its number goes",
+                                                lambda: d.set_tool("balloon"), checkable=True)
+        self._tb(h, "auto_balloon", "Auto balloon — number every part in the selected view", lambda: d.auto_balloon())
         h.addWidget(_sep())
         self._tb(h, "sheet", "Sheet size, scale, projection and title block", d.sheet_setup)
         h.addWidget(_sep())
@@ -1484,6 +1497,18 @@ class MainWindow(QMainWindow):
             self.status.showMessage("Showing sheet metal parts flat" if self._flat_view else
                                     "Showing parts folded", 3000)
 
+    def nest_for_cutting(self):
+        if self.is_asm or self.is_dwg or self.doc is None:
+            return
+        state = self.doc.state
+        if not [i for i in getattr(state, "sheet", {}) if i in state.parts]:
+            QMessageBox.information(self, APP_NAME, "There are no sheet metal parts to nest — make one with the Sheet "
+                                    "metal tool first.")
+            return
+        from .nest_ui import NestDialog
+        self._leave_modes()
+        NestDialog(self, self.doc).exec()
+
     def export_flat_dxf(self, pid=None):
         from .. import sheetmetal as SM
         if self.is_asm or self.is_dwg:
@@ -1880,6 +1905,7 @@ class MainWindow(QMainWindow):
             {"kind": "studio", "uid": self.doc.uid, "part": pid}))
         if pid in getattr(self.doc.state, "sheet", {}):
             m.addAction(icon("flat_dxf", 16), "Export flat pattern (DXF)…", lambda: self.export_flat_dxf(pid))
+            m.addAction(icon("nest", 16), "Nest for cutting…", self.nest_for_cutting)
             m.addAction(icon("drawing", 16), "Create drawing of the flat pattern…", lambda: self.new_drawing(
                 {"kind": "studio", "uid": self.doc.uid, "part": pid, "flat": True}))
         m.addAction("Export STEP…", lambda: self.export([pid], "step"))
@@ -2166,6 +2192,9 @@ class MainWindow(QMainWindow):
         if doc.kind == "drawing":
             doc.resolver = self._resolve_drawing_source
             doc.hlr_async = self.dwg.request_exact
+            doc.bom_resolver = self._drawing_bom
+            doc._update_bom()
+            doc.changed(notify=False)
         i = self.tabs.addTab(icon({"assembly": "assembly", "drawing": "drawing"}.get(doc.kind, "part"), 16), doc.name)
         self.tabs.setTabData(i, key)
         if not switch:
@@ -2394,20 +2423,48 @@ class MainWindow(QMainWindow):
         g.dirty = True
         self._add_tab(g)
 
+    def _drawing_assembly(self, src):
+        asm = next((d for d in self.docs.values() if d.kind == "assembly" and d.uid == src.get("uid")), None)
+        if asm is None and src.get("path"):
+            ap = os.path.abspath(src["path"])
+            asm = next((d for d in self.docs.values() if d.kind == "assembly" and d.path
+                        and os.path.abspath(d.path) == ap), None)
+            if asm is None and os.path.exists(ap):
+                asm = AssemblyDoc.load(ap, resolver=self._resolve_source)
+        if asm is None:
+            raise K.KernelError(f"Assembly “{src.get('name', '?')}” isn't open")
+        return asm
+
+    def _drawing_bom(self, src):
+        """A drawing's parts list: one row per different part with how many are used, and where they are."""
+        if src.get("kind") == "assembly":
+            asm = self._drawing_assembly(src)
+            rows, order = {}, []
+            for inst in asm.visible_instances():
+                if inst["id"] not in asm.parts:
+                    continue
+                key = asm._source_key(inst["source"])
+                if key not in rows:
+                    rows[key] = {"name": inst.get("part_name") or inst["name"], "qty": 0, "shapes": []}
+                    order.append(key)
+                rows[key]["qty"] += 1
+                rows[key]["shapes"].append(K.located(asm.parts[inst["id"]].shape, np.array(inst["T"], float)))
+            return [rows[k] for k in order]
+        studio = self.studio_by_uid(src.get("uid"), src.get("path"), load=True)
+        if studio is None or src.get("flat"):
+            return []
+        if src.get("part") in (None, "*"):
+            parts = [p for p in studio.state.parts.values() if p.id not in studio.hidden_parts]
+        else:
+            parts = [studio.state.parts[src["part"]]] if src["part"] in studio.state.parts else []
+        return [{"name": p.name, "qty": 1, "shapes": [p.shape]} for p in parts]
+
     def _resolve_drawing_source(self, src):
         """The shape a drawing shows (kept as the same object while the model is unchanged, so views aren't
         worked out again for nothing)."""
         cache = self.__dict__.setdefault("_dwg_shapes", {})
         if src.get("kind") == "assembly":
-            asm = next((d for d in self.docs.values() if d.kind == "assembly" and d.uid == src.get("uid")), None)
-            if asm is None and src.get("path"):
-                ap = os.path.abspath(src["path"])
-                asm = next((d for d in self.docs.values() if d.kind == "assembly" and d.path
-                            and os.path.abspath(d.path) == ap), None)
-                if asm is None and os.path.exists(ap):
-                    asm = AssemblyDoc.load(ap, resolver=self._resolve_source)
-            if asm is None:
-                raise K.KernelError(f"Assembly “{src.get('name', '?')}” isn't open")
+            asm = self._drawing_assembly(src)
             src["name"] = asm.name
             if asm.path:
                 src["path"] = os.path.abspath(asm.path)

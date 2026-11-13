@@ -2,6 +2,27 @@
 
 ## 2.0 (in progress)
 
+### 1.9.1 — stage 2 preview: drawings and cutting
+- **Section views**: click *Section view*, click two points across a view for the cutting line (it snaps level
+  or upright; it can start just outside the view), then click beside it to place the section — you look from the
+  side you place it on. The cut faces are hatched (alternating direction from one part to the next), the parent
+  view gets the chain cutting line with thick ends, arrows and letters, and the view is titled *SECTION A-A*.
+- **Detail views**: click the middle of an area, click again for the circle, then place the enlarged view (2×
+  its parent). It shows everything the parent does inside the circle, hatching included, titled
+  *DETAIL B (4:1)*. Deleting a view takes its sections and details with it.
+- **Nest for cutting** (sheet metal toolbar, Document menu, or a sheet-metal part's right-click menu): set how
+  many of each part, the stock sheet (presets or custom), gap, edge margin and kerf compensation, and see them
+  laid out as you change things. Each part is turned to its tightest box; copies that interlock (triangles,
+  L shapes) are paired 180° apart. Shows sheets, material use, part and sheet weight, optional cost and the
+  offcut left, and exports every sheet in one DXF (layers SHEET, CUT, BEND, NOTES). Parts are filtered by
+  thickness, since a sheet is one thickness.
+- **Parts list and balloons** in drawings of an assembly (or of all the parts in a Part Studio): *Parts list*
+  puts the bill of materials as a table on the title block (ITEM, PART, QTY); *Balloon* — click a part in a view,
+  then where its number goes; *Auto balloon* numbers every part in a view, pointing at a spot you can actually
+  see. Balloons stay attached to their part, and everything exports to DXF and PDF.
+- Fixed: making a vertical sketch line horizontal (or the other way round) squashed it to a dot. The new
+  constraint now replaces the old one and the line turns, keeping its length; H / V work on several lines at once.
+
 ### 1.9.0 — stage 1 preview: everyday modelling
 - **Sketch splines**: click the points the curve passes through; double-click or Enter to finish, or click the
   first point again to close it into a loop. Its points are ordinary sketch points, so they can be dragged,

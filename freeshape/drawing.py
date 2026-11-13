@@ -52,6 +52,7 @@ DIRECTIONS = {
 MARGIN = 10.0              # border inset from the sheet edge
 TB_W, TB_H = 180.0, 36.0   # title block
 TEXT_H = 3.5               # dimension / note text height (mm on paper), ISO 129
+BALLOON_R = 4.5            # balloon circle radius (mm on paper)
 ARROW_L, ARROW_W = 3.0, 0.9
 GAP = 1.0                  # gap between a part and its extension line
 OVERSHOOT = 2.0            # extension lines run past the dimension line by this much
@@ -59,6 +60,76 @@ OVERSHOOT = 2.0            # extension lines run past the dimension line by this
 TITLE_FIELDS = [("title", "Title"), ("number", "Drawing number"), ("rev", "Revision"), ("drawn", "Drawn by"),
                 ("date", "Date"), ("company", "Company"), ("material", "Material"),
                 ("tolerance", "General tolerances"), ("sheet", "Sheet")]
+
+
+def _ray_hits(o, d, T):
+    """Distance along the ray (o, d) to the nearest of the triangles T (n, 3, 3), or None (Möller–Trumbore)."""
+    if not len(T):
+        return None
+    o, d = np.asarray(o, float), np.asarray(d, float)
+    e1, e2 = T[:, 1] - T[:, 0], T[:, 2] - T[:, 0]
+    pv = np.cross(d, e2)
+    det = np.einsum("ij,ij->i", e1, pv)
+    ok = np.abs(det) > 1e-14
+    inv = np.where(ok, 1.0 / np.where(ok, det, 1.0), 0.0)
+    tv = o - T[:, 0]
+    uu = np.einsum("ij,ij->i", tv, pv) * inv
+    qv = np.cross(tv, e1)
+    vv = (qv @ d) * inv
+    t = np.einsum("ij,ij->i", e2, qv) * inv
+    hit = ok & (uu >= -1e-9) & (vv >= -1e-9) & (uu + vv <= 1 + 1e-9) & (t > 1e-9)
+    return float(t[hit].min()) if hit.any() else None
+
+
+def _curve_points(c):
+    """A view curve as a list of 2D points (arcs sampled finely)."""
+    if c[0] == "line":
+        return [np.asarray(c[1], float), np.asarray(c[2], float)]
+    if c[0] == "circle":
+        n = max(12, int(abs(c[4] - c[3]) / (2 * math.pi) * 96))
+        ts = np.linspace(c[3], c[4], n + 1)
+        return list(np.stack([c[1][0] + c[2] * np.cos(ts), c[1][1] + c[2] * np.sin(ts)], axis=1))
+    return [np.asarray(q, float) for q in c[1]]
+
+
+def _clip_to_circle(pts, c, r):
+    """The parts of a polyline that lie inside a circle (for detail views)."""
+    out, cur = [], []
+    c = np.asarray(c, float)
+
+    def inside(q):
+        return float(np.linalg.norm(q - c)) <= r + 1e-12
+
+    def cross_at(a, b):
+        d = b - a
+        f = a - c
+        A, B, C = d @ d, 2 * f @ d, f @ f - r * r
+        disc = B * B - 4 * A * C
+        if A < 1e-24 or disc < 0:
+            return []
+        sq = math.sqrt(disc)
+        return sorted(t for t in ((-B - sq) / (2 * A), (-B + sq) / (2 * A)) if 0 <= t <= 1)
+    for i in range(len(pts) - 1):
+        a, b = np.asarray(pts[i], float), np.asarray(pts[i + 1], float)
+        ts = cross_at(a, b)
+        ia = inside(a)
+        if ia and not cur:
+            cur = [a]
+        state = ia
+        for t in ts:
+            q = a + (b - a) * t
+            if state:
+                cur.append(q)
+                out.append(cur)
+                cur = []
+            else:
+                cur = [q]
+            state = not state
+        if state:
+            cur.append(b)
+    if len(cur) >= 2:
+        out.append(cur)
+    return [p for p in out if len(p) >= 2]
 
 
 def scale_label(s):
@@ -91,6 +162,9 @@ class DrawingDoc:
         self.dirty = False
         self.listeners = []
         self.resolver = None                 # callable(source) -> TopoDS shape (set by the main window)
+        self.bom_resolver = None             # callable(source) -> [{"name", "qty", "mass", "shapes"}] (parts list)
+        self.bom: list[dict] = []            # parts list rows: {"item", "name", "qty", "mass"} (saved in the file)
+        self._bom_shapes: list = []          # each row's shapes, placed as in the model
         self.source = None                   # what the drawing shows (see the main window's resolver)
         self.sheet = {"size": "A3", "portrait": False, "scale": 1.0, "projection": "first"}
         self.title = {"title": "", "number": "", "rev": "A", "drawn": "", "date": time.strftime("%d/%m/%Y"),
@@ -206,7 +280,217 @@ class DrawingDoc:
             if shape is not None:
                 self._use_saved_views()
                 self._reattach()
+            self._update_bom()
         self.changed(notify)
+
+    # ------------------------------------------------------------------ parts list (BOM) and balloons
+    def _update_bom(self):
+        """Refresh the parts list from the model (keeps the saved one if the model can't be reached)."""
+        self._bom_meshes = None
+        if self.bom_resolver is None or self.source is None:
+            return
+        try:
+            rows = self.bom_resolver(self.source) or []
+        except Exception:
+            return
+        self.bom = [{"item": i + 1, "name": r.get("name", "?"), "qty": int(r.get("qty", 1)),
+                     "mass": r.get("mass")} for i, r in enumerate(rows)]
+        self._bom_shapes = [list(r.get("shapes", [])) for r in rows]
+
+    def add_bom_table(self, pos=None, checkpoint=True):
+        """The parts list, sitting on the title block (or at `pos`, its bottom-right corner on the paper)."""
+        if not self.bom:
+            raise ValueError("This drawing's model has no parts list (make a drawing of an assembly or of all the "
+                             "parts in a Part Studio)")
+        for a in self.annots:
+            if a["type"] == "bom":
+                return a
+        W, _H = self.sheet_size()
+        a = {"type": "bom", "pos": list(pos) if pos is not None else [W - MARGIN, MARGIN + TB_H]}
+        return self.add_annot(a) if checkpoint else self._add_annot_quiet(a)
+
+    def _add_annot_quiet(self, a):
+        a["id"] = self.new_id("A")
+        self.annots.append(a)
+        self.changed()
+        return a
+
+    def _meshes(self):
+        """Per BOM row, the triangle meshes of its parts (for finding which part is where in a view)."""
+        if getattr(self, "_bom_meshes", None) is None:
+            out = []
+            for shapes in self._bom_shapes:
+                tris = []
+                for shp in shapes:
+                    m = K.tessellate(shp)
+                    if len(m.tris):
+                        tris.append(m.verts[m.tris].astype(float))
+                out.append(np.vstack(tris) if tris else np.zeros((0, 3, 3)))
+            self._bom_meshes = out
+        return self._bom_meshes
+
+    def _first_hit(self, origin, direction):
+        """(row index, point) of the first part a ray meets, or None."""
+        best = None
+        for ri, T in enumerate(self._meshes()):
+            t = _ray_hits(origin, direction, T)
+            if t is not None and (best is None or t < best[0]):
+                best = (t, ri)
+        if best is None:
+            return None
+        return best[1], np.asarray(origin, float) + np.asarray(direction, float) * best[0]
+
+    def part_at(self, v, xy):
+        """Which parts-list row is under paper point xy in view v, and the 3D point there."""
+        if not self.bom or not self._bom_shapes:
+            return None
+        r, u, d = self.axes(v)
+        uv = self.from_paper(v, xy)
+        lo, hi = self._bbox()
+        far = float(np.linalg.norm(hi - lo)) * 2 + 10
+        centre = (lo + hi) / 2
+        o = r * uv[0] + u * uv[1] + d * (float(centre @ d) + far)
+        return self._first_hit(o, -d)
+
+    def _visible_point(self, v, ri):
+        """A point on row ri's part that can be seen in view v (so its balloon doesn't point at something
+        hidden): of many points spread over the part, the visible one nearest its middle. Falls back to any
+        point on it when none is visible."""
+        shapes = self._bom_shapes[ri] if ri < len(self._bom_shapes) else []
+        if not shapes:
+            return None
+        _r, _u, d = self.axes(v)
+        d = np.asarray(d, float)
+        lo, hi = self._bbox()
+        far = float(np.linalg.norm(hi - lo)) * 2 + 10
+        best = None
+        for shp in shapes:                                   # the first copy that shows anywhere will do
+            m = K.tessellate(shp)
+            if not len(m.tris):
+                continue
+            tri = m.verts[m.tris].astype(float)
+            nrm = np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0])
+            area = np.linalg.norm(nrm, axis=1)
+            facing = (nrm @ d) > 1e-9 * (area + 1e-30)       # triangles turned towards the viewer
+            idx = np.nonzero(facing)[0]
+            if not len(idx):
+                continue
+            idx = idx[np.argsort(-area[idx])][:80]
+            cands = tri[idx].mean(1)
+            mid = self.project(v, cands.mean(0))
+            order = np.argsort(np.linalg.norm(self.project(v, cands) - mid, axis=1))
+            for q in cands[order]:
+                hit = self._first_hit(q + d * far, -d)
+                if hit is not None and hit[0] == ri and np.linalg.norm(hit[1] - q) < 1e-6 * far + 1e-6:
+                    return q
+            if best is None:
+                best = cands[order[0]]
+        return best
+
+    def add_balloon(self, v, item, anchor, pos, checkpoint=True):
+        a = {"type": "balloon", "view": v["id"], "item": int(item), "anchor": [float(x) for x in anchor],
+             "pos": [float(x) for x in pos]}
+        return self.add_annot(a) if checkpoint else self._add_annot_quiet(a)
+
+    def auto_balloons(self, v):
+        """A balloon for every parts-list row seen in view v that doesn't have one there yet, fanned out round
+        the view. Returns how many were added."""
+        if not self.bom:
+            raise ValueError("This drawing's model has no parts list")
+        have = {a["item"] for a in self.annots if a["type"] == "balloon" and a.get("view") == v["id"]}
+        x0, y0, x1, y1 = self.view_box(v)
+        C = np.array([(x0 + x1) / 2, (y0 + y1) / 2])
+        placed = [np.asarray(a["pos"], float) for a in self.annots if a["type"] == "balloon"]
+        todo = []
+        for ri, row in enumerate(self.bom):
+            if row["item"] in have:
+                continue
+            q = self._visible_point(v, ri)
+            if q is not None:
+                todo.append((row["item"], q))
+        if not todo:
+            return 0
+        self.checkpoint()
+        for item, q in todo:
+            A = self.to_paper(v, self.project(v, q))
+            d = A - C
+            ang = math.atan2(d[1], d[0]) if np.linalg.norm(d) > 1e-6 else math.pi / 4
+            for k in range(36):                              # turn round until it is clear of the other balloons
+                a = ang + (k // 2 + 1) * 0.17 * (1 if k % 2 else -1) if k else ang
+                dirv = np.array([math.cos(a), math.sin(a)])
+                ts = [t for t in ((x0 - C[0]) / dirv[0] if dirv[0] < -1e-9 else None,
+                                  (x1 - C[0]) / dirv[0] if dirv[0] > 1e-9 else None,
+                                  (y0 - C[1]) / dirv[1] if dirv[1] < -1e-9 else None,
+                                  (y1 - C[1]) / dirv[1] if dirv[1] > 1e-9 else None) if t is not None]
+                P = C + dirv * (min(ts) + 12.0)
+                if all(np.linalg.norm(P - o) > 2 * BALLOON_R + 2 for o in placed):
+                    break
+            placed.append(P)
+            self.annots.append({"id": self.new_id("A"), "type": "balloon", "view": v["id"], "item": item,
+                                "anchor": [float(x) for x in q], "pos": [float(x) for x in P]})
+        self.changed()
+        return len(todo)
+
+    def _bom_items(self, out, a):
+        """The parts list: a table with ITEM / PART / QTY (and MASS when known), its bottom-right corner at pos."""
+        rows = self.bom
+        show_mass = any(r.get("mass") for r in rows)
+        h = 7.0
+        name_w = max([len(str(r["name"])) for r in rows] + [10]) * TEXT_H * 0.62 + 6
+        cols = [("ITEM", 14.0, "center"), ("PART", min(max(name_w, 50.0), 140.0), "left"), ("QTY", 14.0, "center")]
+        if show_mass:
+            cols.append(("MASS (g)", 24.0, "right"))
+        W = sum(c[1] for c in cols)
+        x1, y0 = a["pos"]
+        x0 = x1 - W
+        n = len(rows) + 1
+        y1 = y0 + n * h
+        owner = a["id"]
+        L = lambda p, q, lay="BOM": out.append(("line", lay, owner, p, q))       # noqa: E731
+        L((x0, y0), (x1, y0), "BOM_THICK")
+        L((x0, y1), (x1, y1), "BOM_THICK")
+        L((x0, y0), (x0, y1), "BOM_THICK")
+        L((x1, y0), (x1, y1), "BOM_THICK")
+        L((x0, y1 - h), (x1, y1 - h), "BOM_THICK")
+        for k in range(1, n - 1):
+            L((x0, y0 + k * h), (x1, y0 + k * h))
+        x = x0
+        for _c, w, _al in cols[:-1]:
+            x += w
+            L((x, y0), (x, y1))
+
+        def cell(ci, row_from_top, text):
+            cx0 = x0 + sum(c[1] for c in cols[:ci])
+            w, al = cols[ci][1], cols[ci][2]
+            yb = y1 - (row_from_top + 1) * h
+            px = cx0 + w / 2 if al == "center" else (cx0 + 2 if al == "left" else cx0 + w - 2)
+            out.append(("text", "NOTE", owner, (px, yb + h / 2), str(text), TEXT_H * 0.9, 0.0, al, "middle"))
+        for ci, (title, _w, _al) in enumerate(cols):
+            cell(ci, 0, title)
+        for k, r in enumerate(rows):
+            cell(0, k + 1, r["item"])
+            cell(1, k + 1, r["name"])
+            cell(2, k + 1, r["qty"])
+            if show_mass:
+                cell(3, k + 1, fmt_value(r["mass"], 1) if r.get("mass") else "")
+
+    def _balloon_items(self, out, a):
+        v = self.view(a.get("view"))
+        if v is None:
+            return
+        P = np.asarray(a["pos"], float)
+        A = self.to_paper(v, self.project(v, a["anchor"]))
+        owner = a["id"]
+        out.append(("circle", "BALLOON", owner, tuple(P), BALLOON_R))
+        out.append(("text", "NOTE", owner, tuple(P), str(a["item"]), TEXT_H, 0.0, "center", "middle"))
+        d = A - P
+        L = float(np.linalg.norm(d))
+        if L > BALLOON_R + 0.5:
+            u = d / L
+            out.append(("line", "BALLOON", owner, tuple(P + u * BALLOON_R), tuple(A)))
+            s = 0.7                                          # a dot where the leader touches the part
+            out.append(("tri", "BALLOON", owner, (A[0] - s, A[1]), (A[0], A[1] + s), (A[0] + s, A[1])))
+            out.append(("tri", "BALLOON", owner, (A[0] - s, A[1]), (A[0], A[1] - s), (A[0] + s, A[1])))
 
     def source_label(self):
         s = self.source or {}
@@ -252,28 +536,56 @@ class DrawingDoc:
         uv = np.stack([corners @ r, corners @ u], axis=-1)
         return uv.min(axis=0), uv.max(axis=0)
 
+    def view_shape(self, v):
+        """What a view shows: the model, or for a section view the model with the part in front of the cut
+        removed (cached until the model or the cut changes). A detail view shows what its parent shows."""
+        if self.shape is None:
+            return None
+        if v.get("type") == "detail":
+            p = self.view(v.get("parent"))
+            return self.view_shape(p) if p is not None else self.shape
+        if v.get("type") != "section" or not v.get("cut"):
+            return self.shape
+        key = (id(self.shape), tuple(v["cut"]["p0"]), tuple(v["d"]))
+        cache = self.__dict__.setdefault("_cut_cache", {})
+        hit = cache.get(v["id"])
+        if hit is not None and hit[0] == key and hit[2] is self.shape:
+            return hit[1]
+        try:
+            shp = K.section_cut(self.shape, v["cut"]["p0"], v["d"])
+        except Exception:
+            shp = self.shape
+        cache[v["id"]] = (key, shp, self.shape)
+        return shp
+
     def curves(self, v):
         """The view's edges. Exact straight away for simple parts; for complex ones (with a window to do the
         work in the background) a quick mesh-based picture first, replaced when the exact one is ready."""
         empty = {"visible": [], "hidden": [], "tangent": []}
-        if self.shape is None:
+        shp = self.view_shape(v)
+        if shp is None:
             return empty
         try:
-            ex = K.hlr_cached(self.shape, v["d"], v["up"])
+            ex = K.hlr_cached(shp, v["d"], v["up"])
             if ex is not None:
                 return ex
-            if self.hlr_async is not None and not K.hlr_is_quick(self.shape):
+            if self.hlr_async is not None and not K.hlr_is_quick(shp):
                 self.hlr_async(self, v)
-                return K.hlr_project(self.shape, v["d"], v["up"], fast=True)
-            return K.hlr_project(self.shape, v["d"], v["up"])
+                return K.hlr_project(shp, v["d"], v["up"], fast=True)
+            return K.hlr_project(shp, v["d"], v["up"])
         except Exception:
             return empty
 
     def exact_ready(self):
-        return self.shape is None or all(K.hlr_cached(self.shape, v["d"], v["up"]) is not None for v in self.views)
+        return self.shape is None or all(K.hlr_cached(self.view_shape(v), v["d"], v["up"]) is not None
+                                         for v in self.views)
 
     def view_box(self, v):
         """Paper rectangle (x0, y0, x1, y1) around a view."""
+        if v.get("type") == "detail" and v.get("detail"):
+            c, r = np.asarray(v["detail"]["c"], float), float(v["detail"]["r"])
+            a, b = self.to_paper(v, c - r), self.to_paper(v, c + r)
+            return (min(a[0], b[0]), min(a[1], b[1]), max(a[0], b[0]), max(a[1], b[1]))
         lo, hi = self.model_extent(v["d"], v["up"])
         a, b = self.to_paper(v, lo), self.to_paper(v, hi)
         return (min(a[0], b[0]), min(a[1], b[1]), max(a[0], b[0]), max(a[1], b[1]))
@@ -356,6 +668,69 @@ class DrawingDoc:
         self._line_up(v)
         self.changed()
         return v
+
+    # ------------------------------------------------------------------ section and detail views
+    def next_letter(self):
+        used = {v.get("letter") for v in self.views}
+        for ch in "ABCDEFGHJKLMNPQRSTUVWXYZ":           # I and O are skipped, as is usual on drawings
+            if ch not in used:
+                return ch
+        return "Z"
+
+    def add_section(self, parent, a, b, place, checkpoint=True):
+        """A section view cut along the line a-b (paper points) drawn on `parent`, placed at `place` (paper).
+        You look at the cut from the side the view is placed on; the cut faces are hatched."""
+        r, u, pd = self.axes(parent)
+        ua, ub = self.from_paper(parent, a), self.from_paper(parent, b)
+        line = r * (ub[0] - ua[0]) + u * (ub[1] - ua[1])
+        if np.linalg.norm(line) < 1e-9:
+            raise ValueError("Draw the cutting line by clicking two different points")
+        line = _unit(line)
+        n = _unit(np.cross(line, pd))
+        mid = (np.asarray(a, float) + np.asarray(b, float)) / 2
+        w = np.asarray(place, float) - mid
+        if float(np.asarray([n @ r, n @ u]) @ w) < 0:
+            n = -n                                       # the viewer is on the side the view is placed on
+        p0 = r * ua[0] + u * ua[1]
+        up = np.asarray(parent["up"], float)
+        up = up - (up @ n) * n
+        if np.linalg.norm(up) < 1e-6:
+            up = np.asarray(pd, float)
+        if checkpoint:
+            self.checkpoint()
+        v = self.add_view(n, _unit(up), place, kind="section", parent=parent["id"], checkpoint=False)
+        v["cut"] = {"p0": [float(x) for x in p0]}
+        v["letter"] = self.next_letter()
+        v["hidden"] = False
+        v["scale"] = parent.get("scale")
+        v["o"] = (np.asarray(place, float) - self.view_scale(v) * np.mean(self.model_extent(v["d"], v["up"]),
+                                                                            axis=0)).tolist()
+        self.changed()
+        return v
+
+    def add_detail(self, parent, c, radius, place, factor=2.0, checkpoint=True):
+        """An enlarged view of the circle (centre c, radius in paper mm) on `parent`, placed at `place`."""
+        if radius <= 0:
+            raise ValueError("Drag out a circle round the area to enlarge")
+        if checkpoint:
+            self.checkpoint()
+        cuv = self.from_paper(parent, c)
+        rm = float(radius) / self.view_scale(parent)
+        v = {"id": self.new_id("V"), "type": "detail", "d": list(parent["d"]), "up": list(parent["up"]),
+             "o": [0.0, 0.0], "scale": self.view_scale(parent) * float(factor), "hidden": parent.get("hidden", False),
+             "tangent": parent.get("tangent", False), "centre_marks": True, "parent": parent["id"], "align": None,
+             "label": "", "letter": self.next_letter(), "detail": {"c": [float(x) for x in cuv], "r": rm}}
+        v["o"] = (np.asarray(place, float) - self.view_scale(v) * cuv).tolist()
+        self.views.append(v)
+        self.changed()
+        return v
+
+    def view_title(self, v):
+        if v.get("type") == "section" and v.get("letter"):
+            return f"SECTION {v['letter']}-{v['letter']}"
+        if v.get("type") == "detail" and v.get("letter"):
+            return f"DETAIL {v['letter']} ({scale_label(self.view_scale(v))})"
+        return v.get("label", "")
 
     def _line_up(self, v):
         """Keep a projected view in line with its parent (same height for side views, same x for top views)."""
@@ -774,6 +1149,11 @@ class DrawingDoc:
             try:
                 if a["type"] == "note":
                     self._note_items(lst, a)
+                elif a["type"] == "bom":
+                    if self.bom:
+                        self._bom_items(lst, a)
+                elif a["type"] == "balloon":
+                    self._balloon_items(lst, a)
                 else:
                     self._dim_items(lst, a)
             except Exception:
@@ -786,9 +1166,12 @@ class DrawingDoc:
     def _view_key(self, v):
         cv = self.curves(v)
         bends = (self.source or {}).get("bends") if (self.source or {}).get("flat") else None
-        return (id(self.shape), id(cv), tuple(v["d"]), tuple(v["up"]), tuple(v["o"]), self.view_scale(v),
-                bool(v.get("hidden")), bool(v.get("tangent")), bool(v.get("centre_marks", True)), v.get("label", ""),
-                json.dumps(bends) if bends else "")
+        kids = [(c["type"], c.get("letter"), c.get("cut"), c["d"], c.get("detail"))
+                for c in self.views if c.get("parent") == v["id"] and c.get("type") in ("section", "detail")]
+        return (id(self.view_shape(v)), id(cv), tuple(v["d"]), tuple(v["up"]), tuple(v["o"]), self.view_scale(v),
+                bool(v.get("hidden")), bool(v.get("tangent")), bool(v.get("centre_marks", True)), self.view_title(v),
+                json.dumps(bends) if bends else "", json.dumps(kids), json.dumps(v.get("detail")),
+                json.dumps(v.get("cut")))
 
     # items: (kind, layer, owner, ...) — kinds: line (p0, p1) · arc (c, r, a0deg, a1deg) · circle (c, r) ·
     #        poly (pts) · tri (p0, p1, p2) filled · text (pos, text, height, angle_deg, halign, valign)
@@ -887,6 +1270,9 @@ class DrawingDoc:
         out.append(("line", "CENTER", None, (circ_x, cy - d_big / 2 - 1.5), (circ_x, cy + d_big / 2 + 1.5)))
 
     def _view_items(self, out, v):
+        if v.get("type") == "detail" and v.get("detail"):
+            self._detail_items(out, v)
+            return
         cv = self.curves(v)
         layers = [("visible", "VISIBLE")]
         if v.get("hidden"):
@@ -933,9 +1319,113 @@ class DrawingDoc:
                     rd = np.array([math.cos(math.radians(ang)), math.sin(math.radians(ang))])
                     mid = (np.asarray(A) + np.asarray(B)) / 2 + np.array([-rd[1], rd[0]]) * 0.8
                     out.append(("text", "BEND", v["id"], tuple(mid), lab, 2.5, ang, "center", "bottom"))
-        if v.get("label"):
+        if v.get("type") == "section" and v.get("cut"):
+            self._hatch_items(out, v, T)
+        for ch in self.views:
+            if ch.get("parent") != v["id"]:
+                continue
+            if ch.get("type") == "section" and ch.get("cut"):
+                self._cut_line_items(out, v, ch)
+            elif ch.get("type") == "detail" and ch.get("detail"):
+                c = T(ch["detail"]["c"])
+                rr = ch["detail"]["r"] * s
+                out.append(("circle", "DETAIL", v["id"], c, rr))
+                q = (c[0] + rr * 0.75 + 1.5, c[1] + rr * 0.75 + 1.5)
+                out.append(("text", "NOTE", v["id"], q, ch["letter"], TEXT_H * 1.4, 0.0, "left", "bottom"))
+        title = self.view_title(v)
+        if title:
             x0, y0, x1, _y1 = self.view_box(v)
-            out.append(("text", "NOTE", v["id"], ((x0 + x1) / 2, y0 - 6), v["label"], TEXT_H, 0.0, "center", "top"))
+            out.append(("text", "NOTE", v["id"], ((x0 + x1) / 2, y0 - 6), title, TEXT_H, 0.0, "center", "top"))
+
+    def _hatch_items(self, out, v, T):
+        """Hatch the cut faces of a section view: 45° lines, alternating direction from one part to the next."""
+        r, u, d = self.axes(v)
+        spacing = 2.5 / self.view_scale(v)                   # 2.5 mm apart on the paper, whatever the scale
+        p0 = v["cut"]["p0"]
+        try:
+            groups = K.section_faces(self.view_shape(v), p0, d)
+        except Exception:
+            return
+        for i, fs in enumerate(groups):
+            along = _unit(r + u) if i % 2 == 0 else _unit(r - u)
+            across = _unit(np.cross(d, along))
+            off = spacing * (0.5 if i % 3 == 2 else 0.0)
+            for f in fs:
+                for P, Q in K.hatch_segments(f, np.asarray(p0) + across * off, along, across, spacing):
+                    out.append(("line", "HATCH", v["id"], T(self.project(v, P)), T(self.project(v, Q))))
+
+    def _cut_line_items(self, out, parent, sec):
+        """The cutting line on the parent view: chain line with thick ends, arrows showing which way you look,
+        and the section's letter at each end."""
+        pd_uv = self.project(parent, np.asarray(sec["d"], float))          # towards the section's viewer
+        if np.linalg.norm(pd_uv) < 1e-9:
+            return
+        nd = _unit(pd_uv)
+        ld = np.array([-nd[1], nd[0]])
+        P0 = self.to_paper(parent, self.project(parent, sec["cut"]["p0"]))
+        x0, y0, x1, y1 = self.view_box(parent)
+        corners = np.array([[x0, y0], [x1, y0], [x1, y1], [x0, y1]]) - P0
+        ts = corners @ ld
+        t0, t1 = float(ts.min()) - 5.0, float(ts.max()) + 5.0
+        A, B = P0 + ld * t0, P0 + ld * t1
+        owner = parent["id"]
+        out.append(("line", "CUT", owner, tuple(A), tuple(B)))
+        for E, inward in ((A, ld), (B, -ld)):
+            out.append(("line", "CUT_THICK", owner, tuple(E), tuple(E + inward * 6.0)))
+            tail = E + nd * 8.0                         # arrow from the viewer's side onto the line
+            out.append(("line", "CUT_THICK", owner, tuple(tail), tuple(E + nd * ARROW_L)))
+            self._arrow(out, owner, tuple(E), -nd)
+            out.append(("text", "NOTE", owner, tuple(tail + nd * 1.5), sec["letter"], TEXT_H * 1.4, 0.0,
+                        "center", "bottom" if nd[1] >= 0 else "top"))
+
+    def _detail_items(self, out, v):
+        """A detail view: everything the parent view shows inside the circle (edges, hatching, centre lines),
+        enlarged, with the circle as its boundary and its title underneath."""
+        parent = self.view(v.get("parent"))
+        if parent is None:
+            return
+        c, rad = np.asarray(v["detail"]["c"], float), float(v["detail"]["r"])
+        o, s = np.asarray(v["o"], float), self.view_scale(v)
+        po, ps = np.asarray(parent["o"], float), self.view_scale(parent)
+        back = lambda q: (np.asarray(q, float) - po) / ps                    # parent paper -> model view coords
+        T = lambda q: (float(o[0] + s * q[0]), float(o[1] + s * q[1]))
+        for it in self._parent_picture(parent):
+            kind, layer = it[0], it[1]
+            if kind == "line":
+                pts = [back(it[3]), back(it[4])]
+            elif kind == "poly":
+                pts = [back(q) for q in it[3]]
+            elif kind in ("circle", "arc"):
+                cc, rr = back(it[3]), it[4] / ps
+                a0, a1 = (0.0, 360.0) if kind == "circle" else (it[5], it[6])
+                ts = np.radians(np.linspace(a0, a1, max(12, int(abs(a1 - a0) / 360 * 96)) + 1))
+                pts = list(np.stack([cc[0] + rr * np.cos(ts), cc[1] + rr * np.sin(ts)], axis=1))
+            else:
+                continue
+            for piece in _clip_to_circle(pts, c, rad):
+                if len(piece) == 2:
+                    out.append(("line", layer, v["id"], T(piece[0]), T(piece[1])))
+                else:
+                    out.append(("poly", layer, v["id"], [T(q) for q in piece]))
+        out.append(("circle", "DETAIL", v["id"], T(c), rad * s))
+        x0, y0, x1, _y1 = self.view_box(v)
+        out.append(("text", "NOTE", v["id"], ((x0 + x1) / 2, y0 - 6), self.view_title(v), TEXT_H, 0.0,
+                    "center", "top"))
+
+    def _parent_picture(self, parent):
+        """The drawing of a view's model (edges, hatching, centre lines — not its labels or the markers of other
+        views), cached while that view is unchanged. Detail views are cut out of it."""
+        cache = self.__dict__.setdefault("_picture_cache", {})
+        key = self._view_key(parent)
+        hit = cache.get(parent["id"])
+        if hit is not None and hit[0] == key:
+            return hit[1]
+        lst = []
+        self._view_items(lst, parent)
+        keep = {"VISIBLE", "HIDDEN", "TANGENT", "HATCH", "CENTER", "BEND"}
+        pic = [it for it in lst if it[1] in keep and it[0] in ("line", "poly", "circle", "arc")]
+        cache[parent["id"]] = (key, pic)
+        return pic
 
     def _note_items(self, out, a):
         lines = str(a.get("text", "")).split("\n")
@@ -1055,7 +1545,7 @@ class DrawingDoc:
     def to_json(self, embed=True):
         d = {"format": FILE_FORMAT, "version": FILE_VERSION, "name": self.name, "uid": self.uid,
              "source": copy.deepcopy(self.source), "sheet": self.sheet, "title": self.title,
-             "views": self.views, "annots": self.annots}
+             "views": self.views, "annots": self.annots, "bom": self.bom}
         if embed and self.shape is not None:
             try:
                 raw = K.shape_to_brep(self.shape)
@@ -1102,6 +1592,7 @@ class DrawingDoc:
         g.title.update(d.get("title", {}))
         g.views = d.get("views", [])
         g.annots = d.get("annots", [])
+        g.bom = d.get("bom", [])
         g.path = path
         src = g.source or {}
         if src.get("relpath") and not (src.get("path") and os.path.exists(src["path"])):
@@ -1155,6 +1646,13 @@ LAYER_STYLE = {
     "DIM_LOST": (0.18, None, 1, "CONTINUOUS"),
     "NOTE": (0.25, None, 7, "CONTINUOUS"),
     "BEND": (0.18, (6.0, 1.5, 1.5, 1.5), 1, "CENTER"),
+    "HATCH": (0.18, None, 8, "CONTINUOUS"),
+    "CUT": (0.25, (8.0, 1.5, 1.5, 1.5), 7, "CENTER"),
+    "CUT_THICK": (0.7, None, 7, "CONTINUOUS"),
+    "DETAIL": (0.25, None, 7, "CONTINUOUS"),
+    "BOM": (0.25, None, 7, "CONTINUOUS"),
+    "BOM_THICK": (0.5, None, 7, "CONTINUOUS"),
+    "BALLOON": (0.25, None, 7, "CONTINUOUS"),
 }
 
 

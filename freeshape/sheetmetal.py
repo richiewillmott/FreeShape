@@ -448,11 +448,11 @@ def flat_pattern(shape, m: SheetModel):
     return fp
 
 
-def flat_dxf(fp: FlatPattern, path, name=""):
-    """The flat pattern as a DXF for laser / plasma / waterjet cutting: the outline (layer CUT), bend lines
-    (layer BEND, dashed) with their direction, angle and radius."""
+def flat_entities(fp: FlatPattern, face=None):
+    """The flat pattern's cut outline as 2D drawing entities: (lines, circles, arcs, polylines, bends).
+    `face` replaces the outline (e.g. one grown for kerf); bend lines stay where they are."""
     lines, circles, arcs, polys = [], [], [], []
-    for e in K.edges(fp.face):
+    for e in K.edges(face if face is not None else fp.face):
         info = K.edge_info(e)
         if "p0" in info:
             lines.append((fp.to2d(info["p0"]), fp.to2d(info["p1"])))
@@ -475,6 +475,13 @@ def flat_dxf(fp: FlatPattern, path, name=""):
             continue
         polys.append([fp.to2d(q) for q in pts])
     bends = [(fp.to2d(p0), fp.to2d(p1), lab) for p0, p1, lab in fp.bend_lines]
+    return lines, circles, arcs, polys, bends
+
+
+def flat_dxf(fp: FlatPattern, path, name=""):
+    """The flat pattern as a DXF for laser / plasma / waterjet cutting: the outline (layer CUT), bend lines
+    (layer BEND, dashed) with their direction, angle and radius."""
+    lines, circles, arcs, polys, bends = flat_entities(fp)
     try:
         import ezdxf
         doc = ezdxf.new("R2010", setup=False)
