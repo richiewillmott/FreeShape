@@ -360,6 +360,10 @@ class Viewport(QOpenGLWidget):
             self.cam.set_state((target, R, scale))
             self.update()
 
+    def flip_view(self, animate=True):
+        """Look from the opposite side: a half turn about the screen's vertical, keeping the zoom."""
+        self.set_view_dir(-self.cam.R[2], self.cam.R[1], fit=False, animate=animate)
+
     def fit(self, animate=True):
         lo, hi = self.model_bounds()
         target, scale = self.cam.fit_target(lo, hi)

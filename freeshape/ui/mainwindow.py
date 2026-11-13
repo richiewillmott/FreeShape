@@ -32,6 +32,7 @@ from .assembly_ui import AssemblyController
 
 APP_NAME = "FreeShape"
 ASSETS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets")
+NORMAL_TOL = 0.9999        # |view direction · normal| above this (under 1°) counts as already normal to it
 
 
 def app_icon():
@@ -1079,14 +1080,33 @@ class MainWindow(QMainWindow):
         if self.sketcher:
             self.viewport.normal_to(self.sketcher.plane)
             return
-        for pk in self.viewport.selection:
-            item = pick_to_item(self.viewport, pk, {"plane"})
-            if item:
-                try:
-                    self.viewport.normal_to(F.resolve_plane(self.doc.state, item[1]))
-                except K.KernelError:
-                    pass
-                return
+        # like Onshape: normal to what's under the mouse (else the selection) by the shorter way round,
+        # or the opposite side when already normal to it or when there's nothing flat to go by
+        vp = self.viewport
+        picks = ([vp.hover] if vp.hover is not None else []) + list(vp.selection)
+        plane = next((pl for pl in map(self._pick_plane, picks) if pl is not None), None)
+        if plane is None:
+            if vp.hover is None or vp.hover.kind != "face":     # over a curved face: nothing, as Onshape
+                vp.flip_view()
+            return
+        d = float(vp.cam.R[2] @ plane.normal)
+        if abs(d) > NORMAL_TOL:
+            vp.flip_view()
+        else:
+            vp.normal_to(plane if d >= 0 else K.Plane(plane.origin, -plane.xdir, -plane.normal))
+
+    def _pick_plane(self, pk):
+        """The plane a pick gives a normal for (a planar face, a plane, anything of a sketch), else None."""
+        vp = self.viewport
+        if pk.kind == "face":
+            shape = vp.part_shapes.get(pk.key[0])
+            fs = K.faces(shape) if shape is not None else []
+            return K.planar_face_plane(fs[pk.key[1]]) if pk.key[1] < len(fs) else None
+        if pk.kind == "plane":
+            return next((pl for key, pl, *_ in vp.planes if key == pk.key), None)
+        if pk.kind in ("region", "sketch_line", "sketch_point"):
+            return next((sr.plane for fid, sr, _ in vp.sketches if fid == pk.key[0]), None)
+        return None
 
     def set_shiny(self, on, save=True):
         self.viewport.shiny = bool(on)
