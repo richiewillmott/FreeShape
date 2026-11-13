@@ -2,6 +2,14 @@
 
 ## 2.0 (in progress)
 
+### 1.9.4 — sketching on a part
+- **Draw from the part's edges**, like Onshape: when you sketch on a face, its corners, edge midpoints, circle
+  centres and edges are snap targets for every drawing tool (they light up as you get near). A point placed on
+  a corner, midpoint or centre is fixed there; a point placed on an edge is held on it (a construction copy of
+  the edge is added for it), so the sketch stays attached to the part.
+- **Dimension from the part**: with the Dimension tool, click a corner of the face (or any part edge, as before)
+  and then your sketch geometry.
+
 ### 1.9.3 — stage 4 preview: configurations, derived parts, more sheet metal
 - **Configurations**: the Configurations button opens a table — each row a configuration (say "M5 × 20",
   "M6 × 30") setting the studio's variables (values or expressions), plus optional columns that switch features

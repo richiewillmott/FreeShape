@@ -85,6 +85,7 @@ class Sketcher:
         self._box = None
         self.cursor_uv = None
         self.snap_info = None
+        self.model_hover = None
         self.infer = None
         self.infer_tan = None
         self.sk.solve()
@@ -223,6 +224,8 @@ class Sketcher:
         self.infer_hits = []        # [(source uv, "H"/"V")] drawn as yellow dotted guides
         self._infer_cons = []       # [("horizontal"/"vertical", source ref)] applied to the new point on click
         self.infer_tan = None       # circle / arc the line being drawn is tangent to
+        self.model_hover = None     # (part id, edge index) of the part edge being snapped to
+        self._snap_vp = vp
         if uv is None:
             return None, None
         h = self.hit(vp, x, y, kinds=("point",), exclude=exclude)
@@ -233,6 +236,11 @@ class Sketcher:
         if mid:
             self._acquire_source(("mid", mid[0]), anchor_uv)
             return mid[1], ("mid", mid[0])
+        mp = self._model_point_hit(vp, x, y)
+        if mp:
+            m_uv, key = mp
+            self.model_hover = key
+            return m_uv, ("mpt", tuple(m_uv), key)
         if self.tool == "line" and anchor_uv is not None:
             tan = self._tangent_infer(vp, x, y, uv, np.asarray(anchor_uv, float), exclude)
             if tan:
@@ -270,7 +278,112 @@ class Sketcher:
         if h and self.sk.entities[h[1]]["type"] != "point" and not pick:
             uv = self._project_on(h[1], uv)
             return uv, ("on", h[1])
+        me = self._model_edge_hit(vp, x, y) if not pick else None
+        if me:
+            m_uv, key = me
+            self.model_hover = key
+            return m_uv, ("medge", key)
         return uv, None
+
+    # ------------------------------------------------------------------ part edges in the sketch plane
+    def _model_geo(self, vp):
+        """Edges of the parts that lie in the sketch plane (the outline of the face being sketched on), as
+        [(part id, edge index, uv polyline, [(uv, "corner"/"mid"/"centre")])]. Cached per part shape."""
+        shapes = getattr(vp, "part_shapes", None) or {}
+        key = tuple((pid, id(sh)) for pid, sh in shapes.items())
+        if getattr(self, "_mgeo_key", None) == key:
+            return self._mgeo
+        out = []
+        pl = self.plane
+        n, o = np.asarray(pl.normal, float), np.asarray(pl.origin, float)
+        for pid, shape in shapes.items():
+            if shape is None:
+                continue
+            try:
+                lo, hi = K.bbox(shape)
+                tol = 1e-6 * max(1.0, float(np.linalg.norm(np.asarray(hi) - np.asarray(lo))))
+                edges = K.edges(shape)
+            except Exception:
+                continue
+            for ei, edge in enumerate(edges):
+                try:
+                    poly = np.asarray(K.discretize_edge(edge), float)
+                except Exception:
+                    continue
+                if len(poly) < 2 or np.abs((poly - o) @ n).max() > tol:
+                    continue
+                uvs = np.array([pl.to_local(q) for q in poly])
+                info = K.edge_info(edge)
+                closed = np.linalg.norm(poly[0] - poly[-1]) < 1e-7
+                pts = [] if closed else [(uvs[0], "corner"), (uvs[-1], "corner")]
+                if "r" in info and "center" in info:
+                    pts.append((np.array(pl.to_local(info["center"])), "centre"))
+                elif not closed and len(uvs) >= 2:
+                    d = uvs[-1] - uvs[0]
+                    off = np.abs((uvs - uvs[0]) @ np.array([-d[1], d[0]])) / (np.linalg.norm(d) + 1e-12)
+                    if off.max() < 1e-6 * max(1.0, float(np.linalg.norm(d))):
+                        pts.append(((uvs[0] + uvs[-1]) / 2, "mid"))
+                out.append((pid, ei, uvs, pts))
+        self._mgeo_key, self._mgeo = key, out
+        return out
+
+    def _scr_many(self, vp, uvs):
+        pl = self.plane
+        W = pl.origin + np.outer(uvs[:, 0], pl.xdir) + np.outer(uvs[:, 1], pl.ydir)
+        return np.asarray(vp.cam.to_screen(W), float)[:, :2]
+
+    def _model_point_hit(self, vp, x, y, tol=10.0):
+        """The corner, edge midpoint or circle centre of the face being sketched on nearest the cursor."""
+        best = (tol, None)
+        for pid, ei, _uvs, pts in self._model_geo(vp):
+            if not pts:
+                continue
+            S = self._scr_many(vp, np.array([q for q, _w in pts]))
+            d = np.hypot(S[:, 0] - x, S[:, 1] - y)
+            i = int(np.argmin(d))
+            # corners win over midpoints and centres at the same spot
+            if d[i] < best[0] - (0.5 if pts[i][1] == "corner" else 0):
+                best = (float(d[i]), (np.array(pts[i][0], float), (pid, ei, pts[i][1])))
+        return best[1]
+
+    def _model_edge_hit(self, vp, x, y, tol=7.0):
+        """The nearest point on an edge of the face being sketched on, within a few pixels of the cursor."""
+        best = (tol, None)
+        P = np.array([x, y], float)
+        for pid, ei, uvs, _pts in self._model_geo(vp):
+            S = self._scr_many(vp, uvs)
+            A, B = S[:-1], S[1:]
+            AB = B - A
+            t = np.clip(((P - A) * AB).sum(1) / np.maximum((AB * AB).sum(1), 1e-12), 0, 1)
+            Q = A + AB * t[:, None]
+            d = np.hypot(*(Q - P).T)
+            i = int(np.argmin(d))
+            if d[i] < best[0]:
+                m_uv = uvs[i] + (uvs[i + 1] - uvs[i]) * t[i]
+                best = (float(d[i]), (m_uv, (pid, ei, "on")))
+        return best[1]
+
+    def _model_point(self, uv, snap):
+        """A sketch point for a click snapped to the face being sketched on: a fixed point on a corner, edge
+        midpoint or centre (so you can dimension from it), or a point held on the projected edge."""
+        sk = self.sk
+        if snap[0] == "mpt":
+            pid = sk.add_point(*uv)
+            sk.add_constraint("fix", pid, value=[float(uv[0]), float(uv[1])])
+            return pid
+        part, ei, _w = snap[1]
+        vp = getattr(self, "_snap_vp", None)
+        eid = None
+        if vp is not None:
+            class _Pk:
+                kind, key = "edge", (part, ei)
+            eid = self._use_edge(vp, _Pk(), construction=True, undo=False)
+        pid = sk.add_point(*uv)
+        if eid in sk.entities and sk.entities[eid]["type"] in ("line", "circle", "arc"):
+            sk.add_constraint("point_on", pid, eid)
+        else:
+            sk.add_constraint("fix", pid, value=[float(uv[0]), float(uv[1])])
+        return pid
 
     def _tangent_infer(self, vp, x, y, uv, A, exclude=()):
         """Tangent inference for the line being drawn from A: (uv, circle/arc id, "dir"|"on") or None.
@@ -397,6 +510,13 @@ class Sketcher:
         inferences (from snap) to apply to a newly created point."""
         if snap and snap[0] == "point":
             return snap[1]
+        if snap and snap[0] in ("mpt", "medge"):
+            pid = self._model_point(uv, snap)
+            for ctype, ref in (cons or []):
+                src = self._source_point(ref)
+                if src and src != pid and snap[0] == "medge":
+                    self.sk.add_constraint(ctype, src, pid)
+            return pid
         pid = self.sk.add_point(*uv)
         if snap and snap[0] in ("on", "tan"):
             self.sk.add_constraint("point_on", pid, snap[1])
@@ -1123,7 +1243,14 @@ class Sketcher:
         if h is None and self.dim_second is None:
             # like Onshape: a part's edge (or corner) can be dimensioned to as well — it is brought into the
             # sketch as fixed construction geometry first
-            pk = vp.pick(x, y, kinds={"edge"})
+            mp = self._model_point_hit(vp, x, y)
+            if mp is not None:
+                # a corner / edge midpoint / centre of the face being sketched on: a fixed point there
+                self.push_undo()
+                pid = self._model_point(mp[0], ("mpt", tuple(mp[0]), mp[1]))
+                self.changed(True)
+                h = ("point", pid)
+            pk = vp.pick(x, y, kinds={"edge"}) if h is None else None
             if pk is not None:
                 eid = self._use_edge(vp, pk, construction=True, click=(x, y))
                 if eid is not None:
@@ -1586,7 +1713,7 @@ class Sketcher:
             ed.deleteLater()
 
     # ------------------------------------------------------------------ use / trim
-    def _use_edge(self, vp, pk, construction=None, click=None):
+    def _use_edge(self, vp, pk, construction=None, click=None, undo=True):
         """Project a part edge into the sketch as fixed geometry. Returns the new entity (or point) id to use, or
         None. Straight edges become lines, circles facing the sketch become circles / arcs, and any edge that is
         seen edge-on (like the rim of a cylinder from the side) becomes the straight line it looks like.
@@ -1602,7 +1729,8 @@ class Sketcher:
         n = np.asarray(self.plane.normal, float)
         poly = np.asarray(K.discretize_edge(edge), float)
         uvs = np.array([self.plane.to_local(q) for q in poly]) if len(poly) else np.zeros((0, 2))
-        self.push_undo()
+        if undo:
+            self.push_undo()
         out = None
         if "r" in info and abs(abs(np.asarray(info["axis"]) @ n) - 1) < 1e-6:
             c = np.array(self.plane.to_local(info["center"]))
@@ -1628,7 +1756,8 @@ class Sketcher:
             off = np.abs((uvs - ctr) @ np.array([-d[1], d[0]]))
             size = max(float(np.ptp(uvs, axis=0).max()), 1e-9)
             if float(off.max()) > 1e-4 * max(size, 1.0) + 1e-7:
-                self.undo_stack.pop()
+                if undo:
+                    self.undo_stack.pop()
                 self._flash(vp, "Only straight or circular edges can be used here")
                 return None
             t = (uvs - ctr) @ d
@@ -1647,9 +1776,11 @@ class Sketcher:
                         if np.hypot(sp[0] - click[0], sp[1] - click[1]) < 10:
                             out = pp                       # clicked at the end: dimension to the corner
         else:
-            self.undo_stack.pop()
+            if undo:
+                self.undo_stack.pop()
             return None
-        self.changed(True)
+        if undo:
+            self.changed(True)
         return out
 
     def _trim(self, eid, uv):
@@ -1868,6 +1999,18 @@ class Sketcher:
                 GL.glVertex3f(*pl.to_world(float(cur[0]), float(cur[1])))
                 GL.glEnd()
             GL.glDisable(GL.GL_LINE_STIPPLE)
+        # the part edge being snapped to
+        mh = getattr(self, "model_hover", None)
+        if mh and (self.tool in DRAW_TOOLS or self.tool in ("dimension", "slot")):
+            for pid_, ei_, uvs_, _p in getattr(self, "_mgeo", []):
+                if (pid_, ei_) == mh[:2]:
+                    GL.glLineWidth(3)
+                    GL.glColor3f(*theme.HOVER)
+                    GL.glBegin(GL.GL_LINE_STRIP)
+                    for q in uvs_:
+                        GL.glVertex3f(*pl.to_world(float(q[0]), float(q[1])))
+                    GL.glEnd()
+                    GL.glLineWidth(1)
         # snap marker
         if self.tool in DRAW_TOOLS or self.tool in ("dimension", "slot"):
             GL.glPointSize(8)

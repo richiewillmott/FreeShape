@@ -23,8 +23,8 @@ If you'd rather manage it yourself: `pip install -r requirements.txt` then `pyth
 
 Double-click **`build_exe.bat`** (Windows). It uses the same Python setup, then packs everything — OpenCascade,
 Qt, the logo and icons — into **`dist\FreeShape\FreeShape.exe`**, which runs on any 64-bit Windows PC without
-Python. It also makes **`dist\FreeShape-portable-1.9.3.zip`** (unzip anywhere and run). If
-[Inno Setup](https://jrsoftware.org/isdl.php) (free) is installed it also builds **`dist\FreeShape-Setup-1.9.3.exe`**,
+Python. It also makes **`dist\FreeShape-portable-1.9.4.zip`** (unzip anywhere and run). If
+[Inno Setup](https://jrsoftware.org/isdl.php) (free) is installed it also builds **`dist\FreeShape-Setup-1.9.4.exe`**,
 a normal installer with Start-menu and desktop shortcuts, FreeShape icons on `.fshape` / `.fasm` files
 (double-click to open them) and FreeShape in "Open with" for STEP files. The first build takes 5–10 minutes;
 the app folder is large (about 1 GB, mostly the geometry engine), the installer much smaller.
@@ -41,7 +41,7 @@ test build instead, with the files, a screenshot of FreeShape running on the Mac
 
 On Linux, with the requirements and PyInstaller installed (`python3 -m pip install -r requirements.txt pyinstaller`),
 run **`bash packaging/linux/build_appimage.sh`**. It packs FreeShape, checks the packed app with its self-test and
-makes **`dist/FreeShape-1.9.3-x86_64.AppImage`** (about 200 MB). An AppImage runs on Linux systems at least as new as the
+makes **`dist/FreeShape-1.9.4-x86_64.AppImage`** (about 200 MB). An AppImage runs on Linux systems at least as new as the
 one it was built on, so build on the oldest distro you want to support.
 
 ## Where things are in the code
