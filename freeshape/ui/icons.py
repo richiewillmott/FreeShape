@@ -311,6 +311,48 @@ def draw(name: str, p: QPainter):
             p.setPen(_pen(INK if k == 0 else BLUE, 1.6))
             p.drawEllipse(QPointF(16 + 10 * math.cos(a), 16 + 10 * math.sin(a)), 3, 3)
         _dot(p, 16, 16, ORANGE, 1.8)
+    elif name in ("sm_hem", "sm_jog", "sm_tab", "sm_convert"):
+        p.setPen(_pen(INK, 1.4))
+        p.setBrush(FACE)
+        if name == "sm_hem":
+            p.drawRect(QRectF(3, 20, 24, 4))
+            path = QPainterPath(QPointF(27, 20))
+            path.cubicTo(QPointF(31, 20), QPointF(31, 13), QPointF(27, 13))
+            p.setBrush(Qt.NoBrush)
+            p.setPen(_pen(BLUE, 1.8))
+            p.drawPath(path)
+            p.drawLine(QPointF(27, 13), QPointF(15, 13))
+        elif name == "sm_jog":
+            p.drawPolygon(QPolygonF([QPointF(2, 24), QPointF(12, 24), QPointF(18, 12), QPointF(30, 12),
+                                     QPointF(30, 15), QPointF(20, 15), QPointF(14, 27), QPointF(2, 27)]))
+        elif name == "sm_tab":
+            p.drawRect(QRectF(3, 14, 20, 12))
+            p.setBrush(BLUE_FILL)
+            p.setPen(_pen(BLUE, 1.4))
+            p.drawRect(QRectF(23, 17, 6, 6))
+        else:
+            p.drawRect(QRectF(4, 12, 22, 6))
+            _arrow(p, 15, 26, 15, 21, BLUE, 1.6)
+            p.setPen(_pen(BLUE, 1.6))
+            p.drawLine(QPointF(26, 12), QPointF(30, 5))
+    elif name == "derived":
+        p.setPen(_pen(INK, 1.3))
+        p.setBrush(FACE)
+        p.drawRect(QRectF(3, 4, 10, 10))
+        p.setBrush(BLUE_FILL)
+        p.drawRect(QRectF(18, 17, 11, 11))
+        _arrow(p, 12, 13, 19, 18, BLUE, 1.6)
+    elif name == "configs":
+        p.setPen(_pen(INK, 1.3))
+        p.setBrush(QColor("white"))
+        p.drawRect(QRectF(4, 6, 24, 20))
+        p.setPen(_pen(INK, 1.0))
+        for y in (12, 19):
+            p.drawLine(QPointF(4, y), QPointF(28, y))
+        p.drawLine(QPointF(13, 6), QPointF(13, 26))
+        p.setPen(Qt.NoPen)
+        p.setBrush(BLUE)
+        p.drawRect(QRectF(13.5, 12.5, 14, 6))
     elif name == "variable":
         p.setPen(_pen(INK, 1.8))
         p.drawArc(QRectF(3, 5, 10, 22), 100 * 16, 160 * 16)

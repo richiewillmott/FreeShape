@@ -345,22 +345,26 @@ class InsertPanel(QFrame):
     def fill(self):
         self.tree.clear()
         for doc in self.ctl.w.studio_docs():
-            top = QTreeWidgetItem([doc.name])
-            top.setIcon(0, icon("part", 16))
-            top.setData(0, ROLE_KIND, "studio")
-            top.setData(0, ROLE_ID, doc.uid)
-            for p in doc.state.parts.values():
-                it = QTreeWidgetItem([p.name])
-                it.setIcon(0, swatch(p.color))
-                it.setData(0, ROLE_KIND, "part")
-                it.setData(0, ROLE_ID, (doc.uid, p.id))
-                top.addChild(it)
-            if not doc.state.parts:
-                it = QTreeWidgetItem(["(no parts yet)"])
-                it.setDisabled(True)
-                top.addChild(it)
-            self.tree.addTopLevelItem(top)
-            top.setExpanded(True)
+            cfgs = doc.config_names() if hasattr(doc, "config_names") else []
+            # one entry per configuration (only the active one opened), or just the studio
+            for cfg in (cfgs or [None]):
+                st = doc.state_for(cfg) if cfg else doc.state
+                top = QTreeWidgetItem([doc.name + (f" · {cfg}" if cfg else "")])
+                top.setIcon(0, icon("configs" if cfg else "part", 16))
+                top.setData(0, ROLE_KIND, "studio")
+                top.setData(0, ROLE_ID, (doc.uid, cfg))
+                for p in st.parts.values():
+                    it = QTreeWidgetItem([p.name])
+                    it.setIcon(0, swatch(p.color))
+                    it.setData(0, ROLE_KIND, "part")
+                    it.setData(0, ROLE_ID, (doc.uid, p.id, cfg))
+                    top.addChild(it)
+                if not st.parts:
+                    it = QTreeWidgetItem(["(no parts yet)"])
+                    it.setDisabled(True)
+                    top.addChild(it)
+                self.tree.addTopLevelItem(top)
+                top.setExpanded(cfg is None or cfg == doc.active_config())
         if self.tree.topLevelItemCount() == 0:
             it = QTreeWidgetItem(["No Part Studios open — use “From file…”"])
             it.setDisabled(True)
@@ -371,10 +375,11 @@ class InsertPanel(QFrame):
             return
         kind = it.data(0, ROLE_KIND)
         if kind == "part":
-            uid, pid = it.data(0, ROLE_ID)
-            self.ctl.insert_studio_parts(uid, [pid])
+            uid, pid, cfg = it.data(0, ROLE_ID)
+            self.ctl.insert_studio_parts(uid, [pid], cfg)
         elif kind == "studio":
-            self.ctl.insert_studio_parts(it.data(0, ROLE_ID), None)
+            uid, cfg = it.data(0, ROLE_ID)
+            self.ctl.insert_studio_parts(uid, None, cfg)
         self.msg.setText(f"Inserted {it.text(0)}")
 
     def _from_file(self):
@@ -1128,12 +1133,13 @@ class AssemblyController:
             self.insert_panel.deleteLater()
             self.insert_panel = None
 
-    def insert_studio_parts(self, uid, part_ids=None):
+    def insert_studio_parts(self, uid, part_ids=None, config=None):
         studio = self.w.studio_by_uid(uid)
         if studio is None:
             return
         doc = self.doc
-        pids = part_ids or list(studio.state.parts)
+        st = studio.state_for(config) if config else studio.state
+        pids = part_ids or list(st.parts)
         if not pids:
             return
         doc.checkpoint()
@@ -1144,13 +1150,15 @@ class AssemblyController:
             lo, hi = doc.bounds()
             slo, shi = np.full(3, np.inf), np.full(3, -np.inf)
             for pid in pids:
-                a, b = K.bbox(studio.state.parts[pid].shape)
+                a, b = K.bbox(st.parts[pid].shape)
                 slo, shi = np.minimum(slo, a), np.maximum(shi, b)
             gap = max(0.15 * float(np.linalg.norm(shi - slo)), 5.0)
             shift = A.translation([hi[0] + gap - slo[0], 0, lo[2] - slo[2]])
         for pid in pids:
             src = {"kind": "studio", "uid": studio.uid, "part": pid, "path": studio.path,
                    "studio_name": studio.name}
+            if config:
+                src["config"] = config
             try:
                 T = shift if part_ids is None and doc.instances and shift is not None else None
                 if part_ids is None and not doc.instances:

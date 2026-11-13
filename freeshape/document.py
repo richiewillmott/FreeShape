@@ -27,6 +27,10 @@ class Document:
         # feature-list folders: id -> {"name": str, "open": bool}; a feature in one has f["folder"] = that id.
         # A folder groups a run of features that sit next to each other in the list (like Onshape).
         self.folders: dict = {}
+        # configurations: named rows that set variables (by name) and suppress features (by id), like Onshape's
+        # configuration table: {"rows": [{"name", "vars": {name: expr}, "suppress": [fid]}], "active": index}
+        self.configs: dict = {"rows": [], "active": 0}
+        self.derived_fallback: dict = {}          # derived feature id -> saved copy of its parts (from the file)
         self.path = None
         self.dirty = False
         self._undo: list[str] = []
@@ -61,7 +65,8 @@ class Document:
     def _snapshot(self) -> str:
         return json.dumps({"features": self.features, "rollback": self.rollback,
                            "overrides": self.part_overrides, "hidden": sorted(self.hidden_parts),
-                           "hidden_features": sorted(self.hidden_features), "folders": self.folders})
+                           "hidden_features": sorted(self.hidden_features), "folders": self.folders,
+                           "configs": self.configs})
 
     def _restore(self, snap: str):
         d = json.loads(snap)
@@ -71,6 +76,7 @@ class Document:
         self.hidden_parts = set(d["hidden"])
         self.hidden_features = set(d.get("hidden_features", []))
         self.folders = d.get("folders", {})
+        self.configs = d.get("configs", {"rows": [], "active": 0})
 
     def checkpoint(self):
         """Call before any user-visible change."""
@@ -238,14 +244,77 @@ class Document:
     def _key(prefix_json: str) -> str:
         return hashlib.sha1(prefix_json.encode()).hexdigest()
 
-    def compute(self, features, upto=None, errors=None):
+    # ------------------------------------------------------------------ configurations
+    def config_names(self):
+        return [r["name"] for r in self.configs.get("rows", [])]
+
+    def active_config(self):
+        rows = self.configs.get("rows", [])
+        if not rows:
+            return None
+        return rows[min(max(int(self.configs.get("active", 0)), 0), len(rows) - 1)]["name"]
+
+    def _config_row(self, name=None):
+        rows = self.configs.get("rows", [])
+        if not rows:
+            return None
+        if name is None:
+            return rows[min(max(int(self.configs.get("active", 0)), 0), len(rows) - 1)]
+        return next((r for r in rows if r["name"] == name), None)
+
+    def _configured(self, f, row):
+        """Feature f as the configuration `row` has it: its variable value and whether it's suppressed."""
+        if row is None:
+            return f
+        if f["id"] in row.get("suppress", []) and not f.get("suppressed"):
+            f = dict(f, suppressed=True)
+        if f.get("type") == "variable":
+            name = str(f["params"].get("name", "")).strip().lstrip("#")
+            val = row.get("vars", {}).get(name)
+            if val not in (None, ""):
+                f = dict(f, params=dict(f["params"], expr=str(val)))
+        return f
+
+    def set_configs(self, rows, active=0):
+        """Replace the configuration table (one undo step) and rebuild in the active configuration."""
+        self.checkpoint()
+        self.configs = {"rows": [dict(r) for r in rows], "active": int(active) if rows else 0}
+        self.rebuild()
+
+    def set_active_config(self, name_or_index):
+        rows = self.configs.get("rows", [])
+        i = name_or_index if isinstance(name_or_index, int) else next(
+            (k for k, r in enumerate(rows) if r["name"] == name_or_index), None)
+        if i is None or not (0 <= i < len(rows)) or i == self.configs.get("active", 0):
+            return
+        self.configs["active"] = i
+        self.dirty = True
+        self.rebuild()
+
+    def state_for(self, config=None):
+        """The model in another configuration (for assemblies, drawings and derived parts), without changing
+        this tab. None or unknown: the active one."""
+        if not config or self._config_row(config) is None or config == self.active_config():
+            return self.state
+        st = self.compute(self.features, self.active_count(), None, config=config).copy()
+        self._apply_overrides(st)
+        return st
+
+    def compute(self, features, upto=None, errors=None, config=None):
         """Replay features (with caching). Returns the resulting ModelState."""
         state = ModelState()
         h = hashlib.sha1()
         n = len(features) if upto is None else upto
         new_cache = {}
+        row = self._config_row(config)
         for f in features[:n]:
+            f = self._configured(f, row)
             h.update(json.dumps({k: v for k, v in f.items() if k != "folder"}, sort_keys=True).encode())
+            if f.get("type") == "derived":
+                from . import features as _F
+                h.update(json.dumps(_F.link_stamp(f)).encode())       # rebuild when the source parts change
+                if f["id"] in self.derived_fallback:
+                    f = dict(f, _fallback=self.derived_fallback[f["id"]])
             key = h.hexdigest()
             if key in self._cache:
                 state, err = self._cache[key]
@@ -426,11 +495,34 @@ class Document:
             cb()
 
     # ------------------------------------------------------------------ files
+    def _derived_copies(self):
+        """A copy of each derived feature's parts, saved in the file so it still opens without the source."""
+        out = {}
+        for f in self.features:
+            if f.get("type") != "derived":
+                continue
+            items = []
+            for pid, p in self.state.parts.items():
+                if pid.startswith(f["id"] + ":"):
+                    try:
+                        import base64
+                        items.append({"name": p.name, "color": list(p.color),
+                                      "brep": base64.b64encode(K.shape_to_brep(p.shape)).decode()})
+                    except Exception:
+                        pass
+            if items:
+                out[f["id"]] = items
+            elif f["id"] in self.derived_fallback:
+                out[f["id"]] = self.derived_fallback[f["id"]]
+        return out
+
     def to_json(self):
         return json.dumps({"format": "freeshape", "version": FILE_VERSION, "name": self.name, "uid": self.uid,
+                           "derived_copies": self._derived_copies(),
                            "features": self.features, "rollback": self.rollback,
                            "overrides": self.part_overrides, "hidden": sorted(self.hidden_parts),
-                           "hidden_features": sorted(self.hidden_features), "folders": self.folders}, indent=1)
+                           "hidden_features": sorted(self.hidden_features), "folders": self.folders,
+                           "configs": self.configs}, indent=1)
 
     def save(self, path=None):
         path = path or self.path
@@ -452,6 +544,8 @@ class Document:
         doc.hidden_parts = set(d.get("hidden", []))
         doc.hidden_features = set(d.get("hidden_features", []))
         doc.folders = d.get("folders", {})
+        doc.configs = d.get("configs", {"rows": [], "active": 0})
+        doc.derived_fallback = d.get("derived_copies", {})
         doc.path = path
         nums = [int("".join(c for c in f["id"] if c.isdigit()) or 0) for f in doc.features]
         doc._counter = max(nums + [0])

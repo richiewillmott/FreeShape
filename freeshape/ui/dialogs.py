@@ -399,6 +399,30 @@ SCHEMAS = {
         _num("relief_scale", "Relief size (× thickness)", unit="", visible=lambda p: p.get("relief", True),
              minimum=0.1),
     ],
+    "sm_hem": [
+        _sel("edges", "Edges to hem", {"edge"}),
+        _num("length", "Hem length (to the outside of the fold)", minimum=1e-6),
+        _check("down", "Fold the other way"),
+        _check("own_radius", "Choose the fold radius (else half the thickness)"),
+        _num("radius", "Fold radius (inside)", visible=lambda p: p.get("own_radius"), minimum=0.01),
+    ],
+    "sm_jog": [
+        _sel("edges", "Edges to jog from", {"edge"}),
+        _num("offset", "Offset (the step)", minimum=1e-6),
+        _num("length", "Length after the step (to the outside)", minimum=1e-6),
+        _check("down", "Step the other way"),
+        _check("own_radius", "Use a different bend radius"),
+        _num("radius", "Bend radius (inside)", visible=lambda p: p.get("own_radius"), minimum=0),
+    ],
+    "sm_tab": [
+        _sel("profiles", "Sketch region(s) on a panel's face, touching it", {"region"}),
+    ],
+    "sm_convert": [
+        _sel("faces", "One of the plate's big flat faces", {"face"}, multi=False),
+        _num("radius", "Bend radius for flanges added later", minimum=0),
+        _num("k", "K-factor (0.44 suits most steel / aluminium)", unit="", minimum=1e-6),
+        _check("relief", "Corner reliefs where two bends meet"),
+    ],
     "sm_flange": [
         _sel("edges", "Edges to bend a flange from", {"edge"}),
         _num("length", "Flange length (to the outside)", minimum=1e-6),
@@ -599,10 +623,12 @@ def params_to_fields(ftype, p):
         f["upto_part"] = [("part", u["id"])] if u.get("kind") == "part" else []
     if ftype in ("extrude", "revolve", "sweep"):
         f["profiles"] = [("region", r) for r in p.get("regions", [])] + [("face", r) for r in p.get("faces", [])]
-    if ftype == "sm_base":
+    if ftype in ("sm_base", "sm_tab"):
         f["profiles"] = [("region", r) for r in p.get("regions", [])]
-    if ftype == "sm_flange":
+    if ftype in ("sm_flange", "sm_hem", "sm_jog"):
         f["edges"] = [("edge", r) for r in p.get("edges", [])]
+    if ftype == "sm_convert":
+        f["faces"] = [("face", r) for r in p.get("faces", [])]
     if ftype == "sweep":
         f["path"] = [("path", r) for r in p.get("path", [])]
     if ftype == "loft":
@@ -644,10 +670,12 @@ def params_to_fields(ftype, p):
 
 
 def fields_to_params(ftype, fields, p):
-    if ftype == "sm_base":
+    if ftype in ("sm_base", "sm_tab"):
         p["regions"] = [r for k, r in fields.get("profiles", []) if k == "region"]
-    if ftype == "sm_flange":
+    if ftype in ("sm_flange", "sm_hem", "sm_jog"):
         p["edges"] = [r for k, r in fields.get("edges", []) if k == "edge"]
+    if ftype == "sm_convert":
+        p["faces"] = [r for k, r in fields.get("faces", []) if k == "face"]
     if ftype in ("mirror", "linear_pattern", "circular_pattern"):
         p["features"] = [r for k, r in fields.get("features", []) if k == "feature"]
     if ftype in ("extrude", "revolve"):

@@ -2,6 +2,26 @@
 
 ## 2.0 (in progress)
 
+### 1.9.3 — stage 4 preview: configurations, derived parts, more sheet metal
+- **Configurations**: the Configurations button opens a table — each row a configuration (say "M5 × 20",
+  "M6 × 30") setting the studio's variables (values or expressions), plus optional columns that switch features
+  off. Pick the configuration shown from the toolbar. Assemblies insert any configuration (each shows in the
+  Insert panel), drawings can be of any configuration, and parts lists name it ("Spacer (Long)").
+- **Derived parts**: the Derived feature brings parts from another Part Studio (all, or the ones you pick, in
+  any configuration), kept linked: edit them there and they update here. A copy is saved with the document, so it
+  still opens if the other studio isn't there.
+- **Sheet metal**:
+  - **Hem**: fold edges right back over the sheet (180°), with a tight radius (half the thickness unless you
+    choose one).
+  - **Jog**: from an edge the sheet steps up or down by an offset and carries on parallel (two opposite 90°
+    bends).
+  - **Tab**: more sheet in a panel's own plane, from a sketch region drawn on it and touching it; flanges can go
+    on the tab's edges.
+  - **Convert to sheet metal**: a flat plate of even thickness (imported, or extruded) becomes sheet metal —
+    holes and all — so it can get flanges, be unfolded and be nested. Anything that isn't a plate is refused
+    with a clear message.
+  - All of them unfold exactly in the flat pattern (bend allowance from the K-factor) and export to DXF.
+
 ### 1.9.2 — stage 3 preview: assemblies
 - **Standard parts library**, made on the spot from ISO size tables (no download, works offline), in the
   assembly's Insert panel: socket head cap screws (ISO 4762), countersunk screws (ISO 10642), hex head screws

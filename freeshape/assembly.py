@@ -627,7 +627,7 @@ class AssemblyDoc:
             return ("std", src.get("family"), src.get("size"), float(src.get("length") or 0))
         if src.get("kind") == "step":
             return ("step", src.get("blob"), src.get("index", 0))
-        return ("studio", src.get("uid"), src.get("part"))
+        return ("studio", src.get("uid"), src.get("part"), src.get("config"))
 
     def instance_color(self, inst):
         """The instance's own colour, else its part's — except plain default-grey parts, which get a colour
@@ -1439,7 +1439,10 @@ class AssemblyDoc:
             else:
                 where = src.get("studio_name") or os.path.basename(src.get("path") or "") or "Part Studio"
             p = self.parts.get(inst["id"])
-            r = rows.setdefault(key, {"name": inst.get("part_name") or inst["name"], "source": where, "qty": 0,
+            nm = inst.get("part_name") or inst["name"]
+            if src.get("config"):
+                nm += f" ({src['config']})"
+            r = rows.setdefault(key, {"name": nm, "source": where, "qty": 0,
                                       "volume": None, "instances": []})
             r["qty"] += 1
             r["instances"].append(inst["name"])

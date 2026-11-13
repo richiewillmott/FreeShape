@@ -12,6 +12,7 @@ from PySide6.QtGui import QAction, QKeySequence, QShortcut, QColor
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QToolButton, QLabel, QFrame, QSplitter, QMenu,
     QStackedWidget, QFileDialog, QMessageBox, QInputDialog, QColorDialog, QTabBar, QSizePolicy, QApplication, QDialog,
+    QComboBox,
 )
 
 from .. import kernel as K
@@ -72,6 +73,7 @@ class MainWindow(QMainWindow):
         self.section_panel = None
         from PySide6.QtCore import QSettings
         self.settings = QSettings("FreeShape", "FreeShape")
+        F.LINKER = self._derived_link              # derived parts find their source studios through the window
         self._build_ui()
         self._bind_shortcuts()
         self.set_theme(str(self.settings.value("theme", "light")), save=False)
@@ -408,6 +410,12 @@ class MainWindow(QMainWindow):
             C("sm_base", "Sheet metal", "A flat sheet from a sketch with thickness, bend radius and K-factor.",
               lambda: F_("sm_base"), "bracket enclosure"),
             C("sm_flange", "Flange", "Bend the sheet up along edges.", lambda: F_("sm_flange"), "sheet metal bend"),
+            C("sm_hem", "Hem", "Fold sheet metal edges right back (180°).", lambda: F_("sm_hem"), "sheet metal fold"),
+            C("sm_jog", "Jog", "Step sheet metal up or down from an edge.", lambda: F_("sm_jog"),
+              "sheet metal joggle offset step"),
+            C("sm_tab", "Tab", "Add sheet in a panel's plane from a sketch.", lambda: F_("sm_tab"), "sheet metal extend"),
+            C("sm_convert", "Convert to sheet metal", "Make a flat plate into sheet metal.", lambda: F_("sm_convert"),
+              "sheet metal plate import"),
             C("plane", "Plane", "Make a datum plane: offset, through a point, line and angle, three points, mid "
               "plane, normal to a curve or tangent to a surface.", lambda: F_("plane"), "datum"),
             C("mirror", "Mirror", "Copy parts across a plane.", lambda: F_("mirror"), "symmetry"),
@@ -421,6 +429,10 @@ class MainWindow(QMainWindow):
             C("move", "Move", "Move, rotate or copy parts by exact amounts.", lambda: F_("move"), "translate"),
             C("variable", "Variable", "Define #name values to use in any dimension.", lambda: F_("variable"),
               "parameter"),
+            C("derived", "Derived", "Bring parts from another Part Studio, kept linked.", lambda: F_("derived"),
+              "link reference copy other studio"),
+            C("configs", "Configurations", "Sizes or versions of this Part Studio from a table of variable values.",
+              self.edit_configs, "configuration family table sizes variants"),
             C("import", "Import STEP", "Open a STEP file in a new tab.", lambda: self.import_step(), "open file",
               "File"),
             C("export", "Export", "Export the model as STEP or STL.", lambda: self.export(None, None),
@@ -505,6 +517,17 @@ class MainWindow(QMainWindow):
         self.btn_redo = self._tb(h, "redo", "Redo (Ctrl+Y)", self.redo)
         h.addWidget(_sep())
         self._tb(h, "variable", "Variable — define #name values to use in any dimension", lambda: self.start_feature("variable"))
+        self._tb(h, "configs", "Configurations — sizes / versions of this part from a table of variable values",
+                 self.edit_configs)
+        self._tb(h, "derived", "Derived — bring parts from another Part Studio, kept linked",
+                 lambda: self.start_feature("derived"))
+        self.config_box = QComboBox()
+        self.config_box.setToolTip("The configuration shown")
+        self.config_box.setMinimumWidth(110)
+        self.config_box.activated.connect(lambda i: self.doc.set_active_config(i) if self.doc is not None and
+                                          hasattr(self.doc, "set_active_config") else None)
+        self.config_box.hide()
+        h.addWidget(self.config_box)
         h.addWidget(_sep())
         self._tb(h, "sketch", "Sketch (Shift+S)", lambda: self.start_sketch())
         h.addWidget(_sep())
@@ -522,6 +545,13 @@ class MainWindow(QMainWindow):
         self._tb(h, "sm_base", "Sheet metal — a flat sheet from a sketch (thickness, bend radius, K-factor)",
                  lambda: self.start_feature("sm_base"))
         self._tb(h, "sm_flange", "Flange — bend the sheet up along edges", lambda: self.start_feature("sm_flange"))
+        self._tb(h, "sm_hem", "Hem — fold edges right back over the sheet", lambda: self.start_feature("sm_hem"))
+        self._tb(h, "sm_jog", "Jog — step the sheet up or down from an edge and carry on",
+                 lambda: self.start_feature("sm_jog"))
+        self._tb(h, "sm_tab", "Tab — more sheet in a panel's plane, from a sketch on its face",
+                 lambda: self.start_feature("sm_tab"))
+        self._tb(h, "sm_convert", "Convert — make a flat plate (an imported one, say) into sheet metal",
+                 lambda: self.start_feature("sm_convert"))
         self.btn_flat = self._tb(h, "flat", "Flat pattern — show sheet metal parts unfolded", self.toggle_flat,
                                  checkable=True)
         self._tb(h, "flat_dxf", "Export the flat pattern as DXF (for laser / plasma cutting)",
@@ -771,6 +801,7 @@ class MainWindow(QMainWindow):
         self._refresh_tab_title(self.doc)
         n = len(self.doc.state.parts)
         self.left.parts_header.setText(f"Parts ({n})")
+        self._refresh_config_box()
         self.left.feat_header.setText(f"Features ({len(self.doc.features)})")
         errs = len(self.doc.errors)
         if errs:
@@ -823,6 +854,9 @@ class MainWindow(QMainWindow):
     # ================================================================== feature dialogs
     def start_feature(self, ftype, edit_fid=None):
         if self.is_asm or self.is_dwg:
+            return
+        if ftype == "derived":
+            self._derived_dialog(edit_fid)
             return
         if self.mode != "idle":
             if self.mode == "dialog" and self.dialog and self.dialog.is_new and self.dialog.ftype != ftype \
@@ -1117,6 +1151,26 @@ class MainWindow(QMainWindow):
         self.mode = "idle"
         self.tool_stack.setCurrentIndex(0)
         self._populate_lists()
+
+    def edit_configs(self):
+        if self.doc is None or self.is_asm or self.is_dwg:
+            return
+        self._leave_modes()
+        from .config_ui import ConfigDialog
+        ConfigDialog(self, self.doc).exec()
+
+    def _refresh_config_box(self):
+        box = getattr(self, "config_box", None)
+        if box is None:
+            return
+        names = self.doc.config_names() if hasattr(self.doc, "config_names") else []
+        box.blockSignals(True)
+        box.clear()
+        box.addItems(names)
+        if names:
+            box.setCurrentIndex(names.index(self.doc.active_config()))
+        box.setVisible(bool(names))
+        box.blockSignals(False)
 
     def _feature_from_sketch(self, ftype):
         """Shift+E / Shift+W: in a sketch, finish it and open Extrude / Revolve with its areas picked; otherwise
@@ -2329,6 +2383,125 @@ class MainWindow(QMainWindow):
             self._on_doc_changed()
         else:
             self._refresh_tab_title(doc)
+        self._update_derived_from(doc)
+
+    # ------------------------------------------------------------------ derived parts
+    def _derived_link(self, params):
+        """The parts a derived feature brings in: [(name, shape, colour, face colours)]."""
+        studio = self.studio_by_uid(params.get("uid"), params.get("path"), load=True)
+        if studio is None:
+            raise K.KernelError(f"Part Studio “{params.get('studio_name') or '?'}” isn't open")
+        if getattr(self, "_deriving", None) and studio.uid in self._deriving:
+            raise K.KernelError("A Part Studio can't derive from itself (directly or round a loop)")
+        st = studio.state_for(params.get("config"))
+        want = params.get("parts") or ["*"]
+        parts = [p for p in st.parts.values() if "*" in want or p.id in want]
+        return [(p.name, p.shape, p.color, p.face_colors) for p in parts]
+
+    def _update_derived_from(self, src_doc):
+        """A Part Studio changed: rebuild the ones that derive parts from it."""
+        if getattr(src_doc, "kind", None) != "studio" or getattr(self, "_derive_busy", False):
+            return
+        self._derive_busy = True
+        try:
+            for d in self.studio_docs():
+                if d is src_doc:
+                    continue
+                if any(f.get("type") == "derived" and f["params"].get("uid") == src_doc.uid for f in d.features):
+                    self._deriving = {d.uid}
+                    try:
+                        d.rebuild()
+                    finally:
+                        self._deriving = None
+        finally:
+            self._derive_busy = False
+
+    def _derived_dialog(self, edit_fid=None):
+        from PySide6.QtWidgets import QDialog, QFormLayout, QDialogButtonBox, QListWidget, QListWidgetItem
+        doc = self.doc
+        if doc is None or self.mode != "idle":
+            return
+        others = [d for d in self.studio_docs() if d is not doc and d.state.parts]
+        f = doc.feature(edit_fid) if edit_fid else None
+        if not others and f is None:
+            QMessageBox.information(self, APP_NAME, "Open (or make) the other Part Studio first — derived parts come "
+                                    "from another Part Studio tab or file.")
+            return
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Derived parts")
+        form = QFormLayout(dlg)
+        studio = QComboBox()
+        for d in others:
+            studio.addItem(d.name, d.uid)
+        cfg = QComboBox()
+        parts = QListWidget()
+        parts.setSelectionMode(QListWidget.ExtendedSelection)
+        form.addRow("From:", studio)
+        cfg_label = QLabel("Configuration:")
+        form.addRow(cfg_label, cfg)
+        form.addRow("Parts (none picked = all):", parts)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        form.addRow(bb)
+
+        def fill():
+            d = self.studio_by_uid(studio.currentData())
+            cfg.blockSignals(True)
+            cfg.clear()
+            names = d.config_names() if d else []
+            for n in names:
+                cfg.addItem(n, n)
+            if names:
+                cfg.setCurrentIndex(names.index(d.active_config()))
+            cfg.setVisible(bool(names))
+            cfg_label.setVisible(bool(names))
+            cfg.blockSignals(False)
+            fill_parts()
+
+        def fill_parts():
+            parts.clear()
+            d = self.studio_by_uid(studio.currentData())
+            if d is None:
+                return
+            for p in d.state_for(cfg.currentData()).parts.values():
+                it = QListWidgetItem(p.name)
+                it.setData(Qt.UserRole, p.id)
+                parts.addItem(it)
+        studio.currentIndexChanged.connect(fill)
+        cfg.currentIndexChanged.connect(fill_parts)
+        fill()
+        if f is not None:
+            i = studio.findData(f["params"].get("uid"))
+            if i >= 0:
+                studio.setCurrentIndex(i)
+                fill()
+            if f["params"].get("config"):
+                cfg.setCurrentIndex(max(0, cfg.findData(f["params"]["config"])))
+            for k in range(parts.count()):
+                parts.item(k).setSelected(parts.item(k).data(Qt.UserRole) in f["params"].get("parts", []))
+        if dlg.exec() != QDialog.Accepted or studio.currentData() is None:
+            return
+        src = self.studio_by_uid(studio.currentData())
+        picked = [it.data(Qt.UserRole) for it in parts.selectedItems()] or ["*"]
+        params = {"uid": src.uid, "path": src.path or "", "studio_name": src.name, "parts": picked,
+                  "config": cfg.currentData() if cfg.count() else None}
+        if f is None:
+            feat = doc.make_feature("derived")
+            feat["params"] = params
+            feat["name"] = "Derived from " + src.name + (f" ({params['config']})" if params["config"] else "")
+            self._deriving = {doc.uid}
+            try:
+                doc.add_feature(feat)
+            finally:
+                self._deriving = None
+            err = doc.errors.get(feat["id"])
+        else:
+            feat = dict(f, params=params)
+            doc.replace_feature(feat)
+            err = doc.errors.get(feat["id"])
+        if err:
+            QMessageBox.warning(self, APP_NAME, err)
 
     def _is_pristine(self, doc):
         return doc is not None and not self._has_content(doc) and not doc.path and not doc.dirty
@@ -2483,16 +2656,20 @@ class MainWindow(QMainWindow):
             if d is None:
                 continue
             if d.kind == "studio" and d.state.parts:
-                base = {"kind": "studio", "uid": d.uid, "path": d.path, "studio_name": d.name}
-                entries = []
-                if len(d.state.parts) > 1:
-                    entries.append(("All parts", {**base, "part": "*"}))
-                for p in d.state.parts.values():
-                    entries.append((p.name, {**base, "part": p.id, "part_name": p.name}))
-                    if p.id in getattr(d.state, "sheet", {}):
-                        entries.append((p.name + " — flat pattern", {**base, "part": p.id, "part_name": p.name,
-                                                                      "flat": True}))
-                out.append((d.name, "part", entries))
+                for cfg in (d.config_names() or [None]):
+                    st = d.state_for(cfg)
+                    base = {"kind": "studio", "uid": d.uid, "path": d.path, "studio_name": d.name}
+                    if cfg:
+                        base["config"] = cfg
+                    entries = []
+                    if len(st.parts) > 1:
+                        entries.append(("All parts", {**base, "part": "*"}))
+                    for p in st.parts.values():
+                        entries.append((p.name, {**base, "part": p.id, "part_name": p.name}))
+                        if p.id in getattr(st, "sheet", {}):
+                            entries.append((p.name + " — flat pattern", {**base, "part": p.id, "part_name": p.name,
+                                                                          "flat": True}))
+                    out.append((d.name + (f" · {cfg}" if cfg else ""), "part", entries))
             elif d.kind == "assembly" and d.instances:
                 out.append((d.name, "assembly", [("Whole assembly", {"kind": "assembly", "uid": d.uid,
                                                                       "path": d.path, "name": d.name})]))
@@ -2567,7 +2744,10 @@ class MainWindow(QMainWindow):
                     continue
                 key = asm._source_key(inst["source"])
                 if key not in rows:
-                    rows[key] = {"name": inst.get("part_name") or inst["name"], "qty": 0, "shapes": []}
+                    nm = inst.get("part_name") or inst["name"]
+                    if inst["source"].get("config"):
+                        nm += f" ({inst['source']['config']})"
+                    rows[key] = {"name": nm, "qty": 0, "shapes": []}
                     order.append(key)
                 rows[key]["qty"] += 1
                 rows[key]["shapes"].append(K.located(asm.parts[inst["id"]].shape,
@@ -2577,10 +2757,11 @@ class MainWindow(QMainWindow):
         studio = self.studio_by_uid(src.get("uid"), src.get("path"), load=True)
         if studio is None or src.get("flat"):
             return []
+        st = studio.state_for(src.get("config"))
         if src.get("part") in (None, "*"):
-            parts = [p for p in studio.state.parts.values() if p.id not in studio.hidden_parts]
+            parts = [p for p in st.parts.values() if p.id not in studio.hidden_parts]
         else:
-            parts = [studio.state.parts[src["part"]]] if src["part"] in studio.state.parts else []
+            parts = [st.parts[src["part"]]] if src["part"] in st.parts else []
         return [{"name": p.name, "qty": 1, "shapes": [p.shape]} for p in parts]
 
     def _resolve_drawing_source(self, src):
@@ -2610,26 +2791,26 @@ class MainWindow(QMainWindow):
         if studio.path:
             src["path"] = os.path.abspath(studio.path)
         if src.get("part") in (None, "*"):
-            parts = [p for p in studio.state.parts.values() if p.id not in studio.hidden_parts]
+            parts = [p for p in studio.state_for(src.get("config")).parts.values() if p.id not in studio.hidden_parts]
             if not parts:
                 raise K.KernelError(f"“{studio.name}” has no parts")
             if len(parts) == 1:
                 return parts[0].shape
-            key = ("studio", studio.uid, tuple(id(p.shape) for p in parts))
+            key = ("studio", studio.uid, src.get("config"), tuple(id(p.shape) for p in parts))
             if key not in cache:
                 cache[key] = K.compound([p.shape for p in parts])
             return cache[key]
-        p = studio.state.parts.get(src["part"])
+        p = studio.state_for(src.get("config")).parts.get(src["part"])
         if p is None:
             raise K.KernelError(f"The part no longer exists in “{studio.name}”")
         src["part_name"] = p.name
         if src.get("flat"):
-            if p.id not in getattr(studio.state, "sheet", {}):
+            if p.id not in getattr(studio.state_for(src.get("config")), "sheet", {}):
                 raise K.KernelError(f"“{p.name}” isn't sheet metal any more")
-            fp = self.flat_pattern_of(studio.state, p.id)
+            fp = self.flat_pattern_of(studio.state_for(src.get("config")), p.id)
             # bend lines go on the drawing too (kept in the source, so they're there when reopened)
             src["bends"] = [[list(map(float, a)), list(map(float, b)), lab] for a, b, lab in fp.bend_lines]
-            key = ("flat", studio.uid, p.id, id(p.shape))
+            key = ("flat", studio.uid, src.get("config"), p.id, id(p.shape))
             if key not in cache:
                 cache[key] = fp.solid()
             return cache[key]
@@ -2681,7 +2862,8 @@ class MainWindow(QMainWindow):
         src["studio_name"] = studio.name
         if studio.uid != src.get("uid"):
             src["uid"] = studio.uid
-        p = studio.state.parts.get(src.get("part"))
+        state = studio.state_for(src.get("config")) if hasattr(studio, "state_for") else studio.state
+        p = state.parts.get(src.get("part"))
         if p is None:
             raise K.KernelError(f"The part no longer exists in “{studio.name}”")
         return p

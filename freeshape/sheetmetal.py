@@ -279,6 +279,103 @@ def add_flange(shape, model: SheetModel, panel, a, b, o, length, angle, radius=N
     return (_unify(sols[0]) if len(sols) == 1 else new), m
 
 
+def add_hem(shape, model, panel, a, b, o, length, radius=None, down=False, fid="F"):
+    """A hem: the edge folded right back (180°) over the sheet. `length` is measured from the outside of the
+    fold; a small radius (default half the thickness) gives a tight, rounded hem."""
+    R = float(radius) if radius is not None else max(model.thickness * 0.5, 0.1)
+    return add_flange(shape, model, panel, a, b, o, length, 180.0, R, not down, "outside", fid)
+
+
+def add_jog(shape, model, panel, a, b, o, offset, length, radius=None, down=False, fid="F"):
+    """A jog (joggle): from an edge the sheet steps up (or down) by `offset` and carries on parallel to where it
+    was for `length` — two opposite 90° bends. `offset` is the step between the two parallel panels' matching
+    faces; `length` runs from the outside of the second bend."""
+    t = model.thickness
+    R = float(radius) if radius is not None else model.radius
+    first = float(offset) - t                                  # the step's flange, to the outside of its bends
+    if first - 2 * (R + t) <= 1e-6:
+        raise K.KernelError(f"The jog is too small for this bend radius — make the offset more than "
+                            f"{2 * (R + t) + t:.2f} mm, or use a smaller radius")
+    shape, m = add_flange(shape, model, panel, a, b, o, first, 90.0, R, not down, "outside", fid)
+    child = m.panels[-1]
+    far = [(p, q, oo) for p, q, oo in m.panel_edges(child)
+           if abs(p[1] - _panel_len(child)) < 1e-6 and abs(q[1] - _panel_len(child)) < 1e-6]
+    if not far:
+        raise K.KernelError("Couldn't find the edge for the second bend of the jog")
+    p2, q2, o2 = far[0]
+    return add_flange(shape, m, child, p2, q2, o2, length, 90.0, R, down, "outside", fid + "j")
+
+
+def _panel_len(panel):
+    lo, hi = K.bbox(panel["face"])
+    return float(hi[1])
+
+
+def add_tab(shape, model, region_world, fid="F"):
+    """A tab: more sheet in the plane of an existing panel (from a sketch region on its face, touching it).
+    Flanges can then go on the tab's edges, and it unfolds with its panel."""
+    m = model.copy()
+    t = m.thickness
+    pl = K.planar_face_plane(region_world)
+    if pl is None:
+        raise K.KernelError("A tab comes from a flat sketch region")
+    target = None
+    for p in m.panels:
+        Minv = np.linalg.inv(p["fold"])
+        n_loc = Minv[:3, :3] @ pl.normal
+        z = apply(Minv, pl.origin)[2]
+        if abs(abs(n_loc[2]) - 1) < 1e-7 and (abs(z) < 1e-5 or abs(z - t) < 1e-5):
+            local = _moved(region_world, Minv)
+            if abs(z) > 1e-5:
+                local = K.translate(local, (0, 0, -t))
+            grown = _merge_faces(p["face"], K.faces(local)[0])
+            if grown is not None:
+                target = (p, local, grown)
+                break
+    if target is None:
+        raise K.KernelError("Draw the tab on the face of a sheet metal panel, touching its edge")
+    p, local, grown = target
+    p["face"] = grown
+    new = K.fuse(shape, _moved(_prism(K.faces(local)[0], (0, 0, t)), p["fold"]))
+    sols = K.solids(new)
+    return (_unify(sols[0]) if len(sols) == 1 else new), m
+
+
+def _merge_faces(f1, f2):
+    """Two touching flat faces in z = 0 as one face (None if they don't touch)."""
+    a, b = _prism(f1, (0, 0, 1.0)), _prism(f2, (0, 0, 1.0))
+    if not K.touches_or_intersects(a, b):
+        return None
+    u = _unify(K.fuse(a, b))
+    if len(K.solids(u)) != 1:
+        return None
+    for f in K.faces(u):
+        pl = K.planar_face_plane(f)
+        if pl is not None and abs(abs(pl.normal[2]) - 1) < 1e-9 and abs(pl.origin[2]) < 1e-9:
+            return f
+    return None
+
+
+def convert_plate(shape, face, radius, k, relief="rect", relief_scale=1.5):
+    """A flat plate (any outline, with holes) made into a sheet metal part, so flanges can be added and it can be
+    unfolded and nested. `face` is one of its two big flat faces. Returns (solid, model)."""
+    pl = K.planar_face_plane(face)
+    if pl is None:
+        raise K.KernelError("Pick one of the plate's big flat faces")
+    n = np.asarray(pl.normal, float)
+    lo, hi = K.bbox(shape)
+    c = K.mass_props(shape)["centroid"]
+    into = n if float((c - pl.origin) @ n) > 0 else -n            # from the picked face into the material
+    pts = np.array(K._vertices_np(shape))
+    t = float(np.max((pts - pl.origin) @ into))
+    area = K.face_info(face)["area"]
+    if t <= 1e-6 or abs(K.volume(shape) - area * t) > 1e-3 * K.volume(shape) + 1e-6:
+        raise K.KernelError("This part isn't a flat plate of even thickness (its volume isn't the face area × "
+                            "the thickness), so it can't be made sheet metal")
+    plane = K.Plane(np.asarray(pl.origin, float), np.asarray(pl.xdir, float), into)
+    return make_base(face, plane, t, radius, k, False, relief, relief_scale)
+
+
 def _line_hit(a1, d1, a2, d2):
     """Where two 2D lines meet (None if parallel)."""
     den = d1[0] * d2[1] - d1[1] * d2[0]

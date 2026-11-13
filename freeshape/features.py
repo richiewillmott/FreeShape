@@ -26,9 +26,10 @@ FEATURE_LABELS = {
     "sketch": "Sketch", "extrude": "Extrude", "revolve": "Revolve", "fillet": "Fillet",
     "chamfer": "Chamfer", "shell": "Shell", "plane": "Plane", "mirror": "Mirror",
     "linear_pattern": "Linear pattern", "circular_pattern": "Circular pattern",
-    "boolean": "Boolean", "import": "Import", "hole": "Hole", "variable": "Variable",
+    "boolean": "Boolean", "import": "Import", "hole": "Hole", "variable": "Variable", "derived": "Derived",
     "sweep": "Sweep", "loft": "Loft", "draft": "Draft", "split": "Split", "move": "Move", "thread": "Thread",
-    "sm_base": "Sheet metal", "sm_flange": "Flange", "delete_face": "Delete face", "move_face": "Move face", "offset_surface": "Offset surface",
+    "sm_base": "Sheet metal", "sm_flange": "Flange", "sm_hem": "Hem", "sm_jog": "Jog", "sm_tab": "Tab",
+    "sm_convert": "Convert to sheet metal", "delete_face": "Delete face", "move_face": "Move face", "offset_surface": "Offset surface",
 }
 
 # ISO metric screw data (coarse threads).  clearance: close / normal / loose (ISO 273)
@@ -1050,6 +1051,46 @@ def auto_colors(n, shift=0):
     return out
 
 
+# --------------------------------------------------------------------------- derived parts
+# Set by the main window: callable(params) -> [(name, shape, colour, face colours)] — the parts of another Part
+# Studio (in a configuration). Raises KernelError if it can't be reached.
+LINKER = None
+
+
+def link_stamp(f):
+    """Something that changes whenever a derived feature's source parts change (part of the rebuild cache key)."""
+    if LINKER is None:
+        return "nolink"
+    try:
+        return [id(sh) for _n, sh, _c, _fc in LINKER(f["params"])]
+    except Exception as e:
+        return f"missing:{e}"
+
+
+def run_derived(state, f):
+    """Parts from another Part Studio, kept linked: edit them there and they update here. If the source can't be
+    found, the copy saved with this document is used."""
+    p = f["params"]
+    items = None
+    err = None
+    if LINKER is not None:
+        try:
+            items = LINKER(p)
+        except K.KernelError as e:
+            err = str(e)
+    if items is None:
+        fb = f.get("_fallback")
+        if not fb:
+            raise K.KernelError(err or "The Part Studio to derive from isn't open")
+        items = [(it["name"], K.shape_from_brep(base64.b64decode(it["brep"])), tuple(it["color"]), None)
+                 for it in fb]
+    if not items:
+        raise K.KernelError("There are no parts to derive (pick parts from the other Part Studio)")
+    for name, shape, color, fcols in items:
+        part = state.new_part(shape, f["id"], tuple(color) if color else DEFAULT_COLOR)
+        state.parts[part.id] = Part(part.id, name or part.name, shape, part.color, fcols or None)
+
+
 def is_brep_name(name) -> bool:
     return str(name).lower().endswith((".brep", ".brp"))
 
@@ -1360,6 +1401,89 @@ def run_sm_base(state, f):
         state.sheet[part.id] = model
 
 
+def _sheet_edges(state, refs, what):
+    """For each picked edge: (part id, its sheet model, panel, a, b, outward) — the panel edge it is."""
+    if not refs:
+        raise K.KernelError(f"Pick the edges to put {what} on")
+    lo, hi = np.full(3, 1e18), np.full(3, -1e18)
+    for part in state.parts.values():
+        a, b = K.bbox(part.shape)
+        lo, hi = np.minimum(lo, a), np.maximum(hi, b)
+    scale = max(float(np.linalg.norm(hi - lo)), 1e-6)
+    for ref in refs:
+        pid = ref.get("part")
+        if pid not in state.sheet:
+            pid = next(iter(state.sheet), None) if len(state.sheet) == 1 else pid
+        model = state.sheet.get(pid)
+        if model is None or pid not in state.parts:
+            raise K.KernelError(f"{what.capitalize()} go on sheet metal parts — make the part with Sheet metal first")
+        panel, a, b, o = model.find_edge(ref, scale)
+        yield pid, model, panel, a, b, o
+
+
+def run_sm_hem(state, f):
+    """Hems: fold the chosen edges right back over the sheet (180°)."""
+    from . import sheetmetal as SM
+    p = f["params"]
+    for pid, model, panel, a, b, o in list(_sheet_edges(state, p.get("edges", []), "hems")):
+        part = state.parts[pid]
+        shape, model = SM.add_hem(part.shape, state.sheet[pid], panel, a, b, o, float(p.get("length", 10)),
+                                  float(p["radius"]) if p.get("own_radius") else None, bool(p.get("down")), f["id"])
+        state.parts[pid] = Part(pid, part.name, shape, part.color)
+        state.sheet[pid] = model
+
+
+def run_sm_jog(state, f):
+    """Jogs: from the chosen edges the sheet steps up (or down) and carries on parallel."""
+    from . import sheetmetal as SM
+    p = f["params"]
+    for pid, model, panel, a, b, o in list(_sheet_edges(state, p.get("edges", []), "jogs")):
+        part = state.parts[pid]
+        shape, model = SM.add_jog(part.shape, state.sheet[pid], panel, a, b, o, float(p.get("offset", 10)),
+                                  float(p.get("length", 20)), float(p["radius"]) if p.get("own_radius") else None,
+                                  bool(p.get("down")), f["id"])
+        state.parts[pid] = Part(pid, part.name, shape, part.color)
+        state.sheet[pid] = model
+
+
+def run_sm_tab(state, f):
+    """Tabs: more sheet in a panel's plane, from sketch regions drawn on its face."""
+    from . import sheetmetal as SM
+    p = f["params"]
+    regions = resolve_regions(state, p.get("regions", []))
+    if not regions:
+        raise K.KernelError("Pick the sketch region(s) for the tab, drawn on a sheet metal face")
+    for face in regions:
+        done = False
+        for pid, model in list(state.sheet.items()):
+            try:
+                shape, model = SM.add_tab(state.parts[pid].shape, model, face, f["id"])
+            except K.KernelError:
+                continue
+            part = state.parts[pid]
+            state.parts[pid] = Part(pid, part.name, shape, part.color)
+            state.sheet[pid] = model
+            done = True
+            break
+        if not done:
+            raise K.KernelError("Draw the tab on the face of a sheet metal panel, touching its edge")
+
+
+def run_sm_convert(state, f):
+    """Make a flat plate (an imported one, say) into sheet metal, so it can get flanges and be unfolded."""
+    from . import sheetmetal as SM
+    p = f["params"]
+    refs = p.get("faces", [])
+    if not refs:
+        raise K.KernelError("Pick one of the plate's big flat faces")
+    pid, face = resolve(state, refs[0], "face")
+    part = state.parts[pid]
+    shape, model = SM.convert_plate(part.shape, face, float(p.get("radius", 1.5)), float(p.get("k", 0.44)),
+                                    "rect" if p.get("relief", True) else "none", float(p.get("relief_scale", 1.5)))
+    state.parts[pid] = Part(pid, part.name, shape, part.color)
+    state.sheet[pid] = model
+
+
 def run_sm_flange(state, f):
     """Flanges: bend the sheet up (or down) along the chosen edges."""
     from . import sheetmetal as SM
@@ -1395,8 +1519,10 @@ RUNNERS = {
     "chamfer": run_chamfer, "shell": run_shell, "plane": run_plane, "mirror": run_mirror,
     "linear_pattern": run_linear_pattern, "circular_pattern": run_circular_pattern,
     "boolean": run_boolean, "import": run_import, "hole": run_hole, "variable": run_variable,
+    "derived": run_derived,
     "sweep": run_sweep, "loft": run_loft, "draft": run_draft, "split": run_split, "move": run_move,
     "thread": run_thread, "sm_base": run_sm_base, "sm_flange": run_sm_flange,
+    "sm_hem": run_sm_hem, "sm_jog": run_sm_jog, "sm_tab": run_sm_tab, "sm_convert": run_sm_convert,
     "delete_face": run_delete_face, "move_face": run_move_face, "offset_surface": run_offset_surface,
 }
 
@@ -1425,6 +1551,7 @@ def default_params(ftype: str, state: ModelState | None = None) -> dict:
         "boolean": {"op": "union", "tools": [], "targets": [], "keep_tools": False},
         "import": {"data": "", "filename": ""},
         "variable": {"name": "", "expr": "10"},
+        "derived": {"uid": "", "path": "", "studio_name": "", "parts": ["*"], "config": None},
         "thread": {"faces": [], "size": "auto", "major": 6.0, "pitch": 1.0, "length_mode": "full", "length": 10.0,
                    "left_hand": False, "clearance": 0.0},
         "hole": {"sketch": None, "standard": "clearance", "size": "M4", "fit": "normal", "diameter": 5.0,
@@ -1439,6 +1566,10 @@ def default_params(ftype: str, state: ModelState | None = None) -> dict:
                  "axis_std": "Z", "rotate": 0.0, "copy": False},
         "sm_base": {"regions": [], "thickness": 1.5, "radius": 1.5, "k": 0.44, "flip": False, "relief": True,
                     "relief_scale": 1.5},
+        "sm_hem": {"edges": [], "length": 10.0, "down": False, "own_radius": False, "radius": 0.75},
+        "sm_jog": {"edges": [], "offset": 10.0, "length": 20.0, "down": False, "own_radius": False, "radius": 1.5},
+        "sm_tab": {"regions": []},
+        "sm_convert": {"faces": [], "radius": 1.5, "k": 0.44, "relief": True, "relief_scale": 1.5},
         "sm_flange": {"edges": [], "length": 20.0, "angle": 90.0, "position": "outside", "down": False,
                       "own_radius": False, "radius": 1.5},
     }[ftype]
