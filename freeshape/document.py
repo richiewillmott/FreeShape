@@ -207,6 +207,18 @@ class Document:
         self.hidden_features ^= {fid}
         self.notify()
 
+    def set_parts_hidden(self, pids, hidden: bool):
+        """Hide (or show) several parts at once — one redraw for the whole selection."""
+        pids = set(pids)
+        self.hidden_parts = (self.hidden_parts | pids) if hidden else (self.hidden_parts - pids)
+        self.notify()
+
+    def set_features_hidden(self, fids, hidden: bool):
+        """Hide (or show) several sketches / planes at once."""
+        fids = set(fids)
+        self.hidden_features = (self.hidden_features | fids) if hidden else (self.hidden_features - fids)
+        self.notify()
+
     # ------------------------------------------------------------------ rebuild
     @staticmethod
     def _key(prefix_json: str) -> str:

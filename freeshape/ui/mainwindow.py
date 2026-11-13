@@ -710,6 +710,12 @@ class MainWindow(QMainWindow):
         self._populate_lists()
         if self.mode == "idle":
             self._show_state(self.doc.state)
+        elif self.mode == "dialog" and self.dialog is not None:
+            # e.g. a part hidden from the parts list while a feature dialog is open: redraw the preview so the
+            # hidden part leaves the view (and stops catching clicks meant for what is behind it)
+            self.dialog.schedule_preview()
+        elif self.mode == "sketch" and self.sk_ctx and self.sketcher:
+            self._sketch_changed(True)
         self._update_feature_hl()
         self.btn_undo.setEnabled(self.doc.can_undo())
         self.btn_redo.setEnabled(self.doc.can_redo())
@@ -1706,8 +1712,12 @@ class MainWindow(QMainWindow):
         m.addAction("Edit…", lambda: self.edit_feature(fid))
         m.addAction("Rename…", lambda: self._rename_feature(fid))
         if f["type"] in ("sketch", "plane"):
-            m.addAction("Show" if fid in self.doc.hidden_features else "Hide",
-                        lambda: self.doc.toggle_feature_hidden(fid))
+            sel = [i for i in self.left.features.selected_feature_ids()
+                   if (self.doc.feature(i) or {}).get("type") in ("sketch", "plane")]
+            vis = sel if fid in sel and len(sel) > 1 else [fid]
+            hide = any(i not in self.doc.hidden_features for i in vis)
+            n = f" {len(vis)} items" if len(vis) > 1 else ""
+            m.addAction(("Hide" if hide else "Show") + n, lambda: self.doc.set_features_hidden(vis, hide))
         if f["type"] == "plane":
             m.addAction("New sketch on plane", lambda: (self.viewport.set_selection([Pick("plane", ("plane", fid))]),
                                                         self.start_sketch()))
@@ -1748,6 +1758,16 @@ class MainWindow(QMainWindow):
         if p is None:
             return
         m = QMenu(self)
+        ids = self._menu_parts(pid, self.left.parts.selected_part_ids())
+        if len(ids) > 1:
+            # several parts selected and one of them right-clicked: the menu acts on all of them, like Onshape
+            self._add_hide_actions(m, ids)
+            m.addAction(f"Isolate {len(ids)} parts", lambda: self._isolate(ids))
+            m.addSeparator()
+            m.addAction(f"Export {len(ids)} parts as STEP…", lambda: self.export(ids, "step"))
+            m.addAction(f"Export {len(ids)} parts as STL…", lambda: self.export(ids, "stl"))
+            m.exec(gpos)
+            return
         m.addAction("Rename…", lambda: self._rename_part(pid))
         m.addAction("Change colour…", lambda: self._recolor_part(pid))
         m.addAction("Show" if pid in self.doc.hidden_parts else "Hide", lambda: self.doc.toggle_part_hidden(pid))
@@ -1776,9 +1796,42 @@ class MainWindow(QMainWindow):
         if c.isValid():
             self.doc.set_part_override(pid, color=[c.redF(), c.greenF(), c.blueF()])
 
-    def _isolate(self, pid):
-        self.doc.hidden_parts = {p for p in self.doc.state.parts if p != pid}
+    def _isolate(self, pids):
+        keep = {pids} if isinstance(pids, str) else set(pids)
+        self.doc.hidden_parts = {p for p in self.doc.state.parts if p not in keep}
         self.doc.notify()
+
+    def _menu_parts(self, pid, list_sel=()):
+        """The parts a context menu opened on part `pid` should act on: the whole selection (in the parts list
+        or the graphics area) when pid is part of it, otherwise just pid."""
+        list_sel = [p for p in list_sel if p in self.doc.state.parts]
+        if pid in list_sel and len(list_sel) > 1:
+            return list_sel
+        view_sel = []
+        for pk in self.viewport.selection:
+            if pk.kind in ("face", "edge", "part", "vertex") and pk.key[0] not in view_sel \
+                    and pk.key[0] in self.doc.state.parts:
+                view_sel.append(pk.key[0])
+        return view_sel if pid in view_sel else [pid]
+
+    def _menu_features(self, fid, kinds):
+        """Sketches / planes a viewport context menu on `fid` acts on: all the selected ones if fid is selected."""
+        sel = []
+        for pk in self.viewport.selection:
+            if pk.kind in kinds:
+                f = pk.key[1] if pk.kind == "plane" else pk.key[0]
+                if f not in sel:
+                    sel.append(f)
+        return sel if fid in sel else [fid]
+
+    def _add_hide_actions(self, m, pids):
+        """Hide / show for several parts: Hide if any of them is showing, Show if they are all hidden."""
+        n = len(pids)
+        what = f"{n} parts" if n > 1 else "part"
+        if any(p not in self.doc.hidden_parts for p in pids):
+            m.addAction(f"Hide {what}", lambda: self.doc.set_parts_hidden(pids, True))
+        else:
+            m.addAction(f"Show {what}", lambda: self.doc.set_parts_hidden(pids, False))
 
     def _show_all_parts(self):
         self.doc.hidden_parts = set()
@@ -1843,20 +1896,27 @@ class MainWindow(QMainWindow):
                         except K.KernelError:
                             pass
                     m.addAction("Normal to", nt)
-            if pk.kind in ("face", "edge"):
+            if pk.kind in ("face", "edge", "part", "vertex"):
                 pid = pk.key[0]
-                m.addAction("Hide part", lambda: self.doc.toggle_part_hidden(pid))
-                m.addAction("Isolate part", lambda: self._isolate(pid))
-                m.addAction("Select part", lambda: self.viewport.set_selection([Pick("part", (pid,))]))
-                m.addAction("Mass properties", lambda: self._mass_props(pid))
+                ids = self._menu_parts(pid)
+                self._add_hide_actions(m, ids)
+                if len(ids) > 1:
+                    m.addAction(f"Isolate {len(ids)} parts", lambda: self._isolate(ids))
+                else:
+                    m.addAction("Isolate part", lambda: self._isolate(pid))
+                    m.addAction("Select part", lambda: self.viewport.set_selection([Pick("part", (pid,))]))
+                    m.addAction("Mass properties", lambda: self._mass_props(pid))
             if pk.kind in ("region", "sketch_line"):
                 fid = pk.key[0]
                 m.addAction("Edit sketch", lambda: self.edit_feature(fid))
-                m.addAction("Hide sketch", lambda: self.doc.toggle_feature_hidden(fid))
+                fids = self._menu_features(fid, ("region", "sketch_line"))
+                m.addAction(f"Hide {len(fids)} sketches" if len(fids) > 1 else "Hide sketch",
+                            lambda: self.doc.set_features_hidden(fids, True))
             if pk.kind == "plane":
-                key = pk.key
-                hid = key[1]
-                m.addAction("Hide plane", lambda: self.doc.toggle_feature_hidden(hid))
+                hid = pk.key[1]
+                fids = self._menu_features(hid, ("plane",))
+                m.addAction(f"Hide {len(fids)} planes" if len(fids) > 1 else "Hide plane",
+                            lambda: self.doc.set_features_hidden(fids, True))
             m.addSeparator()
         m.addAction("Zoom to fit", lambda: self.viewport.fit())
         vm = m.addMenu("Views")

@@ -22,7 +22,7 @@ from OCP.BRepOffsetAPI import BRepOffsetAPI_MakeThickSolid
 from OCP.BRepMesh import BRepMesh_IncrementalMesh
 from OCP.BRep import BRep_Tool
 from OCP.BRepAdaptor import BRepAdaptor_Curve, BRepAdaptor_Surface
-from OCP.GCPnts import GCPnts_QuasiUniformDeflection
+from OCP.GCPnts import GCPnts_QuasiUniformDeflection, GCPnts_TangentialDeflection
 from OCP.GC import GC_MakeArcOfCircle
 from OCP.GeomAbs import GeomAbs_Plane, GeomAbs_Line, GeomAbs_Circle, GeomAbs_Cylinder, GeomAbs_C1
 from OCP.TopAbs import TopAbs_FACE, TopAbs_EDGE, TopAbs_SOLID, TopAbs_REVERSED, TopAbs_VERTEX
@@ -858,7 +858,7 @@ class Mesh:
     vertices: np.ndarray = field(default_factory=lambda: np.zeros((0, 3), np.float32))   # shape vertices, in order
 
 
-def tessellate(shape, lin_defl: float | None = None, ang_defl: float = 0.3) -> Mesh:
+def tessellate(shape, lin_defl: float | None = None, ang_defl: float = 0.2) -> Mesh:
     if lin_defl is None:
         lo, hi = bbox(shape)
         lin_defl = max(np.linalg.norm(hi - lo) * 0.001, 1e-3)
@@ -940,11 +940,22 @@ def seam_edge_indices(shape) -> set:
     return out
 
 
-def discretize_edge(e, defl=0.01) -> np.ndarray:
+EDGE_ANGLE = 0.1      # radians: the most an outline may turn between two points (~63 segments per circle)
+
+
+def discretize_edge(e, defl=0.01, ang_defl=EDGE_ANGLE) -> np.ndarray:
+    """Points along an edge. Both a distance limit (defl) and an angle limit apply, so a small hole on a big
+    part is still drawn round rather than as a polygon (the distance limit alone scales with the part)."""
     try:
         ad = BRepAdaptor_Curve(e)
         if ad.GetType() == GeomAbs_Line:
             return np.array([_np(ad.Value(ad.FirstParameter())), _np(ad.Value(ad.LastParameter()))], np.float32)
+        try:
+            d = GCPnts_TangentialDeflection(ad, ang_defl, defl, 2)
+            if d.NbPoints() >= 2:
+                return np.array([_np(d.Value(i)) for i in range(1, d.NbPoints() + 1)], np.float32)
+        except Exception:
+            pass
         d = GCPnts_QuasiUniformDeflection(ad, defl)
         if d.IsDone() and d.NbPoints() >= 2:
             return np.array([_np(d.Value(i)) for i in range(1, d.NbPoints() + 1)], np.float32)

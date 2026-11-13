@@ -5,7 +5,7 @@ from PySide6.QtCore import Qt, Signal, QSize, QRect, QPointF
 from PySide6.QtGui import QColor, QIcon, QPixmap, QPainter, QFont, QBrush, QPainterPath, QPen
 from PySide6.QtWidgets import (
     QTabBar, QWidget, QVBoxLayout, QLabel, QListWidget, QListWidgetItem, QLineEdit, QFrame, QAbstractItemView,
-    QMenu, QHBoxLayout, QToolButton, QStyledItemDelegate,
+    QMenu, QHBoxLayout, QToolButton, QStyledItemDelegate, QStyleOptionViewItem, QStyle,
 )
 
 from .icons import icon
@@ -29,9 +29,14 @@ def swatch(color, size=14):
     return QIcon(pm)
 
 
-def eye_rect(row_rect):
-    """Where a row's show / hide eye sits: at its right-hand end, like Onshape."""
-    return QRect(row_rect.right() - 24, row_rect.center().y() - 8, 18, 16)
+EYE_SPACE = 28        # px kept clear at the right of a row for its eye
+
+
+def eye_rect(row_rect, right=None):
+    """Where a row's show / hide eye sits: at its right-hand end, like Onshape. `right` is the visible right edge
+    of the list, so the eye stays in view even when a long name makes the row wider than the panel."""
+    r = row_rect.right() if right is None else min(row_rect.right(), right)
+    return QRect(r - 24, row_rect.center().y() - 8, 18, 16)
 
 
 def paint_eye(p, r, hidden, hover):
@@ -65,14 +70,26 @@ class _EyeDelegate(QStyledItemDelegate):
         self.view = view
 
     def paint(self, p, opt, index):
-        super().paint(p, opt, index)
         state = index.data(ROLE_EYE)
+        right = self.view.viewport().rect().right()
+        # the row's background across its full (visible) width, then the icon and text in the space left of the
+        # eye column, so a long name is shortened with "…" instead of running under (or pushing out) the eye
+        o = QStyleOptionViewItem(opt)
+        self.initStyleOption(o, index)
+        o.rect = QRect(opt.rect.left(), opt.rect.top(), min(opt.rect.right(), right) - opt.rect.left() + 1,
+                       opt.rect.height())
+        style = self.view.style()
+        style.drawPrimitive(QStyle.PE_PanelItemViewItem, o, p, self.view)
+        if state:
+            o.rect = o.rect.adjusted(0, 0, -EYE_SPACE, 0)
+        o.textElideMode = Qt.ElideRight
+        style.drawControl(QStyle.CE_ItemViewItem, o, p, self.view)
         if not state:
             return
         hover_row = getattr(self.view, "_eye_hover_row", -1) == index.row()
         if hover_row or state == "hidden":
             over = hover_row and getattr(self.view, "_eye_over", False)
-            paint_eye(p, eye_rect(opt.rect), state == "hidden", over)
+            paint_eye(p, eye_rect(opt.rect, right), state == "hidden", over)
 
 
 class _EyeMixin:
@@ -83,12 +100,16 @@ class _EyeMixin:
         self._eye_over = False
         self.setMouseTracking(True)
         self.setItemDelegate(_EyeDelegate(self))
+        # names are shortened to fit rather than scrolled sideways, which would carry the eyes out of view
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setTextElideMode(Qt.ElideRight)
 
     def _eye_hit(self, pos):
         it = self.itemAt(pos)
         if it is None or not it.data(ROLE_EYE):
             return None
-        return it if eye_rect(self.visualItemRect(it)).adjusted(-3, -3, 3, 3).contains(pos) else None
+        r = eye_rect(self.visualItemRect(it), self.viewport().rect().right())
+        return it if r.adjusted(-3, -3, 3, 3).contains(pos) else None
 
     def _eye_track(self, pos):
         it = self.itemAt(pos)
@@ -103,7 +124,9 @@ class _EyeMixin:
             self.viewport().setToolTip(("Show " if it.data(ROLE_EYE) == "hidden" else "Hide ") + name)
             self.viewport().setCursor(Qt.PointingHandCursor)
         else:
-            self.viewport().setToolTip("")
+            # a name shortened with "…" shows in full on hover
+            it = self.itemAt(pos)
+            self.viewport().setToolTip(it.toolTip() or it.text() if it is not None else "")
             self.viewport().unsetCursor()
 
     def _eye_leave(self):
@@ -327,6 +350,9 @@ class PartsList(_EyeMixin, QListWidget):
         it = self.itemAt(pos)
         if it is not None:
             self.contextRequested.emit(it.data(ROLE_ID), self.viewport().mapToGlobal(pos))
+
+    def selected_part_ids(self):
+        return [it.data(ROLE_ID) for it in self.selectedItems()]
 
 
 class LeftPanel(QWidget):
