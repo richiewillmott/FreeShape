@@ -1,6 +1,12 @@
 # FreeShape revisions
 
-## 2.0 (in progress)
+## 2.0.0
+
+The biggest update yet: everyday modelling (splines, ellipses, text, "Up to" ends, feature patterns, sketching
+from a part's edges), configurations and derived parts, assemblies (standard parts, exploded views, relations,
+patterns), drawings (sections, details, parts lists, balloons), sheet metal (hems, jogs, tabs, convert, nesting
+for cutting), version history, Python plugins, and new navigation. It was built and tested in stages — the
+1.9.x previews below — which together make 2.0.0.
 
 ### 1.9.5 — stage 5 preview: plugins and version history
 - **Python plugins**: a plugin is a `.py` file in the plugins folder (Document ▸ Plugins ▸ Manage plugins…). It

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "freeshape"
-version = "1.9.5"
+version = "2.0.0"
 description = "Free, offline, Onshape-style parametric CAD: parts, assemblies, drawings and sheet metal"
 license = { text = "GPL-3.0-or-later" }
 authors = [{ name = "Richard Willmott" }]

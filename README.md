@@ -34,12 +34,16 @@ real parts.
   mirror, booleans, split, variables; rollback bar; **folders** in the feature list; STEP import with colours;
   export to STEP, STL and **BREP**.
 - **Assemblies** — insert parts (linked to their Part Studios), fastened / revolute / slider / cylindrical /
-  planar / ball mates, drag parts through their mates, an Onshape-style move / rotate triad, interference check,
-  bill of materials, STEP export with structure.
-- **Drawings** — first or third angle views with hidden-line removal, projected and isometric views,
-  dimensions that follow the model, notes, title block; export **DXF with real AutoCAD dimensions** and PDF.
-- **Sheet metal** — flanges, exact flat patterns (K-factor), automatic corner reliefs, flat-pattern DXF with
-  bend lines.
+  planar / ball mates, gear / rack and pinion / screw relations, drag parts through their mates, an Onshape-style
+  move / rotate triad, a standard parts library (ISO screws, nuts, washers, bearings), patterns, exploded views,
+  interference check, bill of materials, STEP export with structure.
+- **Drawings** — first or third angle views with hidden-line removal, projected, isometric, section and detail
+  views, dimensions that follow the model, parts list and balloons, notes, title block; export **DXF with real
+  AutoCAD dimensions** and PDF.
+- **Sheet metal** — flanges, hems, jogs, tabs, convert a plate, exact flat patterns (K-factor), automatic corner
+  reliefs, flat-pattern DXF with bend lines, and nesting on stock sheets for cutting.
+- **Configurations** — many sizes of a part from one table of variables, and derived parts linked from other
+  Part Studios.
 - **Version history** — named versions kept in the file (and one each time you save a change), with a readable
   *what changed* between any two — features, settings, sketch dimensions, part volumes — and the material added
   and removed shown in 3D. Restore any version, or open it in a new tab.
@@ -54,22 +58,31 @@ real parts.
 |---|---|---|---|
 | ![](docs/screenshot.png) | ![](docs/images/assembly.png) | ![](docs/images/drawing.png) | ![](docs/images/sheet_metal.png) |
 
-## What's new in 1.8.5
+## What's new in 2.0
 
-- **Folders in the feature list** — select features (a run next to each other), then right-click → *Add to new
-  folder*, or click the folder button beside *Features*. Click the arrow to collapse a folder; right-click it to
-  rename, suppress all, ungroup or delete. Drag features in and out. Long histories need far less scrolling.
-- **Hover shows an outline** — the face under the mouse gets an orange outline, while selected faces stay filled,
-  so you can always tell them apart. A small **count beside the pointer** shows how many things are selected.
-- **Auto colour** — select several parts, right-click → *Auto colour* to give each one a different colour (choose
-  it again for another set). Right-click empty space for *Auto colour all parts*.
-- **BREP export and import** — OpenCascade's own format: the exact shapes with nothing translated, so it is the
-  most faithful way to move models to and from FreeCAD and other OpenCascade programs.
-- **Right-click acts on the whole selection** — select several parts and *Hide*, *Isolate* or *Export* them all at
-  once, from the Parts list or the 3D view.
-- **Fixes**: small holes on big parts are drawn round instead of as polygons; a part hidden while a feature window
-  is open no longer blocks clicks on the parts behind it; the show / hide eyes stay visible when the side panel is
-  narrow (long names are shortened with "…").
+The biggest update yet — everything below is new since 1.8.5.
+
+- **Modelling** — sketch **splines, ellipses and text** (real letter outlines you can extrude or engrave);
+  **"Up to" ends** for Extrude and Revolve (next part, face, part or vertex); **feature patterns and mirror**
+  (repeat a hole or pocket, not just whole parts); draw and dimension **from the edges of the face you're
+  sketching on**.
+- **Configurations and derived parts** — one Part Studio, many sizes from a table of variables (M5 × 20,
+  M6 × 30 …), used by assemblies, drawings and parts lists; bring parts from another Part Studio, kept linked.
+- **Assemblies** — a **standard parts library** (ISO screws, nuts, washers, dowels, bearings, heat-set inserts,
+  M2–M20), **exploded views**, **gear / rack and pinion / screw relations**, and **instance patterns**.
+- **Drawings** — **section views** with hatching, **detail views**, a **parts list** and **balloons**.
+- **Sheet metal** — **hems, jogs, tabs**, **convert a plate** to sheet metal, and **nesting for cutting** (parts
+  laid out on stock sheets, with material use, weight and cost, exported to DXF).
+- **Version history** — named versions kept in the file, a readable **what changed** between any two, with the
+  material added and removed shown in 3D; restore or open any version.
+- **Python plugins** — add your own parametric features and commands ([PLUGINS.md](PLUGINS.md)); a spur gear
+  feature comes as an example.
+- **Navigation** — mouse styles (Onshape, Touchpad, FreeCAD's CAD / Gesture / Blender / SolidWorks …), zoom
+  speed and smoother wheel zoom, **N** squares up to a face, Ctrl+Shift+arrow pans, Shift+E / Shift+W extrude or
+  revolve straight from a sketch, dialogs remember the last folder.
+- **Export** — binary STL (about a fifth of the size).
+- **Fixes** — making a sketch line horizontal / vertical no longer squashes it; a centre rectangle's diagonal no
+  longer shows outside its sketch; and many more (see [CHANGES.md](CHANGES.md)).
 
 See [CHANGES.md](CHANGES.md) for the full history.
 
