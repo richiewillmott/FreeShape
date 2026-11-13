@@ -1306,8 +1306,11 @@ def _path_wire(state, refs):
             if e0["type"] == "circle":
                 curves = [{"type": "circle", "c": sk.points[e0["c"]], "r": e0["r"]}]
             else:
-                chain, _closed = sketch_ops._chain(sk, r["entity"])
-                ids = {k for k, _ in chain}
+                if sketch_ops._ends(e0) is None:          # a closed curve on its own (ellipse, closed spline)
+                    ids = {r["entity"]}
+                else:
+                    chain, _closed = sketch_ops._chain(sk, r["entity"], splines=True)
+                    ids = {k for k, _ in chain}
                 tmp = Sketch.from_dict(sk.to_dict())
                 tmp.entities = {k: dict(v, construction=False) for k, v in tmp.entities.items() if k in ids}
                 curves = tmp.curves()
@@ -1352,19 +1355,64 @@ def run_draft(state, f):
                                 part.color)
 
 
+def split_tools(p):
+    """The Split feature's cutting tools: [{"kind": plane|face|path, "ref", "both", "flip"}]. Splits made before
+    2.0 had one plane and a "keep" choice; they read as one tool."""
+    tools = p.get("tools")
+    if tools:
+        return tools
+    if p.get("plane") is not None:
+        keep = p.get("keep", "both")
+        return [{"kind": "plane", "ref": p["plane"], "both": keep == "both", "flip": keep == "back"}]
+    return []
+
+
+def split_tool_shape(state, tool, around, size):
+    """The surface a Split tool cuts with, made big enough to go right through."""
+    kind, ref = tool["kind"], tool["ref"]
+    if kind == "plane":
+        return K.plane_face(resolve_plane(state, ref), around, size)
+    if kind == "face":
+        return K.extended_face(resolve(state, ref, "face")[1], size)
+    if kind == "path":
+        if ref.get("kind") != "sketch_chain":
+            raise K.KernelError("To split along a curve, pick a sketch curve (it is pushed out both ways "
+                                "into a cutting surface)")
+        from OCP.BRepPrimAPI import BRepPrimAPI_MakePrism
+        wire = _path_wire(state, [ref])
+        n = np.asarray(state.sketches[ref["sketch"]].plane.normal, float)
+        wire = K.translate(wire, -n * size)
+        return BRepPrimAPI_MakePrism(wire, K._vec(n * 2 * size)).Shape()
+    raise K.KernelError("Pick planes, faces or sketch curves to split with")
+
+
 def run_split(state, f):
+    """Cut parts with any number of planes, faces (flat or curved — extended to cut right through) or sketch
+    curves (pushed out into a surface). Each tool keeps both sides, or only the side its arrow points to."""
     p = f["params"]
     ids = _selected_parts(state, p)
-    plane = resolve_plane(state, p.get("plane") or {"kind": "std", "name": "Right"})
+    tools = split_tools(p)
+    if not tools:
+        raise K.KernelError("Pick planes, faces or sketch curves to split with")
+    lo, hi = np.full(3, 1e18), np.full(3, -1e18)
+    for pid in ids:
+        a, b = K.bbox(state.parts[pid].shape)
+        lo, hi = np.minimum(lo, a), np.maximum(hi, b)
+    size = float(np.linalg.norm(hi - lo)) * 2 + 10
+    around = (lo + hi) / 2
+    shapes = [split_tool_shape(state, t, around, size) for t in tools]
     for pid in ids:
         part = state.parts[pid]
-        pieces = K.split_by_plane(part.shape, plane)
-        if p.get("keep") == "front":
-            pieces = [s_ for s_ in pieces if (K.mass_props(s_)["centroid"] - plane.origin) @ plane.normal > 0]
-        elif p.get("keep") == "back":
-            pieces = [s_ for s_ in pieces if (K.mass_props(s_)["centroid"] - plane.origin) @ plane.normal < 0]
+        pieces = K.split_with(part.shape, shapes)
+        if len(pieces) < 2 and all(t.get("both", True) for t in tools):
+            raise K.KernelError("The splitting surfaces don't cut through the part")
+        for t, sh in zip(tools, shapes):
+            if t.get("both", True):
+                continue
+            want = -1.0 if t.get("flip") else 1.0
+            pieces = [pc for pc in pieces if K.piece_side(pc, sh) * want > 0]
         if not pieces:
-            raise K.KernelError("Nothing left on that side of the plane")
+            raise K.KernelError("Nothing is left — every piece is on a side that isn't kept (flip an arrow)")
         set_part_shape(state, part, K.compound(pieces) if len(pieces) > 1 else pieces[0])
 
 
@@ -1569,7 +1617,7 @@ def default_params(ftype: str, state: ModelState | None = None) -> dict:
         "sweep": {"regions": [], "faces": [], "path": [], "op": op},
         "loft": {"profiles": [], "ruled": False, "op": op},
         "draft": {"faces": [], "neutral": {"kind": "std", "name": "Top"}, "angle": 3.0, "flip": False},
-        "split": {"parts": [], "plane": {"kind": "std", "name": "Right"}, "keep": "both"},
+        "split": {"parts": [], "tools": []},
         "move": {"parts": [], "dx": 0.0, "dy": 0.0, "dz": 0.0, "axis": {"kind": "std", "name": "Z"},
                  "axis_std": "Z", "rotate": 0.0, "copy": False},
         "sm_base": {"regions": [], "thickness": 1.5, "radius": 1.5, "k": 0.44, "flip": False, "relief": True,

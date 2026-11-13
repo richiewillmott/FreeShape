@@ -31,8 +31,8 @@ real parts.
 
 - **Part Studios** — sketches with constraints and dimensions; extrude, revolve, sweep, loft, fillet, chamfer,
   shell, draft, holes (ISO clearance / tapped / counterbore / countersink), real modelled ISO threads, patterns,
-  mirror, booleans, split, variables; rollback bar; **folders** in the feature list; STEP import with colours;
-  export to STEP, STL and **BREP**.
+  mirror, booleans, split (with planes, curved faces or sketch curves), variables; rollback bar; **folders** in
+  the feature list; STEP import with colours; export to STEP, STL and **BREP**.
 - **Assemblies** — insert parts (linked to their Part Studios), fastened / revolute / slider / cylindrical /
   planar / ball mates, gear / rack and pinion / screw relations, drag parts through their mates, an Onshape-style
   move / rotate triad, a standard parts library (ISO screws, nuts, washers, bearings), patterns, exploded views,
@@ -65,7 +65,8 @@ The biggest update yet — everything below is new since 1.8.5.
 - **Modelling** — sketch **splines, ellipses and text** (real letter outlines you can extrude or engrave);
   **"Up to" ends** for Extrude and Revolve (next part, face, part or vertex); **feature patterns and mirror**
   (repeat a hole or pocket, not just whole parts); draw and dimension **from the edges of the face you're
-  sketching on**.
+  sketching on**; **Split** with any surface — curved faces or sketch curves — and several at once, keeping
+  both sides or just the one each arrow points to.
 - **Configurations and derived parts** — one Part Studio, many sizes from a table of variables (M5 × 20,
   M6 × 30 …), used by assemblies, drawings and parts lists; bring parts from another Part Studio, kept linked.
 - **Assemblies** — a **standard parts library** (ISO screws, nuts, washers, dowels, bearings, heat-set inserts,

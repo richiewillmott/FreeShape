@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import json
 
 import numpy as np
 from PySide6.QtCore import Qt, QTimer, Signal
@@ -550,8 +551,11 @@ SCHEMAS = {
     ],
     "split": [
         _sel("parts", "Parts to split", {"part"}),
-        _sel("plane_sel", "Split with plane or planar face", {"plane"}, multi=False),
-        _choice("keep", "Keep", [("both", "Both sides"), ("front", "Front side only"), ("back", "Back side only")]),
+        _sel("tools", "Split with — planes, faces (flat or curved) or sketch curves", {"plane", "face", "path"}),
+        {"t": "split_tools", "key": "_split_tools"},
+        {"t": "info", "key": "_info", "text": lambda p: "" if F.split_tools(p) else
+         "Pick one or more: each cuts right through. Untick “Keep both sides” to keep only the side its arrow "
+         "points to."},
     ],
     "move": [
         _sel("parts", "Parts to move", {"part"}),
@@ -645,7 +649,7 @@ def params_to_fields(ftype, p):
     if ftype in ("split", "move"):
         f["parts"] = [("part", i) for i in p.get("parts", [])]
     if ftype == "split":
-        f["plane_sel"] = [("plane", p["plane"])] if p.get("plane") else []
+        f["tools"] = [(t["kind"], t["ref"]) for t in F.split_tools(p)]
     if ftype == "move":
         a = p.get("axis") or {}
         f["axis_sel"] = [("axis", a)] if a and a.get("kind") != "std" else []
@@ -712,8 +716,17 @@ def fields_to_params(ftype, fields, p):
     if ftype in ("split", "move"):
         p["parts"] = [r for k, r in fields.get("parts", [])]
     if ftype == "split":
-        sel = fields.get("plane_sel", [])
-        p["plane"] = sel[0][1] if sel else {"kind": "std", "name": "Right"}
+        old = list(F.split_tools(p))
+        tools = []
+        for k, r in fields.get("tools", []):
+            prev = next((t for t in old if t["kind"] == k and _same(t["ref"], r)), None)
+            if prev is not None:
+                old.remove(prev)
+            tools.append({"kind": k, "ref": r, "both": prev.get("both", True) if prev else True,
+                          "flip": prev.get("flip", False) if prev else False})
+        p["tools"] = tools
+        p.pop("plane", None)                      # an older split's single plane is now its first tool
+        p.pop("keep", None)
     if ftype == "move":
         sel = fields.get("axis_sel", [])
         if sel:
@@ -966,6 +979,13 @@ class FeatureDialog(_ResizableFrame):
                 grp.addButton(b)
                 h.addWidget(b)
             return w
+        if t == "split_tools":
+            box = QWidget()
+            v = QVBoxLayout(box)
+            v.setContentsMargins(0, 0, 0, 0)
+            v.setSpacing(2)
+            self._split_box, self._split_sig = box, None
+            return box
         if t == "info":
             lab = QLabel("")
             lab.setWordWrap(True)
@@ -1069,8 +1089,58 @@ class FeatureDialog(_ResizableFrame):
             return row
         return None
 
+    def _split_rows(self):
+        """One row per Split tool: its name, Keep both sides, and Flip (which side stays) when not."""
+        box = getattr(self, "_split_box", None)
+        if box is None:
+            return
+        tools = F.split_tools(self.feature["params"])
+        sig = tuple((t["kind"], bool(t.get("both", True)), json.dumps(t["ref"], sort_keys=True, default=str))
+                    for t in tools)
+        if sig == self._split_sig:
+            return
+        self._split_sig = sig
+        lay = box.layout()
+        while lay.count():
+            w = lay.takeAt(0).widget()
+            if w is not None:
+                w.deleteLater()
+        for i, t in enumerate(tools):
+            row = QWidget()
+            h = QHBoxLayout(row)
+            h.setContentsMargins(4, 0, 0, 0)
+            name = QLabel(f"{i + 1}. {item_label(self.doc, (t['kind'], t['ref']))}")
+            name.setStyleSheet("color:#4b5563;")
+            h.addWidget(name, 1)
+            cb = QCheckBox("Keep both sides")
+            cb.setChecked(bool(t.get("both", True)))
+            cb.toggled.connect(lambda on, i=i: self._split_set(i, "both", on))
+            h.addWidget(cb)
+            fl = QToolButton()
+            fl.setText("⇅ Flip")
+            fl.setToolTip("Keep the other side (or drag the arrow across)")
+            fl.setVisible(not t.get("both", True))
+            fl.clicked.connect(lambda _=False, i=i: self._split_set(i, "flip", None))
+            h.addWidget(fl)
+            lay.addWidget(row)
+
+    def _split_set(self, i, key, value):
+        tools = F.split_tools(self.feature["params"])
+        if i >= len(tools):
+            return
+        tools = [dict(t) for t in tools]
+        tools[i][key] = (not tools[i].get("flip")) if key == "flip" else bool(value)
+        p = self.feature["params"]
+        p["tools"] = tools
+        p.pop("plane", None)
+        p.pop("keep", None)
+        QTimer.singleShot(0, self._sync_visibility)
+        self.schedule_preview()
+
     def _sync_visibility(self):
         p = self.feature["params"]
+        if self.ftype == "split":
+            self._split_rows()
         for spec, lab in self._info_rows:
             txt = spec["text"](p)
             lab.setText(txt)
@@ -1230,6 +1300,8 @@ class FeatureDialog(_ResizableFrame):
         out = []
         half = self.main.viewport.plane_half()
         for key, fld in self.fields.items():
+            if self.ftype == "split" and key == "parts" and self.fields.get("tools") and self.fields["tools"].items:
+                continue                  # the preview shows what's kept; a highlight of the whole part would hide it
             for i, item in enumerate(fld.items):
                 g = item_geometry(self.base_state, item, half)
                 if g is not None:
@@ -1256,6 +1328,42 @@ class FeatureDialog(_ResizableFrame):
                 return float(m * mag)
         return float(mag * 10)
 
+    def _split_arrows(self, p):
+        """An arrow on each Split tool that keeps one side, pointing at the side that stays; drag it across to
+        keep the other side."""
+        st = self.base_state
+        ids = [i for i in p.get("parts", []) if i in st.parts]
+        if not ids:
+            return []
+        lo, hi = np.full(3, 1e18), np.full(3, -1e18)
+        for pid in ids:
+            a, b = K.bbox(st.parts[pid].shape)
+            lo, hi = np.minimum(lo, a), np.maximum(hi, b)
+        size = float(np.linalg.norm(hi - lo)) * 2 + 10
+        centre = (lo + hi) / 2
+        length = max(float(np.linalg.norm(hi - lo)) * 0.25, 1.0)
+        out = []
+        for i, t in enumerate(F.split_tools(p)):
+            if t.get("both", True):
+                continue
+            try:
+                got = K._tool_normal_at(centre, F.split_tool_shape(st, t, centre, size))
+            except Exception:
+                got = None
+            if got is None:
+                continue
+            _d, q, n = got
+            flip0 = bool(t.get("flip"))
+
+            def on_drag(v, i=i, flip0=flip0):
+                want = flip0 if v >= 0 else not flip0
+                tools = F.split_tools(self.feature["params"])
+                if i < len(tools) and bool(tools[i].get("flip")) != want:
+                    self._split_set(i, "flip", None)
+            out.append({"origin": q, "dir": -n if flip0 else n, "value": length, "on_drag": on_drag,
+                        "on_done": self.schedule_preview, "label": f"Keep {i + 1}"})
+        return out
+
     def manipulators(self):
         """Onshape-style arrows: drag to set extrude depth / plane offset."""
         try:
@@ -1263,6 +1371,8 @@ class FeatureDialog(_ResizableFrame):
         except K.KernelError:
             return []
         try:
+            if self.ftype == "split":
+                return self._split_arrows(p)
             if self.ftype == "extrude":
                 if p.get("end") == "through":
                     return []

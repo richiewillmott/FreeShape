@@ -8,6 +8,16 @@ patterns), drawings (sections, details, parts lists, balloons), sheet metal (hem
 for cutting), version history, Python plugins, and new navigation. It was built and tested in stages — the
 1.9.x previews below — which together make 2.0.0.
 
+### Split, reworked (issue #20)
+- **Split with any surface**: planes, any face — flat or **curved** (a cylinder, cone, sphere, torus or an extruded
+  curve is extended so it cuts right through) — or **sketch curves** (lines, arcs, splines, pushed out both ways
+  into a cutting surface).
+- **As many splitting tools as you like** in one Split. Each has its own **Keep both sides**; untick it and an
+  **arrow** shows which side stays — drag it across, or click **Flip**, to keep the other side. Two crossing
+  planes through a cube give four pieces, or just the one quarter you choose.
+- Splits made before 2.0 open unchanged (their plane becomes the first tool).
+- Sweep can now follow sketch splines too.
+
 ### 1.9.5 — stage 5 preview: plugins and version history
 - **Python plugins**: a plugin is a `.py` file in the plugins folder (Document ▸ Plugins ▸ Manage plugins…). It
   can add

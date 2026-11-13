@@ -89,12 +89,23 @@ def fillet_corner(sk: Sketch, pid: str, r: float) -> str:
 
 # --------------------------------------------------------------------------- offset
 
-def _chain(sk: Sketch, eid: str):
-    """Ordered list of (eid, forward) for the chain of connected lines/arcs containing eid."""
-    ents = sk.entities
+def _ends(e, splines=True):
+    """(start, end) point ids of an open curve: a line, arc or open spline; None for anything else."""
+    if e["type"] in ("line", "arc"):
+        return e["p1"], e["p2"]
+    if splines and e["type"] == "spline" and not e.get("closed") and len(e.get("pts", [])) >= 2:
+        return e["pts"][0], e["pts"][-1]
+    return None
+
+
+def _chain(sk: Sketch, eid: str, splines=False):
+    """Ordered list of (eid, forward) for the chain of connected lines/arcs (and open splines, with
+    splines=True) containing eid."""
+    ents = {k: dict(e, p1=_ends(e, splines)[0], p2=_ends(e, splines)[1]) if _ends(e, splines) else e
+            for k, e in sk.entities.items()}
     adj = {}
     for k, e in ents.items():
-        if e["type"] in ("line", "arc"):
+        if _ends(sk.entities[k], splines):
             for p in (e["p1"], e["p2"]):
                 adj.setdefault(p, []).append(k)
     chain = [(eid, True)]

@@ -435,7 +435,7 @@ class MainWindow(QMainWindow):
               lambda: F_("circular_pattern"), "array copies polar"),
             C("boolean", "Boolean", "Add, subtract or intersect parts.", lambda: F_("boolean"),
               "union subtract intersect combine merge"),
-            C("split", "Split", "Cut a part in two with a plane or a flat face.", lambda: F_("split"), "cut"),
+            C("split", "Split", "Cut parts with planes, faces (flat or curved) or sketch curves; keep both sides or one.", lambda: F_("split"), "cut"),
             C("move", "Move", "Move, rotate or copy parts by exact amounts.", lambda: F_("move"), "translate"),
             C("variable", "Variable", "Define #name values to use in any dimension.", lambda: F_("variable"),
               "parameter"),
@@ -582,7 +582,7 @@ class MainWindow(QMainWindow):
         h.addWidget(_sep())
         for name, tip in (("mirror", "Mirror"), ("linear_pattern", "Linear pattern"),
                           ("circular_pattern", "Circular pattern"), ("boolean", "Boolean"),
-                          ("split", "Split a part with a plane"), ("move", "Move / rotate / copy parts")):
+                          ("split", "Split parts with planes, faces or sketch curves"), ("move", "Move / rotate / copy parts")):
             self._tb(h, name, tip, lambda _=False, n=name: self.start_feature(n))
         h.addWidget(_sep())
         self._tb(h, "import", "Import STEP (opens in a new tab)", lambda: self.import_step())

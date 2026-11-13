@@ -1741,6 +1741,130 @@ def split_by_plane(shape, plane: Plane):
     return pieces
 
 
+def plane_face(plane: Plane, around, size):
+    """A square of a plane, 2·size across, centred where `around` projects onto it."""
+    around = np.asarray(around, float)
+    c = around - ((around - plane.origin) @ plane.normal) * plane.normal
+    u0, v0 = plane.to_local(c)
+    return BRepBuilderAPI_MakeFace(gp_Pln(plane.gp_ax3()), u0 - size, u0 + size, v0 - size, v0 + size).Face()
+
+
+def extended_face(face, size):
+    """The whole surface a face lies on, big enough (about `size`) to cut right through a part: a plane as a big
+    square, a cylinder or cone all the way round and long, a sphere or torus complete, a surface swept from a
+    curve (an extruded sketch curve) long. Other surfaces are used as they are."""
+    from OCP.BRep import BRep_Tool
+    from OCP.BRepTools import BRepTools
+    from OCP.GeomAbs import (GeomAbs_Plane, GeomAbs_Cylinder, GeomAbs_Cone, GeomAbs_Sphere, GeomAbs_Torus,
+                             GeomAbs_SurfaceOfExtrusion)
+    ad = BRepAdaptor_Surface(face)
+    t = ad.GetType()
+    surf = BRep_Tool.Surface_s(face)
+    u0, u1, v0, v1 = BRepTools.UVBounds_s(face)
+    uc, vc = (u0 + u1) / 2, (v0 + v1) / 2
+    if t == GeomAbs_Plane:
+        u0, u1, v0, v1 = uc - size, uc + size, vc - size, vc + size
+    elif t in (GeomAbs_Cylinder, GeomAbs_SurfaceOfExtrusion):
+        if t == GeomAbs_Cylinder:
+            u0, u1 = 0.0, 2 * math.pi
+        v0, v1 = vc - size, vc + size
+    elif t == GeomAbs_Cone:
+        cone = ad.Cone()
+        apex_v = -cone.RefRadius() / math.sin(cone.SemiAngle()) if abs(math.sin(cone.SemiAngle())) > 1e-9 else -1e9
+        u0, u1 = 0.0, 2 * math.pi
+        lo_, hi_ = vc - size, vc + size
+        if apex_v < vc:
+            lo_ = max(lo_, apex_v + 1e-6 * size)
+        else:
+            hi_ = min(hi_, apex_v - 1e-6 * size)
+        v0, v1 = lo_, hi_
+    elif t in (GeomAbs_Sphere, GeomAbs_Torus):
+        u0, u1, v0, v1 = surf.Bounds()
+    else:
+        return face
+    mf = BRepBuilderAPI_MakeFace(surf, u0, u1, v0, v1, 1e-7)
+    if not mf.IsDone():
+        return face
+    out = mf.Face()
+    if face.Orientation() == TopAbs_REVERSED:
+        out.Reverse()
+    return out
+
+
+def _tool_normal_at(point, tool):
+    """(distance, nearest point, unit normal there) from a point to a cutting surface, or None."""
+    from OCP.BRepExtrema import BRepExtrema_DistShapeShape, BRepExtrema_IsInFace
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
+    from OCP.BRepLProp import BRepLProp_SLProps
+    p = np.asarray(point, float)
+    dss = BRepExtrema_DistShapeShape(BRepBuilderAPI_MakeVertex(_pnt(p)).Vertex(), tool)
+    if not dss.IsDone():
+        return None
+    for i in range(1, dss.NbSolution() + 1):
+        if dss.SupportTypeShape2(i) != BRepExtrema_IsInFace:
+            continue
+        f = _as_face(dss.SupportOnShape2(i))
+        u, v = dss.ParOnFaceS2(i)
+        pr = BRepLProp_SLProps(BRepAdaptor_Surface(f), u, v, 1, 1e-7)
+        if not pr.IsNormalDefined():
+            continue
+        n = _np(pr.Normal())
+        if f.Orientation() == TopAbs_REVERSED:
+            n = -n
+        return float(dss.Value()), _np(dss.PointOnShape2(i)), n / np.linalg.norm(n)
+    return None
+
+
+def side_of(point, tool) -> float:
+    """Which side of a cutting surface (a face or a shell) a point is on: + on the side its normal points to."""
+    p = np.asarray(point, float)
+    got = _tool_normal_at(p, tool)
+    if got is not None:
+        return float((p - got[1]) @ got[2])
+    best, dmin = 0.0, None
+    for f in faces(tool):           # nearest spot is on an edge of the surface: use the nearest face's surface
+        try:
+            q, n = surface_point_normal(f, p)
+        except KernelError:
+            continue
+        d = float(np.linalg.norm(p - q))
+        if dmin is None or d < dmin:
+            dmin, best = d, float((p - q) @ n)
+    return best
+
+
+def piece_side(piece, tool) -> float:
+    """Which side of a cutting surface a piece cut off by it lies on (+ = the side the surface's normal points
+    to). A piece the surface cut has a face lying on it, facing away from the piece: that settles it exactly.
+    Otherwise a point inside the piece is tested."""
+    lo, hi = bbox(piece)
+    tol = float(np.linalg.norm(hi - lo)) * 1e-6 + 1e-7
+    for f in faces(piece):
+        try:
+            q, n = surface_point_normal(f)
+        except KernelError:
+            continue
+        got = _tool_normal_at(q, tool)
+        if got is None or got[0] > tol:
+            continue
+        dot = float(n @ got[2])
+        if abs(dot) > 0.5:
+            return -dot              # the piece's outside faces against the tool's normal: it's on the + side
+    return side_of(interior_point_solid(piece), tool)
+
+
+def split_with(shape, tools):
+    """The solids a shape is cut into by any number of cutting surfaces (faces or shells)."""
+    sp = BRepAlgoAPI_Splitter()
+    sp.SetArguments(_list([shape]))
+    sp.SetTools(_list(list(tools)))
+    sp.SetFuzzyValue(1e-6)
+    sp.Build()
+    if not sp.IsDone():
+        raise KernelError("Split failed")
+    return solids(sp.Shape())
+
+
 def transform(shape, translate_v=(0, 0, 0), axis_p=(0, 0, 0), axis_d=(0, 0, 1), angle_deg=0.0):
     t = gp_Trsf()
     if abs(angle_deg) > 1e-12:

@@ -114,10 +114,10 @@ def test_hiding_a_part_during_a_feature_dialog_updates_the_view():
     d = w.dialog
     d.activate(d.fields["parts"])
     d.handle_pick(Pick("part", (big,)))
-    d.activate(d.fields["plane_sel"])
+    d.activate(d.fields["tools"])
     d.handle_pick(Pick("plane", ("plane", plane)))
     QTest.qWait(250)
-    d.fields["plane_sel"].items.clear()
+    d.fields["tools"].items.clear()
     d._fields_changed()
     QTest.qWait(250)
     assert big in [pid for pid, _m, _c in w.viewport.parts]
