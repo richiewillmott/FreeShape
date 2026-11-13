@@ -224,3 +224,12 @@ def test_sheet_features_in_a_document():
     doc.add_feature(t)
     assert not doc.errors and K.is_valid(doc.state.parts[pid].shape)
     assert len(SM.flat_pattern(doc.state.parts[pid].shape, doc.state.sheet[pid]).bend_lines) == 3
+
+
+def test_tab_inside_the_sheet_is_refused_with_a_reason():
+    shape, m = _base()
+    try:
+        SM.add_tab(shape, m, SM._polygon_face([(30, 20, 0), (70, 20, 0), (70, 40, 0), (30, 40, 0)]))
+        assert False, "a tab inside the sheet adds nothing and should say so"
+    except K.KernelError as e:
+        assert "inside the sheet" in str(e)

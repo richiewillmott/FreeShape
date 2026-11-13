@@ -335,6 +335,10 @@ def add_tab(shape, model, region_world, fid="F"):
     if target is None:
         raise K.KernelError("Draw the tab on the face of a sheet metal panel, touching its edge")
     p, local, grown = target
+    before = K.face_info(p["face"])["area"]
+    if K.face_info(grown)["area"] - before <= 1e-6 * max(before, 1.0):
+        raise K.KernelError("The tab is inside the sheet, so it adds nothing — a tab sticks out past the panel's "
+                            "edge: draw it touching the edge and reaching outside the sheet")
     p["face"] = grown
     new = K.fuse(shape, _moved(_prism(K.faces(local)[0], (0, 0, t)), p["fold"]))
     sols = K.solids(new)
