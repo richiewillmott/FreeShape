@@ -515,9 +515,18 @@ class CommandContext:
         d = self.doc
         if d is None or not hasattr(d, "features"):
             raise RuntimeError("Open a Part Studio first")
+        import tempfile
         f = d.make_feature("import")
         f["name"] = name
-        f["params"].update(data=base64.b64encode(K.shape_to_brep(shape)).decode(), filename=name + ".brep")
+        fd, tmp = tempfile.mkstemp(suffix=".brep")
+        os.close(fd)
+        try:
+            K.export_brep([shape], tmp)                 # the text BREP an imported .brep file holds
+            with open(tmp, "rb") as fh:
+                data = fh.read()
+        finally:
+            os.unlink(tmp)
+        f["params"].update(data=base64.b64encode(data).decode(), filename=name + ".brep")
         d.add_feature(f)
         return f["id"]
 

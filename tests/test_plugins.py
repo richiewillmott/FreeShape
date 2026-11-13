@@ -143,3 +143,18 @@ def test_plugin_feature_dialog_and_command_in_the_window(plugdir):
     from freeshape.ui import plugin_ui
     plugin_ui.run_command(w, P.COMMANDS[0])
     assert shown == ["2"]
+
+
+def test_script_adds_a_part(tmp_path):
+    from freeshape.document import Document as D
+
+    class Main:
+        doc = D()
+        viewport = None
+    script = tmp_path / "plate.py"
+    script.write_text("part = fs.subtract(fs.box(60, 40, 10), fs.cylinder(5, 10, at=(30, 20, 0)))\n"
+                      "ctx.add_shape(part, 'Plate')\n")
+    P.run_script(str(script), Main)
+    import math
+    assert not Main.doc.errors and Main.doc.features[-1]["name"] == "Plate"
+    assert abs(_vol(Main.doc) - (24000 - math.pi * 250)) < 1e-6

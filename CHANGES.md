@@ -2,6 +2,30 @@
 
 ## 2.0 (in progress)
 
+### 1.9.5 — stage 5 preview: plugins and version history
+- **Python plugins**: a plugin is a `.py` file in the plugins folder (Document ▸ Plugins ▸ Manage plugins…). It
+  can add
+  - **parametric features**, with the same dialog as built-in ones: numbers (expressions and `#variables`
+    work), choices, tick boxes, selections (faces, edges, vertices, parts, planes, axes, sketch regions) and
+    New / Add / Remove / Intersect. They preview live and rebuild with the model.
+  - **commands**, run once from the jigsaw button on the toolbar or Document ▸ Plugins.
+
+  A small geometry API (`freeshape.api`: boxes, cylinders, polygons, smooth outlines, extrude, revolve, union,
+  subtract, fillet …) keeps plugins short. Documents keep a copy of what each plugin feature made, so they open
+  — unchanged — on a computer without the plugin. **Run a Python script…** runs a script once against the open
+  Part Studio. Two examples come with FreeShape: a **Spur gear** feature (real involute teeth from the module and
+  number of teeth) and a **Part weights** command. See [PLUGINS.md](PLUGINS.md).
+- **Version history** (clock button, or Document ▸ Version history, Ctrl+Alt+H):
+  - **Create version…** keeps the model as it is now, with a name and a description; every save also keeps a
+    version when something changed (the last 50 of those are kept). Versions are saved in the file.
+  - Click a version to see **what changed since**, or Ctrl+click two to compare them, in plain words: features
+    added and removed, renamed, moved, suppressed, each setting that changed ("Depth: 10 mm → 16 mm"), sketch
+    edits ("Added a distance dimension (40 mm)", "Added 2 lines"), variables ("#wall: 3 → 4"), configurations,
+    part names and colours — and each part's volume before and after.
+  - **Show in 3D** shows the material added (green) and removed (red).
+  - **Restore** goes back to a version (undoable; a version of how it was is kept first), and **Open in a new
+    tab** opens an old version beside the current one.
+
 ### 1.9.4 — sketching on a part
 - **Draw from the part's edges**, like Onshape: when you sketch on a face, its corners, edge midpoints, circle
   centres and edges are snap targets for every drawing tool (they light up as you get near). A point placed on

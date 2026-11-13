@@ -32,6 +32,8 @@ class Document:
         self.configs: dict = {"rows": [], "active": 0}
         self.derived_fallback: dict = {}          # derived feature id -> saved copy of its parts (from the file)
         self.plugin_fallback: dict = {}           # plugin feature id -> saved copy of what it made (from the file)
+        self.versions: list = []                  # version history (see history.py), oldest first
+        self.version_blobs: dict = {}             # big imported geometry shared by the versions
         self.path = None
         self.dirty = False
         self._undo: list[str] = []
@@ -549,10 +551,16 @@ class Document:
                            "features": self.features, "rollback": self.rollback,
                            "overrides": self.part_overrides, "hidden": sorted(self.hidden_parts),
                            "hidden_features": sorted(self.hidden_features), "folders": self.folders,
-                           "configs": self.configs}, indent=1)
+                           "configs": self.configs, "versions": self.versions,
+                           "version_blobs": self.version_blobs}, indent=1)
 
-    def save(self, path=None):
+    def save(self, path=None, version=True):
+        """Write the file. Unless version=False (autosave), a save also records an automatic version when the
+        model changed since the last one."""
         path = path or self.path
+        if version:
+            from . import history
+            history.create(self, auto=True)
         with open(path, "w") as fh:
             fh.write(self.to_json())
         self.path = path
@@ -574,6 +582,8 @@ class Document:
         doc.configs = d.get("configs", {"rows": [], "active": 0})
         doc.derived_fallback = d.get("derived_copies", {})
         doc.plugin_fallback = d.get("plugin_copies", {})
+        doc.versions = d.get("versions", [])
+        doc.version_blobs = d.get("version_blobs", {})
         doc.path = path
         nums = [int("".join(c for c in f["id"] if c.isdigit()) or 0) for f in doc.features]
         doc._counter = max(nums + [0])

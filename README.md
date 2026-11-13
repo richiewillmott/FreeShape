@@ -40,6 +40,11 @@ real parts.
   dimensions that follow the model, notes, title block; export **DXF with real AutoCAD dimensions** and PDF.
 - **Sheet metal** — flanges, exact flat patterns (K-factor), automatic corner reliefs, flat-pattern DXF with
   bend lines.
+- **Version history** — named versions kept in the file (and one each time you save a change), with a readable
+  *what changed* between any two — features, settings, sketch dimensions, part volumes — and the material added
+  and removed shown in 3D. Restore any version, or open it in a new tab.
+- **Python plugins** — add your own parametric features (with a proper dialog, live preview and expressions) and
+  commands; see [PLUGINS.md](PLUGINS.md). A spur gear feature comes as an example.
 - **Fast to drive** — a **Search tools** box (Ctrl+Space) finds any tool by name, box selection with a Select
   filter, Space to deselect, arrow keys to turn the view, and smart sketch snapping (see [CHANGES.md](CHANGES.md)).
 - **Feels like Onshape** — view cube, home page with recent projects, mouse controls, dark / light theme,
@@ -290,7 +295,8 @@ Drawings save as `.fdwg` and keep a copy of the model, so they still open if the
 ## Scripting
 
 Everything the UI does goes through a small Python API, so models can be generated from code.
-See `examples/make_bracket.py`.
+See `examples/make_bracket.py`. Inside the app, **plugins** add features and commands, and **Document ▸ Plugins ▸
+Run a Python script…** runs a script against the open Part Studio — both are described in [PLUGINS.md](PLUGINS.md).
 
 ## Honest limits
 

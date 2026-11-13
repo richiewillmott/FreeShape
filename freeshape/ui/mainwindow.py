@@ -71,6 +71,7 @@ class MainWindow(QMainWindow):
         self.sketch_waiting_for_plane = False
         self._sketch_buttons = {}
         self.section_panel = None
+        self.history_panel = None
         from PySide6.QtCore import QSettings
         self.settings = QSettings("FreeShape", "FreeShape")
         F.LINKER = self._derived_link              # derived parts find their source studios through the window
@@ -265,6 +266,8 @@ class MainWindow(QMainWindow):
         self._add_action(m, "Export BREP…", lambda: self.export(None, "brep"))
         self._add_action(m, "Nest sheet metal for cutting…", self.nest_for_cutting)
         m.addSeparator()
+        self._add_action(m, "Create version…", self.create_version)
+        self._add_action(m, "Version history…", self.show_history, "Ctrl+Alt+H")
         plm = m.addMenu("Plugins")
         from . import plugin_ui as _pui
         plm.aboutToShow.connect(lambda mm=plm: _pui.fill_menu(mm, self))
@@ -528,6 +531,8 @@ class MainWindow(QMainWindow):
                  self.edit_configs)
         self._tb(h, "derived", "Derived — bring parts from another Part Studio, kept linked",
                  lambda: self.start_feature("derived"))
+        self._tb(h, "history", "Version history — versions of this Part Studio and what changed between them",
+                 self.show_history)
         self.plugin_btn = self._tb(h, "plugin", "Plugins — features and commands added by Python plugins",
                                    lambda: None)
         self.plugin_btn.setPopupMode(QToolButton.InstantPopup)
@@ -956,6 +961,43 @@ class MainWindow(QMainWindow):
         vp._manip_drag = None
         vp.clear_selection()
         self._populate_lists()
+
+    def _history_ok(self):
+        if self.is_asm or self.is_dwg or self.doc is None or not hasattr(self.doc, "versions"):
+            QMessageBox.information(self, APP_NAME, "Version history is kept for Part Studios.")
+            return False
+        return True
+
+    def show_history(self):
+        p = getattr(self, "history_panel", None)
+        if p is not None:
+            p.close_panel()
+            return
+        if not self._history_ok():
+            return
+        if self.mode != "idle":
+            self.status.showMessage("Finish the feature or sketch you're editing first", 5000)
+            return
+        from .history_ui import HistoryPanel
+        self.history_panel = HistoryPanel(self)
+
+    def create_version(self):
+        if not self._history_ok():
+            return
+        from .history_ui import version_dialog
+        from .. import history as H
+        n = sum(1 for v in self.doc.versions if not v.get("auto")) + 1
+        got = version_dialog(self, name=f"Version {n}")
+        if got is None:
+            return
+        H.create(self.doc, got[0] or None, got[1])
+        self.doc.dirty = True
+        self._populate_lists()
+        p = getattr(self, "history_panel", None)
+        if p is not None:
+            p.fill()
+        self.status.showMessage(f"Version “{self.doc.versions[-1]['name']}” created — Version history shows "
+                                "what changed since", 6000)
 
     def _after_plugin(self, rebuild=False):
         """After a plugin command / script ran, or plugins were reloaded: show what changed."""
@@ -2544,6 +2586,8 @@ class MainWindow(QMainWindow):
         doc = self.docs.get(self.tabs.tabData(i))
         if doc is None or doc is self.doc:
             return
+        if getattr(self, "history_panel", None) is not None:
+            self.history_panel.close_panel()
         self._leave_modes()
         if self.section_panel is not None:
             self.toggle_section()
