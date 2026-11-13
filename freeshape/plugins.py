@@ -106,7 +106,7 @@ def user_dir() -> str:
         base = os.path.join(g, "FreeShape") if g else None
     except Exception:
         pass
-    return os.path.join(base or os.path.expanduser("~/.freeshape"), "plugins")
+    return os.path.normpath(os.path.join(base or os.path.expanduser("~/.freeshape"), "plugins"))
 
 
 def examples_dir() -> str:
@@ -222,6 +222,7 @@ def _unload():
 
 
 def load_file(path) -> PluginInfo:
+    path = os.path.normpath(path)
     name = os.path.splitext(os.path.basename(path))[0]
     info = PluginInfo(name=name, path=path, title=name.replace("_", " ").title())
     PLUGINS.append(info)
