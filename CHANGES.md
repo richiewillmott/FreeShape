@@ -33,7 +33,8 @@
   `freeshape/ui/navstyles.py`.
 - **Ctrl+Shift+arrow** pans the view.
 - **N** in the 3D view squares up to the flat face, plane or sketch under the mouse (or else the selected one)
-  from the nearer side; again for the other side. With nothing flat there it looks from the opposite side (Right
+  from the nearer side, turned so its edges run level and upright on screen; again for the other side. With
+  nothing flat there it looks from the opposite side (Right
   becomes Left); over a curved face it does nothing. (Issue #13.)
 - **Shift+E / Shift+W while sketching** finish the sketch and open Extrude / Revolve with its areas picked.
 - **Open, Save as, Import and Export** dialogs start in the folder you used last.

@@ -364,10 +364,12 @@ class Viewport(QOpenGLWidget):
             self.cam.set_state((target, R, scale))
             self.update()
 
-    def look_along(self, normal=None, anchor=None, animate=True):
+    def look_along(self, normal=None, anchor=None, animate=True, axes=()):
         """N in the 3D view. With a flat thing's normal: look straight at it from whichever side is nearer, or
         from the other side if the view already is. With None: look from the opposite side (Right -> Left).
-        Keeps the zoom and the way up; centres on `anchor` if given."""
+        Keeps the zoom; the view is turned so it sits square on screen — 'up' snaps to the nearest direction along
+        or across `axes` (the face's longest straight edge, or a plane's X), or the X / Y / Z axes when there are
+        none (a round face, or the flip). Centres on `anchor`."""
         R = self.cam.R
         back, up = np.asarray(R[2], float), np.asarray(R[1], float)
         if normal is None:
@@ -380,7 +382,23 @@ class Viewport(QOpenGLWidget):
         u = up - (up @ nb) * nb
         if np.linalg.norm(u) < 1e-6:
             u = np.asarray(R[2], float) - (np.asarray(R[2], float) @ nb) * nb
-        R2 = basis(nb, u / (np.linalg.norm(u) + 1e-300))
+        u = u / (np.linalg.norm(u) + 1e-300)
+        best = None
+        world = [np.array([1.0, 0, 0]), np.array([0, 1.0, 0]), np.array([0, 0, 1.0])]
+        for a in (list(axes) or world):                     # the face's own edges first; else X / Y / Z
+            a = np.asarray(a, float)
+            a = a - (a @ nb) * nb                           # the axis as it lies across the screen
+            L = np.linalg.norm(a)
+            if L < 1e-6:
+                continue
+            a = a / L
+            for cand in (a, -a, np.cross(nb, a), -np.cross(nb, a)):   # up, down, and the two square to it
+                score = float(cand @ u)
+                if best is None or score > best[0] + 1e-9:
+                    best = (score, cand)
+        if best is not None:
+            u = best[1]
+        R2 = basis(nb, u)
         target = self.cam.target.copy()
         if anchor is not None:
             a = np.asarray(anchor, float)

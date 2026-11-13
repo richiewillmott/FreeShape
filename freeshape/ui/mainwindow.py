@@ -1156,7 +1156,7 @@ class MainWindow(QMainWindow):
             plane = None
         if plane is None:
             return                                         # curved: nothing to square up to
-        vp.look_along(plane[0], plane[1])
+        vp.look_along(plane[0], plane[1], axes=plane[2] if len(plane) > 2 else ())
 
     def _flat_plane_of(self, pk):
         """(normal, a point on it) for a flat face, a plane or a sketch; None if it isn't flat."""
@@ -1166,15 +1166,26 @@ class MainWindow(QMainWindow):
                 return None
             face = K.faces(shape)[pk.key[1]]
             pl = K.planar_face_plane(face)
-            return None if pl is None else (pl.normal, K.interior_point(face))
+            if pl is None:
+                return None
+            # the face's straight edges, longest first: the view lines up with them
+            dirs = []
+            for e in K.edges(face):
+                info = K.edge_info(e)
+                if "p0" in info and "p1" in info:
+                    d = np.subtract(info["p1"], info["p0"])
+                    if np.linalg.norm(d) > 1e-9:
+                        dirs.append((float(np.linalg.norm(d)), d / np.linalg.norm(d)))
+            dirs.sort(key=lambda t: -t[0])
+            return pl.normal, K.interior_point(face), [d for _l, d in dirs[:1]]
         if pk.kind in ("region", "sketch_line"):
             sr = self.doc.state.sketches.get(pk.key[0]) if not self.is_asm else None
-            return None if sr is None else (sr.plane.normal, None)
+            return None if sr is None else (sr.plane.normal, None, [sr.plane.xdir])
         if pk.kind == "plane":
             item = pick_to_item(self.viewport, pk, {"plane"})
             if item:
                 pl = F.resolve_plane(self.doc.state, item[1])
-                return pl.normal, None
+                return pl.normal, None, [pl.xdir]
         return None
 
     def _normal_to_sketch(self):

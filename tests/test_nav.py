@@ -66,7 +66,7 @@ def test_n_key_rules():
     app, w, vp = _window()
     asked = []
     real = vp.look_along
-    vp.look_along = lambda normal=None, anchor=None, animate=True: asked.append(normal)
+    vp.look_along = lambda normal=None, anchor=None, animate=True, axes=(): asked.append(normal)
     s = vp.cam.to_screen(np.array([[20.0, 15.0, 10.0]]))[0]
     vp._cursor_xy = (float(s[0]), float(s[1]))                 # the mouse over the top face
     w._normal_key()
@@ -136,3 +136,15 @@ def test_dialogs_start_in_the_last_folder(tmp_path):
         assert filedlg.start_path(full) == full                # a full path (Save as an existing file) wins
     finally:
         filedlg._settings().setValue(filedlg._KEY, before)      # leave the user's setting as it was
+
+
+def test_n_squares_the_view_to_the_face_edges():
+    app, w, vp = _window()
+    vp.set_standard_view("Isometric", animate=False)
+    vp.look_along(np.array([0, 0, 1.0]), animate=False, axes=[np.array([0.866, 0.5, 0])])
+    R = vp.cam.R
+    on_screen = np.array([0.866, 0.5, 0]) @ R[0], np.array([0.866, 0.5, 0]) @ R[1]
+    assert min(abs(on_screen[0]), abs(on_screen[1])) < 1e-3          # the edge runs level or upright
+    vp.set_standard_view("Isometric", animate=False)
+    vp.look_along(np.array([0, 0, 1.0]), animate=False)             # no edges given: lines up with X / Y
+    assert min(abs(vp.cam.R[0] @ [1, 0, 0]), abs(vp.cam.R[1] @ [1, 0, 0])) < 1e-9
