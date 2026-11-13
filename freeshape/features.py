@@ -160,10 +160,11 @@ class ModelState:
     part_counter: int = 0
     vars: dict = field(default_factory=dict)        # variable name -> value (mm / degrees / plain)
     sheet: dict = field(default_factory=dict)       # part id -> sheetmetal.SheetModel (sheet metal parts)
+    history: dict = field(default_factory=dict)     # feature id -> (state before it, state after it)
 
     def copy(self):
         return ModelState(dict(self.parts), dict(self.sketches), dict(self.planes), self.part_counter,
-                          dict(self.vars), dict(self.sheet))
+                          dict(self.vars), dict(self.sheet), dict(self.history))
 
     def new_part(self, shape, fid, color=DEFAULT_COLOR):
         self.part_counter += 1
@@ -705,6 +706,10 @@ def run_extrude(state, f):
         return K.extrude(profs, direction, depth, symmetric=symmetric, depth2=depth2)
 
     d = -n if flip else n
+    if end in UP_TO:
+        body = K.fuse_all([_sweep_up_to(state, p, prof, "extrude", d) for prof in profs])
+        apply_body(state, body, op, f["id"], p.get("scope"))
+        return
     body = make(d)
     if cutting and end == "blind" and not p.get("second") and state.parts:
         # like Onshape, a cut that misses everything is tried in the other direction
@@ -716,6 +721,76 @@ def run_extrude(state, f):
     apply_body(state, body, op, f["id"], p.get("scope"))
 
 
+UP_TO = ("up_to_face", "up_to_vertex", "up_to_part", "up_to_next")
+UP_TO_LABELS = [("up_to_next", "Up to next"), ("up_to_face", "Up to face"), ("up_to_part", "Up to part"),
+                ("up_to_vertex", "Up to vertex")]
+
+
+def _model_size(state, extra=()):
+    lo, hi = np.full(3, 1e18), np.full(3, -1e18)
+    for shp in [pt.shape for pt in state.parts.values()] + list(extra):
+        a, b = K.bbox(shp)
+        lo, hi = np.minimum(lo, a), np.maximum(hi, b)
+    return float(np.linalg.norm(hi - lo)) if np.all(hi >= lo) else 100.0
+
+
+def _sweep_up_to(state, p, face, kind, how):
+    """One profile swept (extrude: along direction `how`; revolve: about axis `how` = (point, dir)) until it
+    meets what p["up_to"] names: the next part in the way, a face (or plane), a part, or a vertex."""
+    end = p.get("end")
+    target = p.get("up_to") or {}
+    offset = float(p.get("offset", 0.0) or 0.0)
+    start = K.interior_point(face)
+    size = _model_size(state, [face]) * 2 + 10
+
+    if kind == "extrude":
+        d = np.asarray(how, float) / np.linalg.norm(how)
+
+        def sweep_long():
+            return K.extrude([face], d, size)
+        seed = start + d * max(size * 1e-5, 1e-4)
+    else:
+        ap, ad = np.asarray(how[0], float), np.asarray(how[1], float)
+
+        def sweep_long():
+            return K.revolve([face], ap, ad, 359.0)
+        step = 0.05 if np.linalg.norm(np.cross(start - ap, ad)) > 1e-9 else 0.0
+        seed = K.rotate_point(start, ap, ad, step)
+
+    if end == "up_to_vertex":
+        if target.get("kind") != "vertex":
+            raise K.KernelError("Pick the vertex to go up to")
+        q = resolve_point(state, target["ref"])
+        if kind == "extrude":
+            depth = float((q - start) @ d) - offset
+            if depth <= 1e-9:
+                raise K.KernelError("That vertex is behind the profile — tick Opposite direction")
+            return K.extrude([face], d, depth)
+        ang = K.angle_about(start, q, ap, ad)
+        if ang <= 1e-6:
+            raise K.KernelError("That vertex is behind the profile — tick Opposite direction")
+        return K.revolve([face], ap, ad, ang)
+
+    if end == "up_to_face":
+        if target.get("kind") == "face":
+            _pid, tf = resolve(state, target["ref"], "face")
+            tool = K.termination_face(tf, offset, start)
+        elif target.get("kind") == "plane":
+            tool = K.termination_plane(resolve_plane(state, target["ref"]), offset, start)
+        else:
+            raise K.KernelError("Pick the face or plane to go up to")
+    elif end == "up_to_part":
+        pid = target.get("id") if target.get("kind") == "part" else None
+        if pid not in state.parts:
+            raise K.KernelError("Pick the part to go up to")
+        tool = state.parts[pid].shape
+    else:                                                   # up to next: whatever part is in the way first
+        if not state.parts:
+            raise K.KernelError("There are no parts for it to reach")
+        tool = K.compound([pt.shape for pt in state.parts.values()])
+    return K.keep_piece_from(sweep_long(), tool, seed)
+
+
 def run_revolve(state, f):
     p = f["params"]
     profs = _profiles(state, p)
@@ -723,6 +798,10 @@ def run_revolve(state, f):
     if p.get("flip"):
         d = -d
     end = p.get("end", "full")
+    if end in UP_TO:
+        body = K.fuse_all([_sweep_up_to(state, p, prof, "revolve", (a, d)) for prof in profs])
+        apply_body(state, body, p.get("op", "add"), f["id"], p.get("scope"))
+        return
     angle = 360.0 if end == "full" else float(p.get("angle", 180))
     body = K.revolve(profs, a, d, angle, symmetric=(end == "symmetric"))
     apply_body(state, body, p.get("op", "add"), f["id"], p.get("scope"))
@@ -812,8 +891,66 @@ def _selected_parts(state, p):
     return ids
 
 
+# --------------------------------------------------------------------------- feature patterns
+def _feature_changes(state, fids):
+    """What each feature did to the model, part by part: [(part id, material added, material removed)].
+    Used to repeat features (a hole, a boss, a pocket) in a pattern or mirror."""
+    out = []
+    for fid in fids:
+        h = state.history.get(fid)
+        if h is None:
+            raise K.KernelError("Pick features that come before this one (and aren't suppressed)")
+        before, after = h
+        for pid, part in after.parts.items():
+            old = before.parts.get(pid)
+            if old is None:
+                out.append((pid, part.shape, None))
+                continue
+            if old.shape is part.shape:
+                continue
+            add, rem = K.cut(part.shape, old.shape), K.cut(old.shape, part.shape)
+            tiny = 1e-9 * max(K.volume(old.shape), 1.0)
+            out.append((pid, add if K.volume(add) > tiny else None, rem if K.volume(rem) > tiny else None))
+    if not out:
+        raise K.KernelError("Those features don't change any part, so there's nothing to repeat")
+    return out
+
+
+def _repeat_features(state, f, transforms):
+    """Apply what the chosen features did again at each transform (a function shape -> moved shape)."""
+    changes = _feature_changes(state, f["params"].get("features", []))
+    adds, rems = {}, {}
+    for T in transforms:
+        for pid, add, rem in changes:
+            if add is not None:
+                adds.setdefault(pid, []).append(T(add))
+            if rem is not None:
+                rems.setdefault(pid, []).append(T(rem))
+    for pid in list(adds) + [q for q in rems if q not in adds]:
+        part = state.parts.get(pid)
+        if part is None:                      # the feature made a part that has since gone: new parts
+            for s_ in adds.get(pid, []):
+                for sol in K.solids(s_):
+                    state.new_part(sol, f["id"])
+            continue
+        shape = part.shape
+        if adds.get(pid):
+            shape = K.fuse(shape, K.fuse_all(adds[pid]))
+        if rems.get(pid):
+            shape = K.cut(shape, K.fuse_all(rems[pid]))
+        set_part_shape(state, part, shape)
+
+
+def _features_mode(p):
+    return p.get("type") == "features"
+
+
 def run_mirror(state, f):
     p = f["params"]
+    if _features_mode(p):
+        plane = resolve_plane(state, p["plane"])
+        _repeat_features(state, f, [lambda s_: K.mirror(s_, plane)])
+        return
     ids = _selected_parts(state, p)
     plane = resolve_plane(state, p["plane"])
     bodies = [K.mirror(state.parts[i].shape, plane) for i in ids]
@@ -823,13 +960,18 @@ def run_mirror(state, f):
 
 def run_linear_pattern(state, f):
     p = f["params"]
-    ids = _selected_parts(state, p)
+    ids = [] if _features_mode(p) else _selected_parts(state, p)
     dref = p.get("direction", {"kind": "std", "name": "X"})
     _, d = resolve_axis(state, dref)
     if p.get("flip"):
         d = -d
     n = int(p.get("count", 3))
     sp = float(p.get("spacing", 20))
+    if _features_mode(p):
+        if n < 2:
+            raise K.KernelError("Count must be at least 2")
+        _repeat_features(state, f, [lambda s_, k=k: K.translate(s_, d * sp * k) for k in range(1, n)])
+        return
     copies = []
     for i in ids:
         for k in range(1, n):
@@ -841,11 +983,16 @@ def run_linear_pattern(state, f):
 
 def run_circular_pattern(state, f):
     p = f["params"]
-    ids = _selected_parts(state, p)
+    ids = [] if _features_mode(p) else _selected_parts(state, p)
     a, d = resolve_axis(state, p.get("axis", {"kind": "std", "name": "Z"}))
     n = int(p.get("count", 4))
     total = float(p.get("angle", 360))
     step = total / n if abs(total - 360) < 1e-9 else total / max(n - 1, 1)
+    if _features_mode(p):
+        if n < 2:
+            raise K.KernelError("Count must be at least 2")
+        _repeat_features(state, f, [lambda s_, k=k: K.rotate(s_, a, d, step * k) for k in range(1, n)])
+        return
     copies = []
     for i in ids:
         for k in range(1, n):

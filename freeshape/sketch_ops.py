@@ -176,8 +176,8 @@ def offset(sk: Sketch, eid: str, dist: float):
     if abs(dist) < TOL:
         raise ValueError("Offset distance can't be zero")
     e0 = sk.entities.get(eid)
-    if e0 is None or e0["type"] == "point":
-        raise ValueError("Click a line, arc or circle")
+    if e0 is None or e0["type"] in ("point", "spline", "ellipse", "text"):
+        raise ValueError("Offset works on lines, arcs and circles")
     cons = e0.get("construction", False)
     if e0["type"] == "circle":
         r = e0["r"] + dist
@@ -310,6 +310,17 @@ def _copy(sk: Sketch, ents, transform, keep=frozenset(), orient_flip=False, copy
             emap[eid] = sk.add_arc(P(e["c"]), p2, p1, c) if orient_flip else sk.add_arc(P(e["c"]), p1, p2, c)
         elif t == "point":
             emap[eid] = sk.add_point_entity(P(e["p"]))
+        elif t == "spline":
+            emap[eid] = sk.add_spline([P(q) for q in e["pts"]], e.get("closed", False), c)
+        elif t == "ellipse":
+            emap[eid] = sk.add_ellipse(P(e["c"]), P(e["a"]), e["r"], c)
+        elif t == "text":
+            # text keeps reading left to right: it moves and turns with the copy but is never mirrored
+            o = np.asarray(sk.P(e["p"]), float)
+            d = np.asarray(transform(o + np.array([1.0, 0.0])), float) - np.asarray(transform(o), float)
+            turn = 0.0 if orient_flip else math.degrees(math.atan2(d[1], d[0]))
+            vals = {k: e[k] for k in ("text", "size", "font", "bold", "italic") if k in e}
+            emap[eid] = sk.add_text(P(e["p"]), angle=e.get("angle", 0.0) + turn, **vals)
     if copy_cons:
         allmap = {**pmap, **emap}
         inside = set(ents) | set(pmap)

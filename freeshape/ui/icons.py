@@ -347,6 +347,28 @@ def draw(name: str, p: QPainter):
         p.setPen(_pen(INK, 2))
         p.drawEllipse(QPointF(16, 16), 10, 10)
         _dot(p, 16, 16)
+    elif name == "spline":
+        p.setPen(_pen(INK, 2))
+        path = QPainterPath(QPointF(4, 24))
+        path.cubicTo(QPointF(10, 2), QPointF(18, 30), QPointF(28, 8))
+        p.drawPath(path)
+        for x, y in ((4, 24), (12, 13), (20, 19), (28, 8)):
+            _dot(p, x, y)
+    elif name == "ellipse":
+        p.setPen(_pen(INK, 2))
+        p.drawEllipse(QPointF(16, 16), 13, 8)
+        p.setPen(_pen(INK, 1, Qt.DashLine))
+        p.drawLine(QPointF(16, 16), QPointF(29, 16))
+        _dot(p, 16, 16)
+    elif name == "sk_text":
+        f = QFont("Times New Roman")
+        f.setPixelSize(24)
+        f.setBold(True)
+        p.setFont(f)
+        p.setPen(INK)
+        p.drawText(QRectF(0, 0, 32, 30), Qt.AlignCenter, "A")
+        p.setPen(_pen(BLUE, 1.6))
+        p.drawLine(QPointF(5, 28), QPointF(27, 28))
     elif name == "arc3":
         p.setPen(_pen(INK, 2))
         p.drawArc(QRectF(5, 8, 22, 22), 20 * 16, 140 * 16)

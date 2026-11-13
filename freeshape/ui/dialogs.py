@@ -146,6 +146,9 @@ def item_label(doc, item):
     if kind == "part":
         p = doc.state.parts.get(ref)
         return p.name if p else ref
+    if kind == "feature":
+        f = doc.feature(ref)
+        return f["name"] if f else ref
     if kind == "plane":
         if ref["kind"] == "std":
             return f"{ref['name']} plane"
@@ -367,6 +370,24 @@ def _ops(options=None):
     return {"t": "ops", "key": "op", "options": options or OP_LABELS}
 
 
+def _pattern_of(what):
+    """The 'Parts / Features' switch and feature picker shared by Mirror and the patterns."""
+    return [
+        _choice("type", f"What to {what}", [("parts", "Parts"), ("features", "Features")]),
+        _sel("features", "Features (click them in the feature list)", {"feature"},
+             visible=lambda p: p.get("type") == "features"),
+    ]
+
+
+_UP_TO_FIELDS = [
+    _sel("upto_face", "Face or plane to go up to", {"face", "plane"}, multi=False,
+         visible=lambda p: p.get("end") == "up_to_face"),
+    _sel("upto_part", "Part to go up to", {"part"}, multi=False, visible=lambda p: p.get("end") == "up_to_part"),
+    _sel("upto_vertex", "Vertex to go up to", {"vertex"}, multi=False,
+         visible=lambda p: p.get("end") == "up_to_vertex"),
+]
+
+
 SCHEMAS = {
     "sm_base": [
         _sel("profiles", "Sketch region(s) — the sheet's outline", {"region"}),
@@ -391,8 +412,12 @@ SCHEMAS = {
     "extrude": [
         _ops(),
         _sel("profiles", "Faces and sketch regions to extrude", {"region", "face"}),
-        _choice("end", "End type", [("blind", "Blind"), ("symmetric", "Symmetric"), ("through", "Through all")]),
-        _num("depth", "Depth", visible=lambda p: p.get("end") != "through", minimum=1e-6),
+        _choice("end", "End type", [("blind", "Blind"), ("symmetric", "Symmetric"), ("through", "Through all")]
+                + F.UP_TO_LABELS),
+        _num("depth", "Depth", visible=lambda p: p.get("end") not in ("through",) + F.UP_TO, minimum=1e-6),
+        *_UP_TO_FIELDS,
+        _num("offset", "Stop short by",
+             visible=lambda p: p.get("end") in ("up_to_face", "up_to_vertex")),
         _check("flip", "Opposite direction", visible=lambda p: p.get("end") != "symmetric"),
         _check("second", "Second end position", visible=lambda p: p.get("end") == "blind"),
         _num("depth2", "Second depth", visible=lambda p: p.get("end") == "blind" and p.get("second")),
@@ -403,9 +428,13 @@ SCHEMAS = {
         _sel("profiles", "Faces and sketch regions to revolve", {"region", "face"}),
         _sel("axis_sel", "Revolve axis (sketch line or edge)", {"axis"}, multi=False),
         _choice("axis_std", "…or world axis", [("", "—"), ("X", "X axis"), ("Y", "Y axis"), ("Z", "Z axis")]),
-        _choice("end", "Revolve type", [("full", "Full"), ("one", "One direction"), ("symmetric", "Symmetric")]),
-        _num("angle", "Revolve angle", unit="deg", visible=lambda p: p.get("end") != "full"),
-        _check("flip", "Opposite direction", visible=lambda p: p.get("end") == "one"),
+        _choice("end", "Revolve type", [("full", "Full"), ("one", "One direction"), ("symmetric", "Symmetric")]
+                + F.UP_TO_LABELS),
+        _num("angle", "Revolve angle", unit="deg", visible=lambda p: p.get("end") in ("one", "symmetric")),
+        *_UP_TO_FIELDS,
+        _num("offset", "Stop short by",
+             visible=lambda p: p.get("end") == "up_to_face"),
+        _check("flip", "Opposite direction", visible=lambda p: p.get("end") == "one" or p.get("end") in F.UP_TO),
     ],
     "fillet": [
         _sel("edges", "Edges or faces to fillet", {"edge"}),
@@ -449,13 +478,15 @@ SCHEMAS = {
         _check("flip", "Flip direction", visible=lambda p: F.plane_type(p) is not None),
     ],
     "mirror": [
-        _ops([("new", "New"), ("add", "Add")]),
-        _sel("parts", "Parts to mirror", {"part"}),
+        *_pattern_of("mirror"),
+        {**_ops([("new", "New"), ("add", "Add")]), "visible": lambda p: p.get("type") != "features"},
+        _sel("parts", "Parts to mirror", {"part"}, visible=lambda p: p.get("type") != "features"),
         _sel("plane_sel", "Mirror plane", {"plane"}, multi=False),
     ],
     "linear_pattern": [
-        _ops([("new", "New"), ("add", "Add")]),
-        _sel("parts", "Parts to pattern", {"part"}),
+        *_pattern_of("pattern"),
+        {**_ops([("new", "New"), ("add", "Add")]), "visible": lambda p: p.get("type") != "features"},
+        _sel("parts", "Parts to pattern", {"part"}, visible=lambda p: p.get("type") != "features"),
         _sel("dir_sel", "Direction (edge or sketch line)", {"axis"}, multi=False),
         _choice("dir_std", "…or world axis", [("", "—"), ("X", "X axis"), ("Y", "Y axis"), ("Z", "Z axis")]),
         _num("spacing", "Distance"),
@@ -463,8 +494,9 @@ SCHEMAS = {
         _check("flip", "Opposite direction"),
     ],
     "circular_pattern": [
-        _ops([("new", "New"), ("add", "Add")]),
-        _sel("parts", "Parts to pattern", {"part"}),
+        *_pattern_of("pattern"),
+        {**_ops([("new", "New"), ("add", "Add")]), "visible": lambda p: p.get("type") != "features"},
+        _sel("parts", "Parts to pattern", {"part"}, visible=lambda p: p.get("type") != "features"),
         _sel("axis_sel", "Axis of pattern (edge or sketch line)", {"axis"}, multi=False),
         _choice("axis_std", "…or world axis", [("", "—"), ("X", "X axis"), ("Y", "Y axis"), ("Z", "Z axis")]),
         _num("angle", "Angle", unit="deg"),
@@ -558,6 +590,13 @@ SCHEMAS = {
 def params_to_fields(ftype, p):
     """Selection-field contents for a feature's params."""
     f = {}
+    if ftype in ("mirror", "linear_pattern", "circular_pattern"):
+        f["features"] = [("feature", i) for i in p.get("features", [])]
+    if ftype in ("extrude", "revolve"):
+        u = p.get("up_to") or {}
+        f["upto_face"] = [(u["kind"], u["ref"])] if u.get("kind") in ("face", "plane") else []
+        f["upto_vertex"] = [("vertex", u["ref"])] if u.get("kind") == "vertex" else []
+        f["upto_part"] = [("part", u["id"])] if u.get("kind") == "part" else []
     if ftype in ("extrude", "revolve", "sweep"):
         f["profiles"] = [("region", r) for r in p.get("regions", [])] + [("face", r) for r in p.get("faces", [])]
     if ftype == "sm_base":
@@ -609,6 +648,16 @@ def fields_to_params(ftype, fields, p):
         p["regions"] = [r for k, r in fields.get("profiles", []) if k == "region"]
     if ftype == "sm_flange":
         p["edges"] = [r for k, r in fields.get("edges", []) if k == "edge"]
+    if ftype in ("mirror", "linear_pattern", "circular_pattern"):
+        p["features"] = [r for k, r in fields.get("features", []) if k == "feature"]
+    if ftype in ("extrude", "revolve"):
+        key = {"up_to_face": "upto_face", "up_to_vertex": "upto_vertex", "up_to_part": "upto_part"}.get(p.get("end"))
+        sel = fields.get(key, []) if key else []
+        if sel:
+            k, r = sel[0]
+            p["up_to"] = {"kind": "part", "id": r} if k == "part" else {"kind": k, "ref": r}
+        elif key:
+            p.pop("up_to", None)
     if ftype in ("extrude", "revolve", "sweep"):
         p["regions"] = [r for k, r in fields.get("profiles", []) if k == "region"]
         p["faces"] = [r for k, r in fields.get("profiles", []) if k == "face"]
@@ -799,7 +848,12 @@ class FeatureDialog(_ResizableFrame):
                 self.fields[k].items = list(items)
         if is_new and preselection:
             self._apply_preselection(preselection)
-        first = next((f for f in self.fields.values() if not f.items), None) or next(iter(self.fields.values()), None)
+        def shown(f):                      # only boxes the current choices show (not hidden "Up to" / feature ones)
+            spec = next((sp for sp, _w in self.rows if sp.get("key") == f.key), None)
+            vis = spec.get("visible") if spec else None
+            return vis is None or bool(vis(self.feature["params"]))
+        cands = [f for f in self.fields.values() if shown(f)]
+        first = next((f for f in cands if not f.items), None) or next(iter(cands), None)
         if first:
             self.activate(first)
         self._sync_visibility()
@@ -1107,6 +1161,15 @@ class FeatureDialog(_ResizableFrame):
     def _set(self, key, value):
         p = self.feature["params"]
         p[key] = value
+        if key == "type" and self.ftype in ("mirror", "linear_pattern", "circular_pattern"):
+            fk = "features" if value == "features" else "parts"
+            if fk in self.fields:
+                QTimer.singleShot(0, lambda fk=fk: self.activate(self.fields[fk]))
+        if key == "end" and self.ftype in ("extrude", "revolve"):
+            # choosing an "Up to …" end makes its pick box the active one, so the next click fills it
+            fk = {"up_to_face": "upto_face", "up_to_vertex": "upto_vertex", "up_to_part": "upto_part"}.get(value)
+            if fk in self.fields:
+                QTimer.singleShot(0, lambda fk=fk: self.activate(self.fields[fk]))
         if key in ("axis_std", "dir_std") and value:
             # choosing a world axis replaces a picked axis
             fk = "axis_sel" if key == "axis_std" else "dir_sel"

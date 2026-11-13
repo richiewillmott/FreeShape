@@ -6,6 +6,9 @@ Geometry:
                   circle {c, r}
                   arc    {c, p1, p2}   counter-clockwise from p1 to p2
                   point  {p}
+                  spline {pts: [point ids], closed}   smooth curve through its points
+                  ellipse {c, a, r}   centre, a point at the end of the major axis, minor radius
+                  text   {p, text, size, font, bold, italic, angle}   p = bottom-left of the text
   Every entity may carry "construction": True (ignored when building regions).
 
 Constraints are dicts with a "type" and entity/point references. Dimensions are
@@ -25,6 +28,8 @@ ORIGIN = "origin"
 
 # Constraint types that carry an editable value (i.e. dimensions)
 DIMENSIONS = {"distance", "hdistance", "vdistance", "radius", "diameter", "angle"}
+
+POINT_KEYS = ("p1", "p2", "c", "p", "a")       # entity keys that hold one point id (splines: "pts")
 
 CONSTRAINT_LABELS = {
     "coincident": "Coincident", "point_on": "Coincident", "horizontal": "Horizontal",
@@ -90,6 +95,26 @@ class Sketch:
         self.entities[eid] = {"type": "arc", "c": c, "p1": p1, "p2": p2, "construction": construction}
         return eid
 
+    def add_spline(self, pts, closed=False, construction=False) -> str:
+        eid = self._id("s")
+        self.entities[eid] = {"type": "spline", "pts": list(pts), "closed": bool(closed),
+                              "construction": construction}
+        return eid
+
+    def add_ellipse(self, c, a, r, construction=False) -> str:
+        """Ellipse centred on point c, major axis out to point a, minor radius r."""
+        eid = self._id("e")
+        self.entities[eid] = {"type": "ellipse", "c": c, "a": a, "r": float(r), "construction": construction}
+        return eid
+
+    def add_text(self, p, text, size=10.0, font="Arial", bold=False, italic=False, angle=0.0) -> str:
+        """Text with its bottom-left at point p; size is the font size (mm), angle in degrees."""
+        eid = self._id("t")
+        self.entities[eid] = {"type": "text", "p": p, "text": str(text), "size": float(size), "font": font,
+                              "bold": bool(bold), "italic": bool(italic), "angle": float(angle),
+                              "construction": False}
+        return eid
+
     def add_point_entity(self, p) -> str:
         eid = self._id("pt")
         self.entities[eid] = {"type": "point", "p": p, "construction": True}
@@ -104,7 +129,7 @@ class Sketch:
 
     def entity_points(self, eid) -> list[str]:
         e = self.entities[eid]
-        return [e[k] for k in ("p1", "p2", "c", "p") if k in e]
+        return [e[k] for k in POINT_KEYS if k in e] + list(e.get("pts", ()))
 
     def delete(self, ids):
         """Delete entities, points or constraints (and anything that depends on them)."""
@@ -134,9 +159,11 @@ class Sketch:
         if keep == drop or drop == ORIGIN:
             return
         for e in self.entities.values():
-            for k in ("p1", "p2", "c", "p"):
+            for k in POINT_KEYS:
                 if e.get(k) == drop:
                     e[k] = keep
+            if "pts" in e:
+                e["pts"] = [keep if q == drop else q for q in e["pts"]]
         for c in self.constraints:
             c["refs"] = [keep if r == drop else r for r in c["refs"]]
         self.points.pop(drop, None)
@@ -150,7 +177,7 @@ class Sketch:
 
     def radius(self, eid):
         e = self.entities[eid]
-        if e["type"] == "circle":
+        if e["type"] in ("circle", "ellipse"):
             return e["r"]
         if e["type"] == "arc":
             return float(np.linalg.norm(self.P(e["p1"]) - self.P(e["c"])))
@@ -183,7 +210,50 @@ class Sketch:
             return c + r * np.c_[np.cos(a), np.sin(a)]
         if t == "point":
             return np.array([self.P(e["p"])])
+        if t == "spline":
+            from . import kernel as K
+            return K.spline_sample([self.points[q] for q in e["pts"]], e.get("closed", False), max(n, 64))
+        if t == "ellipse":
+            c, ax, r = self.ellipse_axes(eid)
+            a = np.linspace(0, 2 * math.pi, max(n, 64) + 1)
+            return c + np.outer(np.cos(a), ax) + np.outer(np.sin(a), r * np.array([-ax[1], ax[0]]) /
+                                                          (np.linalg.norm(ax) + 1e-12))
+        if t == "text":                 # the box around the text (its outlines: polylines())
+            return self.text_box(eid)
         return np.zeros((0, 2))
+
+    def polylines(self, eid, n=48) -> list:
+        """Every outline of an entity, in sketch coordinates: one for most curves, one per glyph outline for
+        text."""
+        e = self.entities[eid]
+        if e["type"] == "text":
+            from . import kernel as K
+            return [self._text_place(e, loop) for loop in K.text_outlines(*self._text_key(e))]
+        return [self.polyline(eid, n)]
+
+    def ellipse_axes(self, eid):
+        """(centre, major-axis vector, minor radius) of an ellipse."""
+        e = self.entities[eid]
+        c = self.P(e["c"])
+        return c, self.P(e["a"]) - c, float(e["r"])
+
+    @staticmethod
+    def _text_key(e):
+        return (e.get("text", ""), e.get("font", "Arial"), float(e.get("size", 10.0)),
+                bool(e.get("bold")), bool(e.get("italic")))
+
+    def _text_place(self, e, pts):
+        """Text outlines are made at the origin; move / turn them to where the text sits."""
+        a = math.radians(e.get("angle", 0.0))
+        R = np.array([[math.cos(a), -math.sin(a)], [math.sin(a), math.cos(a)]])
+        return np.asarray(pts, float) @ R.T + self.P(e["p"])
+
+    def text_box(self, eid):
+        e = self.entities[eid]
+        from . import kernel as K
+        lo, hi = K.text_extent(*self._text_key(e))
+        box = np.array([[lo[0], lo[1]], [hi[0], lo[1]], [hi[0], hi[1]], [lo[0], hi[1]], [lo[0], lo[1]]])
+        return self._text_place(e, box)
 
     def curves(self) -> list[dict]:
         """Non-construction geometry in the format kernel.sketch_regions expects."""
@@ -203,6 +273,15 @@ class Sketch:
                 out.append({"type": "arc", "p1": self.points[e["p1"]],
                             "pm": (c + r * np.array([math.cos(am), math.sin(am)])).tolist(),
                             "p2": (c + r * np.array([math.cos(a2), math.sin(a2)])).tolist()})
+            elif e["type"] == "spline":
+                out.append({"type": "spline", "pts": [self.points[q] for q in e["pts"]],
+                            "closed": bool(e.get("closed"))})
+            elif e["type"] == "ellipse":
+                c, ax, r = self.ellipse_axes(eid)
+                out.append({"type": "ellipse", "c": c.tolist(), "major": ax.tolist(), "r": r})
+            elif e["type"] == "text":
+                out.append({"type": "text", "key": list(self._text_key(e)), "p": self.points[e["p"]],
+                            "angle": float(e.get("angle", 0.0))})
         return out
 
     def lines(self):
@@ -221,7 +300,7 @@ class Sketch:
             idx[(pid, 1)] = n + 1
             n += 2
         for eid, e in self.entities.items():
-            if e["type"] == "circle":
+            if e["type"] in ("circle", "ellipse"):
                 idx[(eid, "r")] = n
                 n += 1
         return idx, n
@@ -249,7 +328,7 @@ class Sketch:
 
         def rad(get, eid):
             e = ents[eid]
-            if e["type"] == "circle":
+            if e["type"] in ("circle", "ellipse"):
                 return get((eid, "r"))
             return float(np.linalg.norm(pt(get, e["p1"]) - pt(get, e["c"])))
 
@@ -258,8 +337,8 @@ class Sketch:
 
         def ekeys(eid):
             e = ents[eid]
-            ks = pkeys(*[e[k] for k in ("p1", "p2", "c", "p") if k in e])
-            if e["type"] == "circle":
+            ks = pkeys(*([e[k] for k in POINT_KEYS if k in e] + list(e.get("pts", ()))))
+            if e["type"] in ("circle", "ellipse"):
                 ks.append((eid, "r"))
             return ks
 
@@ -308,6 +387,19 @@ class Sketch:
             if typ(1) in ("circle", "arc"):
                 cc = ents[e]["c"]
                 return (lambda g: [np.linalg.norm(pt(g, p) - pt(g, cc)) - rad(g, e)]), pkeys(p) + ekeys(e)
+            if typ(1) == "ellipse":
+                cc, aa = ents[e]["c"], ents[e]["a"]
+
+                def f(g):                   # (x/a)^2 + (y/b)^2 = 1 in the ellipse's own axes, scaled to mm
+                    c0 = pt(g, cc)
+                    ax = pt(g, aa) - c0
+                    A = np.linalg.norm(ax) + 1e-12
+                    u = ax / A
+                    w = pt(g, p) - c0
+                    x, y = w @ u, w[0] * -u[1] + w[1] * u[0]
+                    B = abs(rad(g, e)) + 1e-12
+                    return [(math.sqrt((x / A) ** 2 + (y / B) ** 2) - 1.0) * min(A, B)]
+                return f, pkeys(p) + ekeys(e)
             return None, []
         if t in ("horizontal", "vertical"):
             j = 1 if t == "horizontal" else 0

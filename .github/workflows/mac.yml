@@ -1,7 +1,8 @@
 # Builds FreeShape for Windows, Mac and Linux on GitHub's own computers, tests each one, and attaches the
 # downloads to the release — so there's nothing to build by hand.
 #   - Publishing a release: builds all three and attaches
-#       FreeShape-Setup-<rev>.exe, FreeShape-<rev>-mac-arm64.dmg and FreeShape-<rev>-x86_64.AppImage
+#       FreeShape-Setup-<rev>.exe, FreeShape-portable-<rev>.zip (Windows, no install),
+#       FreeShape-<rev>-mac-arm64.dmg and FreeShape-<rev>-x86_64.AppImage
 #   - Actions tab → "Build (Windows, Mac, Linux)" → Run workflow: a test build. The files, a screenshot of
 #     FreeShape running on the Mac and the logs go on a "Test builds" DRAFT release instead — drafts are only
 #     visible to you (Releases page), never to the public. Each test run replaces the previous test files.
@@ -66,16 +67,23 @@ jobs:
           if [ ! -f "$ISCC" ]; then choco install innosetup -y --no-progress; fi
           "$ISCC" //Q packaging/FreeShape.iss
           ls -la dist
+      - name: Make the portable zip (unzip anywhere and run FreeShape.exe — nothing to install)
+        run: |
+          REV="$(python -c 'import freeshape; print(freeshape.__version__)')"
+          powershell -NoProfile -Command "Compress-Archive -Path 'dist\FreeShape' -DestinationPath 'dist\FreeShape-portable-$REV.zip'"
+          ls -la dist
       - uses: actions/upload-artifact@v4
         with:
           name: freeshape-windows
-          path: dist/FreeShape-Setup-*.exe
+          path: |
+            dist/FreeShape-Setup-*.exe
+            dist/FreeShape-portable-*.zip
       - name: Attach to the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ "${{ github.event_name }}" = "release" ]; then TAG="${{ github.event.release.tag_name }}"; else TAG=test-builds; fi
-          gh release upload "$TAG" dist/FreeShape-Setup-*.exe --clobber
+          gh release upload "$TAG" dist/FreeShape-Setup-*.exe dist/FreeShape-portable-*.zip --clobber
 
   # ------------------------------------------------------------------ Mac: .dmg (Apple Silicon)
   mac:

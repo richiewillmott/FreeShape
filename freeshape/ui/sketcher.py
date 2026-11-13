@@ -17,7 +17,7 @@ from .icons import CONSTRAINT_GLYPHS
 from .numparse import parse_number, fmt, has_vars
 from .. import sketch_ops as OPS
 
-DRAW_TOOLS = {"line", "rect", "center_rect", "circle", "arc3", "arc_center", "point"}
+DRAW_TOOLS = {"line", "rect", "center_rect", "circle", "arc3", "arc_center", "point", "spline", "ellipse", "text"}
 
 # constraint tool -> (description, list of acceptable selection signatures)
 CONSTRAINT_TOOLS = {
@@ -43,6 +43,10 @@ TOOL_HINTS = {
     "arc3": "Click the start point, the end point, then a point on the arc.",
     "arc_center": "Click the centre, the start point, then sweep to the end point.",
     "point": "Click to place a point (used by Hole).",
+    "spline": "Click points for the curve to pass through. Double-click or press Enter to finish; click the first "
+              "point again to close it into a loop.",
+    "ellipse": "Click the centre, then the end of the long axis, then click to set the width.",
+    "text": "Click where the text should start (its bottom-left), then type the text.",
     "dimension": "Click a line, circle or two items, then click to place the dimension.",
     "use": "Click part edges to project them into the sketch.",
     "trim": "Click a segment of a line to remove it up to the nearest intersections.",
@@ -184,20 +188,26 @@ class Sketcher:
                 return ("point", best[1])
         if "entity" in kinds:
             best = (7.0, None)
-            for eid in self.sk.entities:
+            for eid, ent in self.sk.entities.items():
                 if eid in exclude:
                     continue
-                pts = self.sk.polyline(eid, 64)
-                if len(pts) == 1:
-                    continue
-                S = np.array([self.scr(vp, p) for p in pts])
-                A, B = S[:-1], S[1:]
-                ab = B - A
-                L2 = np.maximum((ab ** 2).sum(1), 1e-12)
-                t = np.clip(((x - A[:, 0]) * ab[:, 0] + (y - A[:, 1]) * ab[:, 1]) / L2, 0, 1)
-                d = np.hypot(A[:, 0] + t * ab[:, 0] - x, A[:, 1] + t * ab[:, 1] - y).min()
-                if d < best[0]:
-                    best = (d, eid)
+                if ent["type"] == "text":            # text: anywhere inside its box
+                    box = np.array([self.scr(vp, p) for p in self.sk.text_box(eid)])
+                    if _inside_poly(box[:-1], (x, y)):
+                        if 2.0 < best[0]:
+                            best = (2.0, eid)
+                        continue
+                for pts in self.sk.polylines(eid, 64):
+                    if len(pts) < 2:
+                        continue
+                    S = np.array([self.scr(vp, p) for p in pts])
+                    A, B = S[:-1], S[1:]
+                    ab = B - A
+                    L2 = np.maximum((ab ** 2).sum(1), 1e-12)
+                    t = np.clip(((x - A[:, 0]) * ab[:, 0] + (y - A[:, 1]) * ab[:, 1]) / L2, 0, 1)
+                    d = np.hypot(A[:, 0] + t * ab[:, 0] - x, A[:, 1] + t * ab[:, 1] - y).min()
+                    if d < best[0]:
+                        best = (d, eid)
             if best[1]:
                 return ("entity", best[1])
         return None
@@ -593,6 +603,13 @@ class Sketcher:
             self._dim_over_item = sh is not None or pk is not None
 
     def double_click(self, vp, x, y, e):
+        if self.tool == "spline" and self.temp:
+            self._finish_spline(vp)
+            return
+        h = self.hit(vp, x, y, kinds=("entity",)) if self.tool == "select" else None
+        if h and self.sk.entities.get(h[1], {}).get("type") == "text":
+            self.edit_text(vp, h[1])
+            return
         h = self.hit(vp, x, y, kinds=("constraint",))
         if h:
             c = self._constraint(h[1])
@@ -606,6 +623,9 @@ class Sketcher:
     def escape(self):
         had_editor = self._editor is not None
         self._end_editor()
+        if self.tool == "spline" and len(self.temp) >= 2:
+            self._finish_spline()             # Esc keeps the curve drawn so far, like the line chain
+            return
         if self.temp or self.chain_anchor is not None or self.dim_first or self.cons_picks:
             self._reset_tool_state()
             self.selection = []
@@ -620,6 +640,9 @@ class Sketcher:
         k = e.key()
         if k == Qt.Key_Escape:
             self.escape()
+            return True
+        if k in (Qt.Key_Return, Qt.Key_Enter) and self.tool == "spline" and self.temp:
+            self._finish_spline(vp)
             return True
         if k in (Qt.Key_Delete, Qt.Key_Backspace):
             self.delete_selection()
@@ -907,6 +930,50 @@ class Sketcher:
                         sk.add_point_entity(m)
             self.changed(True)           # no radius prompt: the arc stays defined by its three points
             return True
+        if t == "spline":
+            if self.temp:
+                first = self.scr(vp, self.temp[0][0])
+                if len(self.temp) >= 3 and math.hypot(first[0] - x, first[1] - y) < 9:
+                    self._finish_spline(vp, closed=True)          # back on the first point: a loop
+                    return True
+                last = self.scr(vp, self.temp[-1][0])
+                if math.hypot(last[0] - x, last[1] - y) < 4:
+                    self._finish_spline(vp)                       # the last point clicked again: done
+                    return True
+            self.temp.append((uv, snap))
+            return True
+        if t == "ellipse":
+            self.temp.append((uv, snap))
+            if len(self.temp) == 1:
+                self._first_cons = icons
+            if len(self.temp) < 3:
+                return True
+            (cu, cs), (au, as_), _ = self.temp
+            self.temp = []
+            ax = au - cu
+            A = float(np.linalg.norm(ax))
+            if A < 1e-9:
+                return True
+            nrm = np.array([-ax[1], ax[0]]) / A
+            r = abs(float((uv - cu) @ nrm))
+            if r < 1e-9:
+                return True
+            self.push_undo()
+            c = self._point_at(cu, cs, self._first_cons)
+            a = self._point_at(au, as_)
+            eid = sk.add_ellipse(c, a, r, cons)
+            sk.add_line(c, a, True)                 # the long axis, as construction: dimension or align it
+            self.changed(True)
+            self._offer_dims(vp, [("radius", [eid], r, sk.P(c) + nrm * r * 1.15)])
+            return True
+        if t == "text":
+            vals = self._text_dialog(vp)
+            if vals:
+                self.push_undo()
+                pid = self._point_at(uv, snap, icons)
+                sk.add_text(pid, **vals)
+                self.changed(True)
+            return True
         if t == "arc_center":
             self.temp.append((uv, snap))
             if len(self.temp) == 2:
@@ -934,6 +1001,80 @@ class Sketcher:
             self._offer_arc(vp, aid)
             return True
         return True
+
+    def _finish_spline(self, vp=None, closed=False):
+        """Make the spline from the points clicked so far (at least two; three for a loop)."""
+        pts = self.temp
+        self.temp = []
+        if len(pts) < (3 if closed else 2):
+            return False
+        self.push_undo()
+        ids = []
+        for uv, snap in pts:
+            pid = self._point_at(uv, snap)
+            if not ids or ids[-1] != pid:
+                ids.append(pid)
+        if len(ids) < (3 if closed else 2):
+            self.undo()
+            return False
+        self.sk.add_spline(ids, closed, self.construction)
+        self.changed(True)
+        return True
+
+    def _text_dialog(self, vp, e=None):
+        """Ask for the text and its look. e: an existing text entity to edit. Returns the values, or None."""
+        from PySide6.QtWidgets import (QDialog, QFormLayout, QLineEdit, QFontComboBox, QDoubleSpinBox,
+                                       QCheckBox, QDialogButtonBox, QHBoxLayout)
+        from PySide6.QtGui import QFont as _QF
+        e = e or {}
+        dlg = QDialog(vp.window() if hasattr(vp, "window") else None)
+        dlg.setWindowTitle("Edit text" if e else "Text")
+        form = QFormLayout(dlg)
+        txt = QLineEdit(e.get("text", ""))
+        txt.setPlaceholderText("Type the text")
+        form.addRow("Text:", txt)
+        font = QFontComboBox()
+        font.setCurrentFont(_QF(e.get("font", "Arial")))
+        form.addRow("Font:", font)
+        size = QDoubleSpinBox()
+        size.setRange(0.1, 10000)
+        size.setDecimals(2)
+        size.setSuffix(" mm")
+        size.setValue(float(e.get("size", getattr(self, "_last_text_size", 10.0))))
+        form.addRow("Size:", size)
+        style = QHBoxLayout()
+        bold, italic = QCheckBox("Bold"), QCheckBox("Italic")
+        bold.setChecked(bool(e.get("bold")))
+        italic.setChecked(bool(e.get("italic")))
+        style.addWidget(bold)
+        style.addWidget(italic)
+        style.addStretch(1)
+        form.addRow("Style:", style)
+        ang = QDoubleSpinBox()
+        ang.setRange(-360, 360)
+        ang.setSuffix("°")
+        ang.setValue(float(e.get("angle", 0.0)))
+        form.addRow("Angle:", ang)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        form.addRow(bb)
+        txt.setFocus()
+        if dlg.exec() != QDialog.Accepted or not txt.text().strip():
+            return None
+        self._last_text_size = size.value()
+        return {"text": txt.text(), "font": font.currentFont().family(), "size": size.value(),
+                "bold": bold.isChecked(), "italic": italic.isChecked(), "angle": ang.value()}
+
+    def edit_text(self, vp, eid):
+        e = self.sk.entities.get(eid)
+        if e is None or e["type"] != "text":
+            return
+        vals = self._text_dialog(vp, e)
+        if vals:
+            self.push_undo()
+            e.update(vals)
+            self.changed(True)
 
     # ------------------------------------------------------------------ dimensions
     def _dimension_click(self, vp, x, y):
@@ -1018,14 +1159,18 @@ class Sketcher:
                 ctype, refs, val = "diameter", [a], 2 * sk.radius(a)
             elif ta == "arc":
                 ctype, refs, val = "radius", [a], sk.radius(a)
+            elif ta == "ellipse":           # half its width; the length is set with its dashed axis line
+                ctype, refs, val = "radius", [a], sk.radius(a)
             else:
                 return None
         else:
             def ptof(i, t):
                 if t == "point":
                     return self._as_point(i)
-                if t in ("circle", "arc"):
+                if t in ("circle", "arc", "ellipse"):
                     return sk.entities[i]["c"]
+                if t == "text":
+                    return sk.entities[i]["p"]          # where the text starts
                 return None
             if ta == "line" and tb == "line":
                 e1, e2 = sk.entities[a], sk.entities[b]
@@ -1561,10 +1706,17 @@ class Sketcher:
                 GL.glLineStipple(3, 0x0F0F)
             GL.glLineWidth(3.0 if col in (theme.SELECT, theme.HOVER) else 2.0)
             GL.glColor3f(*col)
-            GL.glBegin(GL.GL_LINE_STRIP)
-            for u, v in sk.polyline(eid, 96):
-                GL.glVertex3f(*pl.to_world(u, v))
-            GL.glEnd()
+            for poly in sk.polylines(eid, 96):
+                GL.glBegin(GL.GL_LINE_STRIP)
+                for u, v in poly:
+                    GL.glVertex3f(*pl.to_world(u, v))
+                GL.glEnd()
+            if e["type"] == "text" and (eid == self.hover or eid in self.selection):
+                GL.glLineWidth(1.0)            # the text's box, while hovered or selected
+                GL.glBegin(GL.GL_LINE_STRIP)
+                for u, v in sk.text_box(eid):
+                    GL.glVertex3f(*pl.to_world(u, v))
+                GL.glEnd()
             GL.glDisable(GL.GL_LINE_STIPPLE)
         # points (endpoints, centres, sketch points)
         virtual = {e["p"] for e in sk.entities.values() if e["type"] == "point" and e.get("virtual")}
@@ -1626,6 +1778,20 @@ class Sketcher:
         elif t == "slot" and self.temp:
             a = self.temp[0][0]
             strip([a, cur])
+        elif t == "spline" and self.temp:
+            pts = [q for q, _s in self.temp] + [cur]
+            strip(K.spline_sample(pts, False, 48) if len(pts) >= 2 else pts)
+        elif t == "ellipse" and self.temp:
+            c = self.temp[0][0]
+            if len(self.temp) == 1:
+                strip([c, cur])
+            else:
+                ax = self.temp[1][0] - c
+                A = max(np.linalg.norm(ax), 1e-12)
+                nrm = np.array([-ax[1], ax[0]]) / A
+                r = abs(float((cur - c) @ nrm))
+                a = np.linspace(0, 2 * math.pi, 97)
+                strip(c + np.outer(np.cos(a), ax) + np.outer(np.sin(a), nrm * r))
         elif t == "arc3" and self.temp:
             if len(self.temp) == 1:
                 strip([self.temp[0][0], cur])
@@ -1931,6 +2097,19 @@ class Sketcher:
 
 
 # ---------------------------------------------------------------------- geometry helpers
+
+def _inside_poly(poly, pt):
+    """Is the 2D point inside the polygon (screen or sketch coordinates)?"""
+    x, y = pt
+    inside = False
+    n = len(poly)
+    for i in range(n):
+        x1, y1 = poly[i]
+        x2, y2 = poly[(i + 1) % n]
+        if (y1 > y) != (y2 > y) and x < x1 + (y - y1) * (x2 - x1) / (y2 - y1):
+            inside = not inside
+    return inside
+
 
 def _cross2(a, b):
     return float(a[0] * b[1] - a[1] * b[0])

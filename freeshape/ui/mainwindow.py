@@ -611,6 +611,8 @@ class MainWindow(QMainWindow):
                  ("line", "Line (L)", None), ("rect", "Corner rectangle (R)", None),
                  ("center_rect", "Center rectangle", None), ("circle", "Circle (C)", None),
                  ("arc3", "3-point arc (A)", None), ("arc_center", "Center-point arc", None),
+                 ("spline", "Spline — click points, double-click or Enter to finish", None),
+                 ("ellipse", "Ellipse", None), ("text", "Text", "sk_text"),
                  ("point", "Point (P)", None)]
         for name, tip, ic in tools:
             b = self._tb(h, ic or name, tip, lambda _=False, n=name: self._sk_tool(n), checkable=True)
@@ -1705,7 +1707,8 @@ class MainWindow(QMainWindow):
                 for eid, e in sr.sketch.entities.items():
                     if e["type"] == "point":
                         continue
-                    polys.append(np.array([sr.plane.to_world(u, v) for u, v in sr.sketch.polyline(eid, 48)]))
+                    for poly in sr.sketch.polylines(eid, 48):
+                        polys.append(np.array([sr.plane.to_world(u, v) for u, v in poly]))
         elif f["type"] == "plane":
             pl = doc.state.planes.get(fid)
             if pl is not None:
@@ -1727,6 +1730,8 @@ class MainWindow(QMainWindow):
             pick = Pick("plane", ("std", ident))
         else:
             f = self.doc.feature(ident)
+            if f is not None and self._tree_feature_to_dialog(ident):
+                return
             if f is not None and f["type"] == "sketch" and self._tree_sketch_to_dialog(ident):
                 return
             if f is None or f["type"] != "plane" or ident not in self.doc.state.planes:
@@ -1737,6 +1742,22 @@ class MainWindow(QMainWindow):
         elif self.viewport.pick_handler is not None:
             # an open dialog (e.g. a new sketch waiting for its plane) takes the plane
             self.viewport.pick_handler(pick)
+
+    def _tree_feature_to_dialog(self, fid):
+        """A feature clicked in the list while a dialog wants features (feature pattern / mirror): add it, or
+        take it out again. Returns True if the click was used."""
+        d = self.dialog
+        fld = getattr(d, "active_field", None) if d is not None else None
+        if fld is None or "feature" not in fld.want or self.mode != "dialog":
+            return False
+        if fid == d.feature.get("id"):
+            return True
+        idx = self.doc.feature_index(fid)
+        if idx is None or idx >= d.index:
+            self.status.showMessage("Pick a feature from above this one in the list.", 6000)
+            return True
+        fld.toggle(("feature", fid))
+        return True
 
     def _tree_sketch_to_dialog(self, fid):
         """A sketch clicked in the feature list while a feature dialog wants sketch areas (Extrude, Loft …): use the

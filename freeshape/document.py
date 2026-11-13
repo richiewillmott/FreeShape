@@ -250,6 +250,7 @@ class Document:
             if key in self._cache:
                 state, err = self._cache[key]
             else:
+                prev = state
                 state = state.copy()
                 err = None
                 if not f.get("suppressed"):
@@ -267,6 +268,9 @@ class Document:
                     except Exception as e:  # never let one feature kill the model
                         traceback.print_exc()
                         err = f"{type(e).__name__}: {e}"
+                    if err is None:
+                        # remembered so later features (feature patterns, mirror) can repeat what this one did
+                        state.history[f["id"]] = (prev, state)
             new_cache[key] = (state, err)
             if errors is not None and err:
                 errors[f["id"]] = err

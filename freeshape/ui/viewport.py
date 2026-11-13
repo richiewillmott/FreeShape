@@ -876,14 +876,15 @@ class Viewport(QOpenGLWidget):
                     GL.glLineStipple(2, 0x0F0F)
                 GL.glLineWidth(3.5 if col in (theme.SELECT, theme.HOVER) else 1.6)
                 GL.glColor3f(*col)
-                pts = sk.polyline(eid)
                 if e["type"] == "point":
+                    pts = sk.polyline(eid)
                     GL.glPointSize(6)
                     GL.glBegin(GL.GL_POINTS)
                     GL.glVertex3f(*sr.plane.to_world(*pts[0]))
                     GL.glEnd()
                 else:
-                    self._draw_polyline([sr.plane.to_world(u, v) for u, v in pts])
+                    for pts in sk.polylines(eid):
+                        self._draw_polyline([sr.plane.to_world(u, v) for u, v in pts])
                 GL.glDisable(GL.GL_LINE_STIPPLE)
         GL.glDepthRange(0, 1)
 
@@ -1292,10 +1293,13 @@ class Viewport(QOpenGLWidget):
                 for eid, e in sr.sketch.entities.items():
                     if e["type"] == "point":
                         continue
-                    pts = np.array([sr.plane.to_world(u, v) for u, v in sr.sketch.polyline(eid, 32)], np.float32)
-                    A.append(pts[:-1])
-                    B.append(pts[1:])
-                    owner += [("sketch_line", (fid, eid))] * (len(pts) - 1)
+                    for poly in sr.sketch.polylines(eid, 32):
+                        if len(poly) < 2:
+                            continue
+                        pts = np.array([sr.plane.to_world(u, v) for u, v in poly], np.float32)
+                        A.append(pts[:-1])
+                        B.append(pts[1:])
+                        owner += [("sketch_line", (fid, eid))] * (len(pts) - 1)
             if A:
                 self._segs = (np.vstack(A).astype(np.float64), np.vstack(B).astype(np.float64), owner)
             else:

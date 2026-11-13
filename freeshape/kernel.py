@@ -374,6 +374,109 @@ def edge_line(edge):
 
 # --------------------------------------------------------------------------- sketch → regions
 
+# --------------------------------------------------------------------------- sketch splines, text
+
+def _clean_pts2d(pts, closed):
+    """Spline points with repeats removed (an interpolating spline can't pass through one spot twice)."""
+    out = []
+    for q in pts:
+        q = (float(q[0]), float(q[1]))
+        if not out or math.hypot(q[0] - out[-1][0], q[1] - out[-1][1]) > 1e-7:
+            out.append(q)
+    if closed and len(out) > 2 and math.hypot(out[0][0] - out[-1][0], out[0][1] - out[-1][1]) < 1e-7:
+        out.pop()
+    return out
+
+
+def spline_curve_2d(pts, closed=False):
+    """A smooth curve passing through the points (closed: a loop), as an OpenCascade 2D B-spline.
+    None if there aren't enough points."""
+    from OCP.Geom2dAPI import Geom2dAPI_Interpolate
+    from OCP.OCP.collections import HArray1_gp_Pnt2d as TColgp_HArray1OfPnt2d
+    from OCP.gp import gp_Pnt2d
+    q = _clean_pts2d(pts, closed)
+    if len(q) < (3 if closed else 2):
+        return None
+    arr = TColgp_HArray1OfPnt2d(1, len(q))
+    for i, (x, y) in enumerate(q, 1):
+        arr.SetValue(i, gp_Pnt2d(x, y))
+    it = Geom2dAPI_Interpolate(arr, bool(closed), 1e-7)
+    it.Perform()
+    if not it.IsDone():
+        return None
+    return it.Curve()
+
+
+def spline_sample(pts, closed=False, n=64) -> np.ndarray:
+    """Points along the spline through `pts`, for drawing (n per span, so it stays smooth however long)."""
+    c = spline_curve_2d(pts, closed)
+    if c is None:
+        return np.array([[float(x), float(y)] for x, y in pts]).reshape(-1, 2)
+    spans = max(1, len(pts) - (0 if closed else 1))
+    k = max(n // 2, 16) * spans
+    a, b = c.FirstParameter(), c.LastParameter()
+    out = np.empty((k + 1, 2))
+    for i, t in enumerate(np.linspace(a, b, k + 1)):
+        p = c.Value(t)
+        out[i] = (p.X(), p.Y())
+    return out
+
+
+_FONT_CACHE: dict = {}
+
+
+def text_shape(text, font="Arial", size=10.0, bold=False, italic=False):
+    """Text as flat faces (one per glyph, letters like "o" with their holes), bottom-left at the origin in XY.
+    Uses the computer's fonts; an unknown font falls back to one that exists."""
+    key = (text, font, round(float(size), 6), bool(bold), bool(italic))
+    hit = _FONT_CACHE.get(key)
+    if hit is not None:
+        return hit
+    from OCP.StdPrs import StdPrs_BRepFont, StdPrs_BRepTextBuilder
+    from OCP.Font import (Font_FA_Regular, Font_FA_Bold, Font_FA_Italic, Font_FA_BoldItalic,
+                          Font_StrictLevel_Any)
+    from OCP.TCollection import TCollection_AsciiString
+    from OCP.NCollection import NCollection_String
+    if not str(text).strip() or size <= 0:
+        shp = TopoDS_Compound()
+        BRep_Builder().MakeCompound(shp)
+    else:
+        aspect = (Font_FA_BoldItalic if bold and italic else Font_FA_Bold if bold else
+                  Font_FA_Italic if italic else Font_FA_Regular)
+        f = StdPrs_BRepFont()
+        if not f.FindAndInit(TCollection_AsciiString(str(font or "Arial")), aspect, float(size),
+                             Font_StrictLevel_Any):
+            raise KernelError(f"No font available for the text (looked for {font})")
+        shp = StdPrs_BRepTextBuilder().Perform(f, NCollection_String(str(text)), gp_Ax3())
+    if len(_FONT_CACHE) > 200:
+        _FONT_CACHE.clear()
+    _FONT_CACHE[key] = shp
+    return shp
+
+
+def text_outlines(text, font="Arial", size=10.0, bold=False, italic=False) -> list:
+    """The text's outlines as 2D polylines (bottom-left at the origin), for drawing in the sketch."""
+    key = ("outl", text, font, round(float(size), 6), bool(bold), bool(italic))
+    hit = _FONT_CACHE.get(key)
+    if hit is not None:
+        return hit
+    shp = text_shape(text, font, size, bold, italic)
+    out = [discretize_edge(e, max(size, 0.1) * 0.002)[:, :2].astype(float) for e in edges(shp)]
+    out = [p for p in out if len(p) >= 2]
+    _FONT_CACHE[key] = out
+    return out
+
+
+def text_extent(text, font="Arial", size=10.0, bold=False, italic=False):
+    """(lo, hi) corners of the box around the text, in its own coordinates (bottom-left of the first letter
+    at the origin). Empty text gets a small box so it can still be found and clicked."""
+    shp = text_shape(text, font, size, bold, italic)
+    if not edges(shp):
+        return np.array([0.0, 0.0]), np.array([size * 0.6, size * 0.7])
+    lo, hi = bbox(shp)
+    return np.array([min(lo[0], 0.0), min(lo[1], 0.0)]), np.array([hi[0], max(hi[1], size * 0.7)])
+
+
 def make_sketch_edges(plane: Plane, curves) -> list:
     """curves: list of dicts {'type': 'line'|'circle'|'arc', ...} in sketch (u, v) coordinates."""
     out = []
@@ -399,6 +502,31 @@ def make_sketch_edges(plane: Plane, curves) -> list:
                     continue
                 arc = GC_MakeArcOfCircle(_pnt(p1), _pnt(pm), _pnt(p2)).Value()
                 out.append(BRepBuilderAPI_MakeEdge(arc).Edge())
+            elif c["type"] == "spline":
+                from OCP.GeomAPI import GeomAPI
+                c2 = spline_curve_2d(c["pts"], c.get("closed", False))
+                if c2 is None:
+                    continue
+                c3 = GeomAPI.To3d_s(c2, gp_Pln(ax3))
+                out.append(BRepBuilderAPI_MakeEdge(c3).Edge())
+            elif c["type"] == "ellipse":
+                from OCP.gp import gp_Elips
+                ax = np.asarray(c["major"], float)
+                A, B = float(np.linalg.norm(ax)), abs(float(c["r"]))
+                if A < 1e-7 or B < 1e-7:
+                    continue
+                u = ax / A
+                if B > A:                       # OpenCascade wants the longer axis first
+                    A, B, u = B, A, np.array([-u[1], u[0]])
+                ctr = plane.to_world(*c["c"])
+                xd = plane.to_world(*(np.asarray(c["c"], float) + u)) - ctr
+                ax2 = gp_Ax2(_pnt(ctr), ax3.Direction(), _dir(xd))
+                if abs(A - B) < 1e-9:
+                    out.append(BRepBuilderAPI_MakeEdge(gp_Circ(ax2, A)).Edge())
+                else:
+                    out.append(BRepBuilderAPI_MakeEdge(gp_Elips(ax2, A, B)).Edge())
+            elif c["type"] == "text":
+                out.extend(edges(_place_text(plane, c)))
         except Exception:
             continue
     return out
@@ -446,7 +574,65 @@ def sketch_regions(plane: Plane, curves) -> list:
             if touches:
                 continue
         regions.append(f)
+    glyphs = _text_glyph_faces(plane, curves)
+    if glyphs:
+        regions = [f for f in regions if not _is_letter_hole(f, glyphs)]
     return regions
+
+
+def _place_text(plane: Plane, c):
+    """The text shape of a sketch text curve, moved and turned to where it sits on the sketch plane."""
+    shp = text_shape(*c["key"])
+    t_rot = gp_Trsf()
+    t_rot.SetRotation(gp_Ax1(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1)), math.radians(c.get("angle", 0.0)))
+    t_mov = gp_Trsf()
+    t_mov.SetTranslation(gp_Vec(float(c["p"][0]), float(c["p"][1]), 0.0))
+    t_pl = gp_Trsf()
+    t_pl.SetDisplacement(gp_Ax3(), plane.gp_ax3())        # sketch (u, v) -> the sketch plane in 3D
+    return BRepBuilderAPI_Transform(shp, t_pl.Multiplied(t_mov.Multiplied(t_rot)), True).Shape()
+
+
+def _text_glyph_faces(plane: Plane, curves) -> list:
+    out = []
+    for c in curves:
+        if c.get("type") == "text":
+            try:
+                out.extend(faces(_place_text(plane, c)))
+            except Exception:
+                pass
+    return out
+
+
+def _is_letter_hole(region, glyphs) -> bool:
+    """True for the empty middle of a letter (the inside of an "o", "e", "A" …): a sketch region that sits
+    inside a letter's outline but isn't part of the letter. Extruding text then gives letters, not discs."""
+    from OCP.BRepClass import BRepClass_FaceClassifier
+    from OCP.TopAbs import TopAbs_IN, TopAbs_ON
+    m = tessellate(region)
+    if not len(m.tris):
+        return False
+    tri = m.verts[m.tris]
+    area = np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1)
+    q = tri[int(np.argmax(area))].mean(0)                    # a point well inside the region
+    p = _pnt(q)
+    for g in glyphs:
+        lo, hi = bbox(g)
+        if np.any(q < lo - 1e-6) or np.any(q > hi + 1e-6):
+            continue
+        if BRepClass_FaceClassifier(g, p, 1e-7).State() in (TopAbs_IN, TopAbs_ON):
+            return False                                     # part of a letter
+        try:
+            outer = BRepBuilderAPI_MakeFace(BRepTools_OuterWire(g)).Face()
+        except Exception:
+            continue
+        if BRepClass_FaceClassifier(outer, p, 1e-7).State() == TopAbs_IN:
+            return True                                      # inside the letter's outline, not the letter
+    return False
+
+
+def BRepTools_OuterWire(face):
+    from OCP.BRepTools import BRepTools
+    return BRepTools.OuterWire_s(face)
 
 
 def _vertices_np(shape):
@@ -503,6 +689,97 @@ def revolve(profile_faces, axis_p, axis_d, angle_deg: float, symmetric=False):
             raise KernelError("Revolve failed (does the profile cross the axis?)")
         out.append(mk.Shape())
     return fuse_all(out)
+
+
+# --------------------------------------------------------------------------- "up to" end conditions
+
+def interior_point(face) -> np.ndarray:
+    """A point well inside a face (the middle of its largest mesh triangle — safe for C or O shapes)."""
+    m = tessellate(face)
+    if not len(m.tris):
+        lo, hi = bbox(face)
+        return (lo + hi) / 2
+    tri = m.verts[m.tris].astype(float)
+    area = np.linalg.norm(np.cross(tri[:, 1] - tri[:, 0], tri[:, 2] - tri[:, 0]), axis=1)
+    return tri[int(np.argmax(area))].mean(0)
+
+
+def termination_face(face, offset=0.0, start_point=None, size=1e4):
+    """A face to stop an extrude at: the whole (extended) surface of `face`, moved `offset` towards
+    `start_point` (a positive offset stops short of the face). Planes become a big square."""
+    from OCP.BRepAdaptor import BRepAdaptor_Surface
+    from OCP.Geom import Geom_OffsetSurface
+    pl = planar_face_plane(face)
+    if pl is not None:
+        return termination_plane(pl, offset, start_point, size)
+    surf = BRep_Tool.Surface_s(face)
+    if abs(offset) > 1e-12:
+        cands = [Geom_OffsetSurface(surf, float(offset)), Geom_OffsetSurface(surf, -float(offset))]
+        if start_point is not None:
+            def dist(sf):
+                from OCP.GeomAPI import GeomAPI_ProjectPointOnSurf
+                pr = GeomAPI_ProjectPointOnSurf(_pnt(start_point), sf)
+                return pr.LowerDistance() if pr.NbPoints() else 1e18
+            cands.sort(key=dist)
+        surf = cands[0]
+    u0, u1, v0, v1 = surf.Bounds()
+    clamp = lambda x: max(-size, min(size, x))             # noqa: E731
+    mk = BRepBuilderAPI_MakeFace(surf, clamp(u0), clamp(u1), clamp(v0), clamp(v1), 1e-6)
+    if not mk.IsDone():
+        raise KernelError("Can't extend that face to stop at")
+    return mk.Face()
+
+
+def termination_plane(pl: Plane, offset=0.0, start_point=None, size=1e4):
+    n = np.asarray(pl.normal, float)
+    o = np.asarray(pl.origin, float)
+    if abs(offset) > 1e-12:
+        side = 1.0
+        if start_point is not None and float((np.asarray(start_point, float) - o) @ n) < 0:
+            side = -1.0
+        o = o + n * side * float(offset)
+    p2 = Plane(o, pl.xdir, n)
+    return BRepBuilderAPI_MakeFace(gp_Pln(p2.gp_ax3()), -size, size, -size, size).Face()
+
+
+def keep_piece_from(long_body, tool, seed) -> object:
+    """Cut `long_body` (a profile swept too far) with `tool` and keep the piece that contains `seed` (a point
+    just past the profile): the sweep up to where it first meets the tool."""
+    from OCP.BRepClass3d import BRepClass3d_SolidClassifier
+    from OCP.TopAbs import TopAbs_IN
+    sp = BRepAlgoAPI_Splitter()
+    sp.SetArguments(_list([long_body]))
+    sp.SetTools(_list([tool]))
+    sp.SetFuzzyValue(1e-7)
+    sp.Build()
+    if not sp.IsDone():
+        raise KernelError("Couldn't find where the extrude meets that")
+    pieces = solids(sp.Shape())
+    if len(pieces) < 2:
+        raise KernelError("It never reaches that — check the direction (Opposite direction) or pick another")
+    for sol in pieces:
+        cl = BRepClass3d_SolidClassifier(sol, _pnt(seed), 1e-7)
+        if cl.State() == TopAbs_IN:
+            return sol
+    raise KernelError("Couldn't find where the extrude meets that")
+
+
+def rotate_point(q, axis_p, axis_d, angle_deg):
+    """A point turned about an axis (right-hand rule)."""
+    t = gp_Trsf()
+    t.SetRotation(gp_Ax1(_pnt(axis_p), _dir(axis_d)), math.radians(angle_deg))
+    r = _pnt(q).Transformed(t)
+    return np.array([r.X(), r.Y(), r.Z()])
+
+
+def angle_about(a, b, axis_p, axis_d) -> float:
+    """How far (degrees, 0..360, right-hand rule) point a must turn about the axis to line up with point b."""
+    d = np.asarray(axis_d, float) / np.linalg.norm(axis_d)
+    o = np.asarray(axis_p, float)
+    va, vb = np.asarray(a, float) - o, np.asarray(b, float) - o
+    va, vb = va - (va @ d) * d, vb - (vb @ d) * d
+    ang = math.degrees(math.atan2(float(np.cross(va, vb) @ d), float(va @ vb)))
+    return ang % 360.0
 
 
 def translate(shape, v):

@@ -1,5 +1,26 @@
 # FreeShape revisions
 
+## 2.0 (in progress)
+
+### 1.9.0 — stage 1 preview: everyday modelling
+- **Sketch splines**: click the points the curve passes through; double-click or Enter to finish, or click the
+  first point again to close it into a loop. Its points are ordinary sketch points, so they can be dragged,
+  dimensioned and constrained (fix, coincident, horizontal / vertical distance …).
+- **Sketch ellipses**: click the centre, the end of the long axis, then the width. The long axis is a dashed
+  construction line you can dimension or align; the Dimension tool on the ellipse sets half its width. Points can
+  be put on an ellipse.
+- **Sketch text**: click where it starts and type it; choose the font, size (mm), bold, italic and angle.
+  Double-click text to edit it. Letters are real outlines, so they can be extruded, cut or engraved — the holes in
+  letters such as "o" and "A" stay holes. Text can be dimensioned from its start point.
+- **"Up to" end types for Extrude and Revolve**: *Up to next* (the first part in the way), *Up to face* (a face
+  or plane, flat or curved), *Up to part* and *Up to vertex*. Face and vertex take *Stop short by* (negative goes
+  past). Works for adding and cutting.
+- **Feature patterns and mirror**: Linear pattern, Circular pattern and Mirror can now repeat *features* (a hole,
+  a pocket, a boss) instead of whole parts: set *What to pattern* to Features and click them in the feature list.
+  The copies follow when the original feature is edited.
+- Test builds on GitHub now include **FreeShape-portable-<version>.zip** for Windows: unzip it and run
+  FreeShape.exe, nothing to install.
+
 ## 1.8.5
 - **Folders in the feature list**, like Onshape. Select a run of features (next to each other in the list) and
   right-click → *Add to new folder*, or click the new-folder button beside *Features*. A folder row shows its name
