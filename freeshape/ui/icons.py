@@ -524,6 +524,17 @@ def draw(name: str, p: QPainter):
         p.setPen(Qt.NoPen)
         p.setBrush(QColor(217, 48, 37, 200))
         p.drawRect(QRectF(13.7, 10.7, 4.6, 8.6))
+    elif name == "relation":
+        p.setPen(_pen(INK, 1.5))
+        p.setBrush(FACE)
+        for cx, cy, r, n in ((11, 13, 7, 8), (23, 21, 5, 6)):
+            p.drawEllipse(QPointF(cx, cy), r, r)
+            for k in range(n):
+                a = 2 * math.pi * k / n
+                p.drawLine(QPointF(cx + r * math.cos(a), cy + r * math.sin(a)),
+                           QPointF(cx + (r + 2.2) * math.cos(a), cy + (r + 2.2) * math.sin(a)))
+        _dot(p, 11, 13)
+        _dot(p, 23, 21)
     elif name == "bom":
         p.setPen(_pen(INK, 1.4))
         p.setBrush(QColor("white"))
@@ -553,15 +564,6 @@ def draw(name: str, p: QPainter):
         p.setPen(_pen(BLUE, 2.0))
         p.setBrush(BLUE_FILL)
         p.drawRect(QRectF(10, 11, 12, 10))
-    elif name == "bom":
-        p.setPen(_pen(INK, 1.3))
-        p.setBrush(QColor("white"))
-        p.drawRect(QRectF(4, 6, 24, 20))
-        p.setPen(_pen(INK, 1.0))
-        for y in (11, 16, 21):
-            p.drawLine(QPointF(4, y), QPointF(28, y))
-        p.drawLine(QPointF(10, 6), QPointF(10, 26))
-        p.drawLine(QPointF(22, 6), QPointF(22, 26))
     elif name in ("balloon", "auto_balloon"):
         p.setPen(_pen(BLUE, 1.6))
         p.setBrush(QColor("white"))

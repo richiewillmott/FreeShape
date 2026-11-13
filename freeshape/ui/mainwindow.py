@@ -566,7 +566,11 @@ class MainWindow(QMainWindow):
         h.addWidget(_sep())
         self.btn_interf = self._tb(h, "interference", "Interference check — show where parts overlap",
                                    lambda: a.toggle_interference(), checkable=True)
+        self._tb(h, "relation", "Relation — gear, rack and pinion, or screw: link mates' motions", a.relation_dialog)
+        self._tb(h, "linear_pattern", "Linear pattern of the selected parts", lambda: a.pattern_dialog("linear"))
+        self._tb(h, "circular_pattern", "Circular pattern of the selected parts", lambda: a.pattern_dialog("circular"))
         self._tb(h, "bom", "Bill of materials", a.show_bom)
+        self._tb(h, "explode", "Exploded view — slide the parts apart for pictures and drawings", a.toggle_explode)
         self._tb(h, "export", "Export the assembly (STEP keeps the parts, names and colours)",
                  lambda: self.export(None, None))
         h.addStretch(1)
@@ -2502,9 +2506,13 @@ class MainWindow(QMainWindow):
         src = dlg.chosen()
         if src is None:
             return
+        if preselect and preselect.get("exploded") and src.get("kind") == "assembly":
+            src = dict(src, exploded=True)
         g = DrawingDoc()
         self._dwg_counter = getattr(self, "_dwg_counter", 0) + 1
         g.name = (src.get("part_name") or src.get("name") or src.get("studio_name") or f"Drawing {self._dwg_counter}")
+        if src.get("exploded"):
+            g.name += " exploded"
         if src.get("flat"):
             g.name += " flat pattern"
         g.source = dict(src)
@@ -2551,7 +2559,9 @@ class MainWindow(QMainWindow):
                     rows[key] = {"name": inst.get("part_name") or inst["name"], "qty": 0, "shapes": []}
                     order.append(key)
                 rows[key]["qty"] += 1
-                rows[key]["shapes"].append(K.located(asm.parts[inst["id"]].shape, np.array(inst["T"], float)))
+                rows[key]["shapes"].append(K.located(asm.parts[inst["id"]].shape,
+                                                     asm.display_T(inst["id"], exploded=bool(src.get("exploded")),
+                                                                   amount=1.0)))
             return [rows[k] for k in order]
         studio = self.studio_by_uid(src.get("uid"), src.get("path"), load=True)
         if studio is None or src.get("flat"):
@@ -2571,11 +2581,14 @@ class MainWindow(QMainWindow):
             src["name"] = asm.name
             if asm.path:
                 src["path"] = os.path.abspath(asm.path)
-            items = [(id(asm.parts[i["id"]].shape), tuple(np.round(np.array(i["T"], float).ravel(), 9)))
+            ex = bool(src.get("exploded"))
+            items = [(id(asm.parts[i["id"]].shape),
+                      tuple(np.round(asm.display_T(i["id"], exploded=ex, amount=1.0).ravel(), 9)))
                      for i in asm.visible_instances() if i["id"] in asm.parts]
-            key = ("asm", src.get("uid"), tuple(items))
+            key = ("asm", src.get("uid"), ex, tuple(items))
             if key not in cache:
-                cache[key] = K.compound([K.located(asm.parts[i["id"]].shape, np.array(i["T"], float))
+                cache[key] = K.compound([K.located(asm.parts[i["id"]].shape,
+                                                   asm.display_T(i["id"], exploded=ex, amount=1.0))
                                          for i in asm.visible_instances() if i["id"] in asm.parts])
             return cache[key]
         studio = self.studio_by_uid(src.get("uid"), src.get("path"), load=True)

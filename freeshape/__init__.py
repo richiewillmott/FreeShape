@@ -7,4 +7,4 @@ Public License as published by the Free Software Foundation, either version 3 of
 option) any later version. It is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY;
 without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the LICENSE file.
 """
-__version__ = "1.9.1"
+__version__ = "1.9.2"

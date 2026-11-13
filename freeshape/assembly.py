@@ -30,6 +30,25 @@ MATE_TYPES = {
     "ball": ("Ball", "Rotates in every direction about a point"),
 }
 MATE_DOF = {"fastened": 0, "revolute": 1, "slider": 1, "cylindrical": 2, "planar": 3, "ball": 3}
+RELATION_TYPES = {
+    "gear": ("Gear", "Two turning mates turn together, by the ratio of their teeth"),
+    "rack": ("Rack and pinion", "A turning mate drives a sliding one: one turn moves 2π × the pinion radius"),
+    "screw": ("Screw", "A cylindrical mate moves along by the pitch for each turn"),
+}
+TURNING = ("revolute", "cylindrical")
+SLIDING = ("slider", "cylindrical")
+
+
+def _wrap(a):
+    return (a + np.pi) % (2 * np.pi) - np.pi
+
+
+def mate_position(FA, FB):
+    """How far a mate has turned (radians, about A's Z, from A's X to B's X) and slid (mm along A's Z)."""
+    zA, xA = unit(FA["z"]), unit(FA["x"])
+    yA = np.cross(zA, xA)
+    xB = np.asarray(FB["x"], float)
+    return float(np.arctan2(xB @ yA, xB @ xA)), float((np.asarray(FB["o"]) - np.asarray(FA["o"])) @ zA)
 FILE_FORMAT = "freeshape-assembly"
 FILE_VERSION = 1
 INSTANCE_COLORS = [(0.60, 0.74, 0.85), (0.72, 0.74, 0.78), (0.86, 0.66, 0.40), (0.56, 0.78, 0.56),
@@ -313,6 +332,11 @@ class AssemblyDoc:
         self.name = "Assembly 1"
         self.instances: list[dict] = []
         self.mates: list[dict] = []
+        # exploded view: steps that slide instances apart (display only; mates and positions are untouched)
+        self.explode: dict = {"steps": [], "amount": 1.0}
+        # relations between mates (gear, rack and pinion, screw) and patterns of instances
+        self.relations: list[dict] = []
+        self.patterns: list[dict] = []
         self.blobs: dict[str, str] = {}          # embedded STEP files (base64), keyed by content hash
         self.path = None
         self.dirty = False
@@ -337,7 +361,8 @@ class AssemblyDoc:
     # ------------------------------------------------------------------ ids
     def new_id(self, prefix):
         self._counter += 1
-        used = {i["id"] for i in self.instances} | {m["id"] for m in self.mates}
+        used = {i["id"] for i in self.instances} | {m["id"] for m in self.mates} | \
+            {r["id"] for r in getattr(self, "relations", [])} | {p_["id"] for p_ in getattr(self, "patterns", [])}
         while f"{prefix}{self._counter}" in used:
             self._counter += 1
         return f"{prefix}{self._counter}"
@@ -353,11 +378,21 @@ class AssemblyDoc:
 
     # ------------------------------------------------------------------ undo / redo
     def _snapshot(self):
-        return json.dumps({"instances": self.instances, "mates": self.mates, "name": self.name})
+        return json.dumps({"instances": self.instances, "mates": self.mates, "name": self.name,
+                           "explode": self.explode, "relations": self.relations, "patterns": self.patterns})
 
     def _restore(self, snap):
         d = json.loads(snap)
         self.instances, self.mates = d["instances"], d["mates"]
+        self.explode = d.get("explode", {"steps": [], "amount": 1.0})
+        self.relations = d.get("relations", [])
+        self.patterns = d.get("patterns", [])
+        for i in self.instances:                 # copies made by a pattern that was undone
+            if i["id"] not in self.parts:
+                try:
+                    self.parts[i["id"]] = self._resolve(i)
+                except Exception:
+                    pass
 
     def checkpoint(self):
         self._undo.append(self._snapshot())
@@ -408,6 +443,9 @@ class AssemblyDoc:
     def _resolve(self, inst):
         from .features import Part
         src = inst["source"]
+        if src.get("kind") == "std":                    # a standard part: made from its size table
+            from . import stdparts as SP
+            return Part(inst["id"], SP.name(src), SP.build(src), SP.color(src), None)
         if src.get("kind") == "step":
             sols = self._step_parts(src)
             i = int(src.get("index", 0))
@@ -498,10 +536,95 @@ class AssemblyDoc:
         p = self.parts.get(iid)
         return None if p is None else K.located(p.shape, self.T(iid))
 
+    # ------------------------------------------------------------------ exploded view
+    def explode_offsets(self, amount=None):
+        """How far each instance is moved in the exploded view: iid -> vector (steps add up in order)."""
+        k = float(self.explode.get("amount", 1.0) if amount is None else amount)
+        out = {}
+        for st in self.explode.get("steps", []):
+            v = unit(np.asarray(st["dir"], float)) * float(st["dist"]) * k
+            for iid in st["ids"]:
+                out[iid] = out.get(iid, np.zeros(3)) + v
+        return out
+
+    def display_T(self, iid, exploded=False, amount=None):
+        """Where an instance is drawn: its placement, moved by the exploded view when that is shown."""
+        T = self.T(iid)
+        if exploded:
+            off = self.explode_offsets(amount).get(iid)
+            if off is not None:
+                T = translation(off) @ T
+        return T
+
+    def add_explode_step(self, ids, direction, dist, checkpoint=True):
+        if not ids:
+            raise K.KernelError("Select the parts to move apart")
+        if checkpoint:
+            self.checkpoint()
+        self.explode.setdefault("steps", []).append({"ids": list(ids), "dir": [float(x) for x in unit(direction)],
+                                                     "dist": float(dist)})
+        self.notify()
+
+    def clear_explode(self):
+        self.checkpoint()
+        self.explode["steps"] = []
+        self.notify()
+
+    def auto_explode(self):
+        """Move every part out from the fixed one(s). Screws and bolts from the library come out towards their
+        heads; other parts go along whichever main axis they sit out on. Parts going the same way are spaced in
+        order (washer, then nut further out), so stacks come apart readably."""
+        insts = [i for i in self.visible_instances() if i["id"] in self.parts]
+        if len(insts) < 2:
+            raise K.KernelError("Insert at least two parts first")
+        base = [i for i in insts if i.get("fixed")] or [max(insts, key=lambda i: K.volume(self.world_shape(i["id"])))]
+        lo, hi = np.full(3, np.inf), np.full(3, -np.inf)
+        for i in base:
+            a, b = K.bbox(self.world_shape(i["id"]))
+            lo, hi = np.minimum(lo, a), np.maximum(hi, b)
+        C = (lo + hi) / 2
+        alo, ahi = self.bounds()
+        size = float(np.linalg.norm(ahi - alo)) or 50.0
+        blo, bhi = lo, hi
+        groups = {}
+        for inst in insts:
+            if inst in base:
+                continue
+            a, b = K.bbox(self.world_shape(inst["id"]))
+            c = (a + b) / 2
+            src = inst["source"]
+            if src.get("kind") == "std" and src.get("family") in ("iso4762", "iso10642", "iso4017"):
+                v = self.T(inst["id"])[:3, :3] @ np.array([0, 0, 1.0])          # towards the head
+            else:
+                v = c - C
+            if np.linalg.norm(v) < 1e-6 * size:
+                v = np.array([0, 0, 1.0])
+            ax = int(np.argmax(np.abs(v)))
+            sgn = 1.0 if v[ax] >= 0 else -1.0
+            groups.setdefault((ax, sgn), []).append((float(c[ax] * sgn), inst["id"], a, b))
+        self.checkpoint()
+        steps = []
+        gap = size * 0.12
+        for (ax, sgn), items in groups.items():
+            d = np.zeros(3)
+            d[ax] = sgn
+            edge = float(bhi[ax] if sgn > 0 else -blo[ax])          # the base's outside face, that way
+            for _pos, iid, a, b in sorted(items, key=lambda t: t[0]):   # nearest the base first
+                near = float(a[ax] if sgn > 0 else -b[ax])         # the part's side facing the base
+                far = float(b[ax] if sgn > 0 else -a[ax])
+                dist = max(edge + gap - near, gap)                 # clear the base (and the part before it)
+                steps.append({"ids": [iid], "dir": d.tolist(), "dist": dist})
+                edge = far + dist                                  # the next one goes beyond this one
+        self.explode = {"steps": steps, "amount": 1.0}
+        self.notify()
+        return len(steps)
+
     def visible_instances(self):
         return [i for i in self.instances if not i.get("hidden") and i["id"] in self.parts]
 
     def _source_key(self, src):
+        if src.get("kind") == "std":
+            return ("std", src.get("family"), src.get("size"), float(src.get("length") or 0))
         if src.get("kind") == "step":
             return ("step", src.get("blob"), src.get("index", 0))
         return ("studio", src.get("uid"), src.get("part"))
@@ -597,6 +720,21 @@ class AssemblyDoc:
         ids = set(ids)
         self.instances = [i for i in self.instances if i["id"] not in ids]
         self.mates = [m for m in self.mates if m["a"]["inst"] not in ids and m["b"]["inst"] not in ids]
+        live = {m["id"] for m in self.mates}
+        self.relations = [r for r in self.relations if r["a"] in live and (not r.get("b") or r["b"] in live)]
+        # a deleted seed takes its pattern copies with it; a deleted copy is just skipped
+        for pat in list(self.patterns):
+            if any(s_ in ids for s_ in pat["seeds"]):
+                self._drop_instances([c for row in pat["copies"] for c in row])
+                self.patterns.remove(pat)
+            else:
+                pat["copies"] = [[c if c not in ids else None for c in row] for row in pat["copies"]]
+        steps = []
+        for st in self.explode.get("steps", []):        # deleted parts leave the exploded view too
+            st = dict(st, ids=[i for i in st["ids"] if i not in ids])
+            if st["ids"]:
+                steps.append(st)
+        self.explode["steps"] = steps
         for i in ids:
             self.parts.pop(i, None)
         self.solve()
@@ -604,11 +742,20 @@ class AssemblyDoc:
 
     def delete_mates(self, ids):
         self.checkpoint()
-        self.mates = [m for m in self.mates if m["id"] not in set(ids)]
+        ids = set(ids)
+        self.mates = [m for m in self.mates if m["id"] not in ids]
+        self.relations = [r for r in self.relations if r["id"] not in ids and r["a"] not in ids
+                          and r.get("b") not in ids]
+        pat_ids = {p_["id"] for p_ in self.patterns} & ids
+        for pat in [p_ for p_ in self.patterns if p_["id"] in pat_ids]:
+            self._drop_instances([c for row in pat["copies"] for c in row])
+        self.patterns = [p_ for p_ in self.patterns if p_["id"] not in pat_ids]
         self._update_status()
         self.notify()
 
     def set_fixed(self, iid, value):
+        if (self.instance(iid) or {}).get("pattern"):
+            return                                   # a pattern copy is placed by its pattern
         self.checkpoint()
         self.instance(iid)["fixed"] = bool(value)
         self.solve()
@@ -620,7 +767,8 @@ class AssemblyDoc:
 
     def rename(self, obj_id, name):
         self.checkpoint()
-        o = self.instance(obj_id) or self.mate(obj_id)
+        o = self.instance(obj_id) or self.mate(obj_id) or self.relation(obj_id) or \
+            next((p_ for p_ in self.patterns if p_["id"] == obj_id), None)
         if o is not None:
             o["name"] = name
         self.notify()
@@ -746,7 +894,240 @@ class AssemblyDoc:
             FA = transform_frame(Ts[m["a"]["inst"]], frames[m["id"]][0])
             FB = transform_frame(Ts[m["b"]["inst"]], frames[m["id"]][1])
             out.append(mate_residuals(m, FA, FB, L))
+        if self.relations:
+            have = {m["id"]: m for m in mates}
+            for rel in self.relations:
+                if rel.get("suppressed") or rel["a"] not in have or (rel.get("b") and rel["b"] not in have):
+                    continue
+                out.append(np.array([self._relation_residual(rel, have, Ts, frames, L)]))
         return np.concatenate(out) if out else np.zeros(0)
+
+    # ------------------------------------------------------------------ relations
+    def _mate_pos(self, mate, Ts, frames):
+        f = frames[mate["id"]]
+        return mate_position(transform_frame(Ts[mate["a"]["inst"]], f[0]), transform_frame(Ts[mate["b"]["inst"]], f[1]))
+
+    def _rel_measure(self, rel, mates, Ts, frames):
+        """The relation's two motions, angles unwrapped from where they were last: (motion a, motion b)."""
+        acc = rel["acc"]
+        ma = mates[rel["a"]]
+        ang_a, slide_a = self._mate_pos(ma, Ts, frames)
+        ua = acc[0] + _wrap(ang_a - acc[0])
+        if rel["type"] == "screw":
+            return ua, slide_a
+        mb = mates[rel["b"]]
+        ang_b, slide_b = self._mate_pos(mb, Ts, frames)
+        if rel["type"] == "gear":
+            return ua, acc[1] + _wrap(ang_b - acc[1])
+        return ua, slide_b                                      # rack: pinion turns, rack slides
+
+    def _relation_residual(self, rel, mates, Ts, frames, L):
+        ua, ub = self._rel_measure(rel, mates, Ts, frames)
+        da, db = ua - rel["base"][0], ub - rel["base"][1]
+        sgn = -1.0 if rel.get("reverse") else 1.0
+        if rel["type"] == "gear":
+            return (db - sgn * float(rel.get("ratio", 1.0)) * da) * L            # radians, scaled like mates
+        if rel["type"] == "rack":
+            return db - sgn * float(rel.get("radius", 10.0)) * da                 # mm
+        return db - sgn * float(rel.get("pitch", 1.0)) / (2 * np.pi) * da        # screw, mm
+
+    def _update_relations(self):
+        """After a solve: remember each relation's unwrapped angles, so turning past half a turn keeps counting."""
+        if not self.relations:
+            return
+        mates = {m["id"]: m for m in self.mates if m.get("a") and m.get("b")}
+        Ts = {i["id"]: np.array(i["T"], float) for i in self.instances}
+        frames = {mid: (frame_from_json(m["a"]["frame"]), frame_from_json(m["b"]["frame"])) for mid, m in mates.items()}
+        for rel in self.relations:
+            if rel["a"] in mates and (not rel.get("b") or rel["b"] in mates):
+                try:
+                    ua, ub = self._rel_measure(rel, mates, Ts, frames)
+                    rel["acc"] = [ua, ub if rel["type"] == "gear" else rel["acc"][1]]
+                except Exception:
+                    pass
+
+    def add_relation(self, rtype, a, b=None, ratio=1.0, reverse=True, radius=10.0, pitch=1.0, checkpoint=True):
+        """Link mates: gear (two turning mates, b turns `ratio` times a), rack (turning a drives sliding b by
+        `radius` per radian) or screw (one cylindrical mate a moves `pitch` per turn). It holds the parts as they
+        are now and keeps them in step from here."""
+        ma, mb = self.mate(a), self.mate(b) if b else None
+        if ma is None or (rtype != "screw" and mb is None):
+            raise K.KernelError("Pick the mates to link")
+        if rtype == "gear" and not (ma["type"] in TURNING and mb["type"] in TURNING):
+            raise K.KernelError("A gear relation links two revolute (or cylindrical) mates")
+        if rtype == "rack" and not (ma["type"] in TURNING and mb["type"] in SLIDING):
+            raise K.KernelError("A rack and pinion links a revolute mate (the pinion) to a slider mate (the rack)")
+        if rtype == "screw" and ma["type"] != "cylindrical":
+            raise K.KernelError("A screw relation goes on a cylindrical mate")
+        if rtype != "screw" and a == b:
+            raise K.KernelError("Pick two different mates")
+        if checkpoint:
+            self.checkpoint()
+        mates = {m["id"]: m for m in self.mates}
+        Ts = {i["id"]: np.array(i["T"], float) for i in self.instances}
+        frames = {mid: (frame_from_json(m["a"]["frame"]), frame_from_json(m["b"]["frame"]))
+                  for mid, m in mates.items() if m.get("a") and m.get("b")}
+        ang_a, slide_a = self._mate_pos(ma, Ts, frames)
+        if rtype == "gear":
+            b0 = self._mate_pos(mb, Ts, frames)[0]
+        elif rtype == "rack":
+            b0 = self._mate_pos(mb, Ts, frames)[1]
+        else:
+            b0 = slide_a
+        n = sum(1 for r in self.relations if r["type"] == rtype) + 1
+        rel = {"id": self.new_id("R"), "type": rtype, "name": f"{RELATION_TYPES[rtype][0]} {n}", "a": a, "b": b,
+               "ratio": float(ratio), "reverse": bool(reverse), "radius": float(radius), "pitch": float(pitch),
+               "base": [ang_a, b0], "acc": [ang_a, b0]}
+        self.relations.append(rel)
+        self.solve()
+        self.notify()
+        return rel
+
+    def relation(self, rid):
+        return next((r for r in self.relations if r["id"] == rid), None)
+
+    def delete_relations(self, ids):
+        self.checkpoint()
+        self.relations = [r for r in self.relations if r["id"] not in set(ids)]
+        self._update_status()
+        self.notify()
+
+    def turn_mate(self, mid, degrees=None, slide=None):
+        """Turn (or slide) a mate by an amount, as if dragged: the parts it moves, and anything linked to them
+        by relations, follow. Used by the "drive" box and the tests."""
+        m = self.mate(mid)
+        if m is None:
+            return
+        movable = m["b"]["inst"] if not self.instance(m["b"]["inst"]).get("fixed") else m["a"]["inst"]
+        sign = 1.0 if movable == m["b"]["inst"] else -1.0
+        fa = transform_frame(self.T(m["a"]["inst"]), frame_from_json(m["a"]["frame"]))
+        steps = max(1, int(abs(degrees or 0) // 20) + 1)
+        for _ in range(steps):
+            T = self.T(movable)
+            if degrees:
+                M = rot_about(fa["z"], np.radians(degrees / steps) * sign, fa["o"])
+            else:
+                M = translation(unit(fa["z"]) * (slide or 0.0) * sign)
+            self.instance(movable)["T"] = (M @ T).tolist()
+            self.solve(keep=movable)
+            fa = transform_frame(self.T(m["a"]["inst"]), frame_from_json(m["a"]["frame"]))
+        self.notify()
+
+    # ------------------------------------------------------------------ patterns
+    def _pattern_axis(self, pat):
+        ax = pat.get("axis") or {"kind": "world", "name": "Z"}
+        if ax.get("kind") == "mate":
+            m = self.mate(ax.get("mate"))
+            if m is None:
+                raise K.KernelError("The mate the pattern goes round has gone")
+            fa = transform_frame(self.T(m["a"]["inst"]), frame_from_json(m["a"]["frame"]))
+            return np.asarray(fa["o"], float), unit(fa["z"])
+        d = {"X": (1, 0, 0), "Y": (0, 1, 0), "Z": (0, 0, 1)}[ax.get("name", "Z")]
+        return np.zeros(3), np.array(d, float) * (-1.0 if ax.get("flip") else 1.0)
+
+    def _pattern_moves(self, pat):
+        o, d = self._pattern_axis(pat)
+        n = int(pat.get("count", 2))
+        out = []
+        for k in range(1, n):
+            if pat["type"] == "linear":
+                out.append(translation(d * float(pat.get("spacing", 20.0)) * k))
+            else:
+                total = float(pat.get("angle", 360.0))
+                step = total / n if abs(total - 360) < 1e-9 else total / max(n - 1, 1)
+                out.append(rot_about(d, np.radians(step * k), o))
+        return out
+
+    def _apply_patterns(self):
+        """Put every pattern copy where it belongs relative to its seed (after the seeds moved)."""
+        for pat in self.patterns:
+            try:
+                moves = self._pattern_moves(pat)
+            except K.KernelError as e:
+                self.errors[pat["id"]] = str(e)
+                continue
+            self.errors.pop(pat["id"], None)
+            for k, row in enumerate(pat["copies"]):
+                if k >= len(moves):
+                    break
+                for seed, cid in zip(pat["seeds"], row):
+                    if cid and self.instance(cid) is not None and self.instance(seed) is not None:
+                        self.instance(cid)["T"] = (moves[k] @ self.T(seed)).tolist()
+
+    def add_pattern(self, ptype, seeds, count, spacing=20.0, angle=360.0, axis=None, checkpoint=True):
+        """Copies of the seed instances in a row (linear) or round an axis (circular). The copies follow the
+        seeds; edit the pattern to change how many or how far apart."""
+        seeds = [s_ for s_ in seeds if self.instance(s_) is not None and not self.instance(s_).get("pattern")]
+        if not seeds:
+            raise K.KernelError("Select the parts to pattern")
+        if int(count) < 2:
+            raise K.KernelError("The count must be at least 2")
+        if checkpoint:
+            self.checkpoint()
+        n = sum(1 for p_ in self.patterns if p_["type"] == ptype) + 1
+        pat = {"id": self.new_id("P"), "type": ptype, "name": f"{'Linear' if ptype == 'linear' else 'Circular'} "
+               f"pattern {n}", "seeds": list(seeds), "count": int(count), "spacing": float(spacing),
+               "angle": float(angle), "axis": axis or {"kind": "world", "name": "X" if ptype == "linear" else "Z"},
+               "copies": []}
+        self.patterns.append(pat)
+        try:
+            self._make_copies(pat)
+        except Exception:
+            self._drop_instances([c for row in pat.get("copies", []) for c in row])
+            self.patterns.remove(pat)
+            raise
+        self._update_status()
+        self.notify()
+        return pat
+
+    def _make_copies(self, pat):
+        """Make the pattern's copies. Each copy shares its seed's part (no need to load it again), so this works
+        for parts from Part Studios, files, STEP and the standard library alike."""
+        moves = self._pattern_moves(pat)
+        pat["copies"] = []
+        for M in moves:
+            row = []
+            for seed in pat["seeds"]:
+                s_inst = self.instance(seed)
+                cid = self.new_id("I")
+                c = {"id": cid, "name": self._unique_name(s_inst["name"].split(" <")[0]),
+                     "source": copy.deepcopy(s_inst["source"]), "T": (M @ self.T(seed)).tolist(),
+                     "fixed": True, "hidden": bool(s_inst.get("hidden")), "pattern": pat["id"],
+                     "part_name": s_inst.get("part_name", "")}
+                if s_inst.get("color"):
+                    c["color"] = list(s_inst["color"])
+                self.instances.append(c)
+                if seed in self.parts:
+                    self.parts[cid] = self.parts[seed]
+                row.append(cid)
+            pat["copies"].append(row)
+
+    def edit_pattern(self, pid, **changes):
+        pat = next((p_ for p_ in self.patterns if p_["id"] == pid), None)
+        if pat is None:
+            return
+        self.checkpoint()
+        old = [c for row in pat["copies"] for c in row]
+        pat.update({k: v for k, v in changes.items() if v is not None})
+        self._drop_instances(old)
+        self._make_copies(pat)
+        self._update_status()
+        self.notify()
+
+    def delete_patterns(self, ids):
+        self.checkpoint()
+        for pat in [p_ for p_ in self.patterns if p_["id"] in set(ids)]:
+            self._drop_instances([c for row in pat["copies"] for c in row])
+        self.patterns = [p_ for p_ in self.patterns if p_["id"] not in set(ids)]
+        self._update_status()
+        self.notify()
+
+    def _drop_instances(self, ids):
+        ids = set(ids)
+        self.instances = [i for i in self.instances if i["id"] not in ids]
+        self.mates = [m for m in self.mates if m["a"]["inst"] not in ids and m["b"]["inst"] not in ids]
+        for i in ids:
+            self.parts.pop(i, None)
 
     def solve(self, drag=None, iters=40, keep=None):
         """Satisfy the mates by moving free instances as little as possible.
@@ -758,6 +1139,7 @@ class AssemblyDoc:
         mates = self._active_mates()
         if drag is not None:
             self._solve_core([m for m in mates if m["id"] not in self._conflicts], drag, iters, keep)
+            self._apply_patterns()
             self._update_status()
             return True
         before = {i["id"]: list(i["T"]) for i in self.instances}
@@ -776,6 +1158,8 @@ class AssemblyDoc:
                     self._conflicts.add(m["id"])
                 else:
                     good.append(m)
+        self._apply_patterns()                     # (also when nothing needed solving)
+        self._update_relations()
         self._update_status()
         return not self._conflicts and not bad
 
@@ -921,6 +1305,8 @@ class AssemblyDoc:
                     break
         for iid in free:
             self.instance(iid)["T"] = orthonormalize(cur[iid]).tolist()
+        self._apply_patterns()
+        self._update_relations()
         Ts = {i["id"]: np.array(i["T"], float) for i in self.instances}
         return self._failing(mates, Ts, frames, L)
 
@@ -1107,7 +1493,8 @@ class AssemblyDoc:
                             pass
         used = {i["source"]["blob"] for i in self.instances if i["source"].get("kind") == "step"}
         return json.dumps({"format": FILE_FORMAT, "version": FILE_VERSION, "name": self.name, "uid": self.uid,
-                           "instances": insts, "mates": self.mates,
+                           "instances": insts, "mates": self.mates, "explode": self.explode,
+                           "relations": self.relations, "patterns": self.patterns,
                            "blobs": {k: v for k, v in self.blobs.items() if k in used}}, indent=1)
 
     def save(self, path=None):
@@ -1130,6 +1517,9 @@ class AssemblyDoc:
         a.uid = d.get("uid") or a.uid
         a.instances = d.get("instances", [])
         a.mates = d.get("mates", [])
+        a.explode = d.get("explode", {"steps": [], "amount": 1.0})
+        a.relations = d.get("relations", [])
+        a.patterns = d.get("patterns", [])
         a.blobs = d.get("blobs", {})
         a.path = path
         base = os.path.dirname(os.path.abspath(path))
@@ -1139,7 +1529,8 @@ class AssemblyDoc:
                 cand = os.path.normpath(os.path.join(base, src["relpath"]))
                 if os.path.exists(cand):
                     src["path"] = cand
-        nums = [int("".join(c for c in x["id"] if c.isdigit()) or 0) for x in a.instances + a.mates]
+        nums = [int("".join(c for c in x["id"] if c.isdigit()) or 0)
+                for x in a.instances + a.mates + a.relations + a.patterns]
         a._counter = max(nums + [0])
         a.resolver = resolver
         a.refresh(solve=False, notify=False)

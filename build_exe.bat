@@ -2,8 +2,8 @@
 rem ===========================================================================
 rem  Builds FreeShape as a normal Windows program:
 rem    dist\FreeShape\FreeShape.exe            the app (with its support files)
-rem    dist\FreeShape-portable-1.9.1.zip          the same, zipped - unzip anywhere and run
-rem    dist\FreeShape-Setup-1.9.1.exe             an installer (only if Inno Setup is installed)
+rem    dist\FreeShape-portable-1.9.2.zip          the same, zipped - unzip anywhere and run
+rem    dist\FreeShape-Setup-1.9.2.exe             an installer (only if Inno Setup is installed)
 rem  Double-click this file. The first build takes about 5-10 minutes.
 rem ===========================================================================
 setlocal
@@ -40,8 +40,8 @@ echo [FreeShape] dist\FreeShape\FreeShape.exe works.
 
 rem --- 4. a portable zip
 echo [FreeShape] Making the portable zip...
-if exist "dist\FreeShape-portable-1.9.1.zip" del "dist\FreeShape-portable-1.9.1.zip"
-powershell -NoProfile -Command "Compress-Archive -Path 'dist\FreeShape' -DestinationPath 'dist\FreeShape-portable-1.9.1.zip'"
+if exist "dist\FreeShape-portable-1.9.2.zip" del "dist\FreeShape-portable-1.9.2.zip"
+powershell -NoProfile -Command "Compress-Archive -Path 'dist\FreeShape' -DestinationPath 'dist\FreeShape-portable-1.9.2.zip'"
 
 rem --- 5. an installer, if Inno Setup is installed (free: https://jrsoftware.org/isdl.php)
 set ISCC=
@@ -54,7 +54,7 @@ if defined ISCC (
   if errorlevel 1 (
     echo The installer build failed - the app itself is still in dist\FreeShape.
   ) else (
-    echo [FreeShape] Installer: dist\FreeShape-Setup-1.9.1.exe
+    echo [FreeShape] Installer: dist\FreeShape-Setup-1.9.2.exe
   )
 ) else (
   echo [FreeShape] Skipped the installer: Inno Setup isn't installed. Get it free from https://jrsoftware.org/isdl.php

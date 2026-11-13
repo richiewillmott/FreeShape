@@ -2,6 +2,27 @@
 
 ## 2.0 (in progress)
 
+### 1.9.2 — stage 3 preview: assemblies
+- **Standard parts library**, made on the spot from ISO size tables (no download, works offline), in the
+  assembly's Insert panel: socket head cap screws (ISO 4762), countersunk screws (ISO 10642), hex head screws
+  (ISO 4017), hex nuts (ISO 4032), washers (ISO 7089), dowel pins (ISO 8734), deep groove ball bearings (623 to
+  6205) and heat-set inserts, M2 to M20, with sensible lengths per size and a quantity. Screws sit with the
+  underside of the head on their origin and nuts / washers / bearings on theirs, so mates are quick. They show in
+  the bill of materials by their proper names, and are saved in the assembly.
+- **Exploded views**: the Explode button opens a panel: *Auto explode* moves every part out from the fixed one —
+  screws come out towards their heads, and stacks (washer, then nut) come apart in order, each clear of the last —
+  or add your own steps (select parts, a direction and a distance). A slider runs between assembled and
+  exploded. Only the display moves; positions and mates don't change. *Drawing of this exploded view* makes a
+  drawing of it, parts list and balloons included.
+- **Relations** between mates: **Gear** (two revolute mates turn together by the ratio of their teeth, opposite
+  ways or the same way for an internal gear), **Rack and pinion** (a revolute drives a slider: one turn moves
+  2π × the pinion radius) and **Screw** (a cylindrical mate moves by its pitch per turn). They keep counting
+  through any number of turns, take away a degree of freedom, and appear in the mates list (double-click to edit).
+- **Instance patterns**: select parts and choose Linear pattern (along X, Y, Z or a mate's axis, count and
+  spacing) or Circular pattern (round X, Y, Z or a revolute / cylindrical mate's axis, count and angle). The
+  copies follow their originals when those move; double-click the pattern to change it; deleting a copy skips it,
+  deleting an original removes its copies.
+
 ### Navigation and export (from the 2.0 list)
 - **Binary STL**: exports are binary instead of text, about a fifth of the size for curved parts.
 - **Wheel zoom** follows how far you scroll, at most one notch per wheel event, so high-resolution wheels and
