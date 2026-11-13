@@ -16,7 +16,7 @@ from .icons import icon
 
 CARD_W, THUMB_H = 236, 148
 KINDS = {".fshape": "Part Studio", ".fcad": "Part Studio", ".fasm": "Assembly", ".fdwg": "Drawing", ".step": "STEP file",
-         ".stp": "STEP file"}
+         ".stp": "STEP file", ".brep": "BREP file", ".brp": "BREP file"}
 
 
 def thumbs_dir():
@@ -76,7 +76,7 @@ class Card(QFrame):
                                          CARD_W - 16, THUMB_H))
         else:
             name = "assembly" if ext == ".fasm" else "drawing" if ext == ".fdwg" else \
-                "import" if ext in (".step", ".stp") else "part"
+                "import" if ext in (".step", ".stp", ".brep", ".brp") else "part"
             self.thumb.setPixmap(icon(name, 64).pixmap(64, 64))
         lay.addWidget(self.thumb)
         title = QLabel(os.path.basename(path))

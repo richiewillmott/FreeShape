@@ -856,6 +856,7 @@ class Mesh:
     face_ranges: list = field(default_factory=list)   # per face (tri_start, tri_end)
     edge_polys: list = field(default_factory=list)    # per edge (k,3) polyline
     vertices: np.ndarray = field(default_factory=lambda: np.zeros((0, 3), np.float32))   # shape vertices, in order
+    face_edges: list = field(default_factory=list)    # per face: indices (into edge_polys) of its boundary edges
 
 
 def tessellate(shape, lin_defl: float | None = None, ang_defl: float = 0.2) -> Mesh:
@@ -914,13 +915,32 @@ def tessellate(shape, lin_defl: float | None = None, ang_defl: float = 0.2) -> M
         # seam edges (where a cylinder closes on itself) aren't shown or pickable, as in Onshape
         polys.append(np.zeros((0, 3), np.float32) if i in seams else discretize_edge(e, lin_defl))
     vpts = np.array(_vertices_np(shape), np.float32).reshape(-1, 3)
+    fe = face_edge_lists(shape)
     if V:
         mesh = Mesh(np.vstack(V).astype(np.float32), np.vstack(N).astype(np.float32),
-                    np.vstack(T).astype(np.uint32), np.concatenate(TF), ranges, polys, vpts)
+                    np.vstack(T).astype(np.uint32), np.concatenate(TF), ranges, polys, vpts, fe)
     else:
         mesh = Mesh(np.zeros((0, 3), np.float32), np.zeros((0, 3), np.float32),
-                    np.zeros((0, 3), np.uint32), np.zeros(0, np.int32), ranges, polys, vpts)
+                    np.zeros((0, 3), np.uint32), np.zeros(0, np.int32), ranges, polys, vpts, fe)
     return mesh
+
+
+def face_edge_lists(shape) -> list:
+    """For each face (in faces() order), the indices (in edges() order) of the edges around it — used to draw
+    a hovered face as an outline."""
+    m = TopTools_IndexedMapOfShape()
+    TopExp.MapShapes_s(shape, TopAbs_EDGE, m)
+    out = []
+    for f in faces(shape):
+        idx = []
+        exp = TopExp_Explorer(f, TopAbs_EDGE)
+        while exp.More():
+            i = m.FindIndex(exp.Current()) - 1
+            if i >= 0 and i not in idx:
+                idx.append(i)
+            exp.Next()
+        out.append(idx)
+    return out
 
 
 def seam_edge_indices(shape) -> set:
@@ -1166,6 +1186,27 @@ def _import_step_with_colors(path, progress=None):
     if not out:
         raise KernelError("No solids found in STEP file")
     return out
+
+
+def export_brep(shapes, path):
+    """OpenCascade's own BREP format: the exact shapes, written as the kernel holds them (no translation, so
+    nothing is lost or healed on the way — the most faithful way to move a model between OCC programs such as
+    FreeCAD). It keeps geometry only: no part names or colours. Several parts go in one compound."""
+    from OCP.BRepTools import BRepTools
+    shp = compound(shapes) if len(shapes) != 1 else shapes[0]
+    if not BRepTools.Write_s(shp, str(path)):
+        raise KernelError("BREP export failed")
+
+
+def import_brep(path):
+    """Read a BREP file: each solid in it becomes a part (or the whole shape if it holds no solids)."""
+    from OCP.BRepTools import BRepTools
+    from OCP.TopoDS import TopoDS_Shape
+    shp = TopoDS_Shape()
+    if not BRepTools.Read_s(shp, str(path), BRep_Builder()) or shp.IsNull():
+        raise KernelError(f"Could not read BREP file {path}")
+    sols = solids(shp)
+    return sols if sols else [shp]
 
 
 def import_step(path):

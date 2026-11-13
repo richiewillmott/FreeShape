@@ -1,6 +1,37 @@
 # FreeShape revisions
 
-## 1.8.4
+## 1.8.5
+- **Folders in the feature list**, like Onshape. Select a run of features (next to each other in the list) and
+  right-click → *Add to new folder*, or click the new-folder button beside *Features*. A folder row shows its name
+  and how many features it holds; click its arrow (or double-click it) to collapse or expand it. Right-click a
+  folder to rename it, suppress / unsuppress everything in it, ungroup it (the features stay) or delete it with its
+  features. Selecting a folder row selects its features. Drag a feature under a folder row or between two of its
+  features to put it in; drag it elsewhere to take it out (or right-click → *Remove from folder*). The filter box
+  also matches folder names. A folder holding the rollback bar, or the feature being edited, always shows open.
+  Folders are saved in the file and are part of undo; grouping features never rebuilds the model.
+- **Hovered faces are outlined, not filled**: the face (or part) under the mouse gets an orange outline of its
+  edges, while selected faces stay filled, so the two can't be confused. Faces with no edges to outline (a sphere)
+  are still filled.
+- **Selection count beside the pointer**: a small badge next to the mouse shows how many things are selected, so
+  you can check you have all five faces before starting Delete face.
+- **Auto colour**: select several parts, right-click (in the Parts list or the 3D view) → *Auto colour N parts*.
+  Each part gets a different colour; choose it again for a different set, or Undo. Right-click empty space for
+  *Auto colour all parts*. Oranges and yellows are avoided, as those are the selection colours.
+- **BREP export and import** (OpenCascade's native `.brep`): Document → *Export BREP…*, the export dialogs, and
+  the Parts list menu. BREP stores the exact shapes as the kernel holds them, so nothing is translated or healed —
+  the most faithful exchange with FreeCAD and other OpenCascade programs. It has no part names or colours. BREP
+  files open like STEP files (a new tab, or *Import into this tab*), and assemblies can export BREP too.
+- **Right-click acts on the whole selection**: with several parts selected (in the Parts list or the 3D view),
+  right-clicking one of them hides, shows, isolates or exports them all. Several selected sketches / planes hide
+  together too. Right-clicking something that isn't selected still acts on just that one.
+- Fixed: hiding a part while a feature window (Split, Extrude …) was open left it in the view, catching clicks
+  meant for the parts behind it.
+- Fixed: small circles and holes on big parts were drawn as polygons (14 sides on a 5 mm hole in a 44 mm gear).
+  Curved edges now always get at least ~63 segments per full circle.
+- Fixed: the show / hide eyes disappeared off the right of the feature and parts lists when the side panel was
+  narrow or a name was long. Long names are now shortened with "…" (hover for the full name).
+
+### 1.8.4
 - **Space bar** deselects everything, in the 3D view and in the sketcher.
 - **Arrow keys turn the view** 15° per tap (Right, Left, Up, Down), animated. From the Right view, three taps
   give the edge between Right and Front, six taps give Front.

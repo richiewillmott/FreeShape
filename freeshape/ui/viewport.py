@@ -10,6 +10,7 @@ from OpenGL import GL
 from PySide6.QtCore import Qt, Signal, QTimer, QPointF, QRectF, QPoint
 from PySide6.QtGui import QPainter, QColor, QFont, QPen, QPolygonF, QSurfaceFormat, QCursor
 from PySide6.QtOpenGLWidgets import QOpenGLWidget
+from PySide6.QtWidgets import QLabel
 
 from .. import kernel as K
 from . import theme
@@ -135,6 +136,15 @@ class Viewport(QOpenGLWidget):
         self._box = None                          # (x0, y0, x1, y1) while the box is being dragged
         self.sketcher = None                        # active sketch controller
         self.pick_handler = None                    # callable(Pick) while a feature dialog is open
+        # how many things are selected, shown beside the mouse pointer like Onshape (a small widget that follows
+        # the pointer, so moving the mouse doesn't redraw the 3D view)
+        self.count_badge = QLabel(self)
+        self.count_badge.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.count_badge.setStyleSheet("background: #e8891c; color: white; font-weight: 700; font-size: 12px; "
+                                       "border-radius: 8px; padding: 1px 6px;")
+        self.count_badge.hide()
+        self._cursor_xy = None
+        self.selectionChanged.connect(self._update_count_badge)
         self._mesh_cache = {}
         self._placed_cache = {}
         self.progress_cb = None   # callable(i, n, text) while a long import fills the scene
@@ -200,7 +210,7 @@ class Viewport(QOpenGLWidget):
         R, t = M[:3, :3], M[:3, 3]
         out = K.Mesh((m.verts @ R.T + t).astype(np.float32), (m.normals @ R.T).astype(np.float32), m.tris,
                      m.tri_face, m.face_ranges, [(np.asarray(e) @ R.T + t) for e in m.edge_polys],
-                     (np.asarray(m.vertices, float) @ R.T + t).astype(np.float32))
+                     (np.asarray(m.vertices, float) @ R.T + t).astype(np.float32), m.face_edges)
         if len(self._placed_cache) > 400:
             self._placed_cache.clear()
         self._placed_cache[key] = (m, out)
@@ -646,6 +656,25 @@ class Viewport(QOpenGLWidget):
             GL.glVertex3f(*map(float, p))
         GL.glEnd()
 
+    def _hover_outline(self):
+        """Polylines outlining the hovered face or part, or None if it has no drawable edges (a sphere, say),
+        in which case it is filled as before."""
+        pk = self.hover
+        if pk is None or pk.kind not in ("face", "part"):
+            return None
+        m = next((m for pid, m, _ in self.parts if pid == pk.key[0]), None)
+        if m is None:
+            return None
+        if pk.kind == "face":
+            fe = getattr(m, "face_edges", None) or []
+            if pk.key[1] >= len(fe):
+                return None
+            idx = fe[pk.key[1]]
+        else:
+            idx = range(len(m.edge_polys))
+        polys = [m.edge_polys[i] for i in idx if i < len(m.edge_polys) and len(m.edge_polys[i]) >= 2]
+        return polys or None
+
     def _sel_color(self, pick):
         if pick in self.selection:
             return theme.SELECT
@@ -687,9 +716,12 @@ class Viewport(QOpenGLWidget):
             # selected / hovered parts and faces drawn again on top in their highlight colour
             GL.glPolygonOffset(0.5, 0.5)
             picks = list(self.selection) + ([self.hover] if self.hover is not None else [])
+            outline = self._hover_outline()
             for pk in picks:
                 if pk.kind not in ("part", "face"):
                     continue
+                if outline is not None and pk == self.hover and pk not in self.selection:
+                    continue            # hovered (not selected): drawn as an outline below, not filled
                 rng = b["ranges"].get(pk.key[0])
                 if rng is None:
                     continue
@@ -730,6 +762,18 @@ class Viewport(QOpenGLWidget):
                 self._draw_polyline(m.edge_polys[pk.key[1]])
                 GL.glDepthRange(0, 1)
         GL.glLineWidth(1.4)
+
+        # ---- the face or part under the mouse: an outline of its edges (Onshape-style), so it can't be mistaken
+        # for a selected face, which is filled
+        outline = self._hover_outline()
+        if outline:
+            GL.glLineWidth(4.0)
+            GL.glColor3f(*theme.HOVER)
+            GL.glDepthRange(0, 0.99998)
+            for poly in outline:
+                self._draw_polyline(poly)
+            GL.glDepthRange(0, 1)
+            GL.glLineWidth(1.4)
 
         # ---- hovered / selected vertices as dots
         hv = [pk for pk in list(self.selection) + ([self.hover] if self.hover is not None else [])
@@ -1501,9 +1545,26 @@ class Viewport(QOpenGLWidget):
             self._box = None
             self._box_start = (pos.x(), pos.y()) if (not self._part_drag and self.pick_handler is None) else None
 
+    def _update_count_badge(self):
+        n = len(self.selection)
+        xy = self._cursor_xy
+        if n == 0 or xy is None or self.sketcher is not None:
+            self.count_badge.hide()
+            return
+        self.count_badge.setText(str(n))
+        self.count_badge.setToolTip("")
+        self.count_badge.adjustSize()
+        self.count_badge.setMinimumWidth(self.count_badge.height())
+        self.count_badge.move(int(xy[0]) + 14, int(xy[1]) + 12)
+        self.count_badge.show()
+        self.count_badge.raise_()
+
     def mouseMoveEvent(self, e):
         pos = e.position()
         x, y = pos.x(), pos.y()
+        self._cursor_xy = (x, y)
+        if self.selection or self.count_badge.isVisible():
+            self._update_count_badge()
         if self._last is not None and self._press is not None:
             dx, dy = x - self._last[0], y - self._last[1]
             if abs(x - self._press[0]) + abs(y - self._press[1]) > 3:
@@ -1781,6 +1842,8 @@ class Viewport(QOpenGLWidget):
             self.update()
 
     def leaveEvent(self, e):
+        self._cursor_xy = None
+        self.count_badge.hide()
         if self.hover:
             self.hover = None
             self.hoverChanged.emit(None)

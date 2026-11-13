@@ -24,6 +24,9 @@ class Document:
         self.part_overrides: dict = {}            # part id -> {"name":..., "color":...}
         self.hidden_parts: set = set()
         self.hidden_features: set = set()         # sketches / planes hidden in the view
+        # feature-list folders: id -> {"name": str, "open": bool}; a feature in one has f["folder"] = that id.
+        # A folder groups a run of features that sit next to each other in the list (like Onshape).
+        self.folders: dict = {}
         self.path = None
         self.dirty = False
         self._undo: list[str] = []
@@ -58,7 +61,7 @@ class Document:
     def _snapshot(self) -> str:
         return json.dumps({"features": self.features, "rollback": self.rollback,
                            "overrides": self.part_overrides, "hidden": sorted(self.hidden_parts),
-                           "hidden_features": sorted(self.hidden_features)})
+                           "hidden_features": sorted(self.hidden_features), "folders": self.folders})
 
     def _restore(self, snap: str):
         d = json.loads(snap)
@@ -67,6 +70,7 @@ class Document:
         self.part_overrides = d["overrides"]
         self.hidden_parts = set(d["hidden"])
         self.hidden_features = set(d.get("hidden_features", []))
+        self.folders = d.get("folders", {})
 
     def checkpoint(self):
         """Call before any user-visible change."""
@@ -199,6 +203,16 @@ class Document:
         self._apply_overrides(self.state)
         self.notify()
 
+    def set_part_colors(self, colors: dict):
+        """Give several parts new colours in one undo step. colors: part id -> (r, g, b) in 0..1."""
+        if not colors:
+            return
+        self.checkpoint()
+        for pid, c in colors.items():
+            self.part_overrides.setdefault(pid, {})["color"] = [float(x) for x in c]
+        self._apply_overrides(self.state)
+        self.notify()
+
     def toggle_part_hidden(self, pid):
         self.hidden_parts ^= {pid}
         self.notify()
@@ -231,7 +245,7 @@ class Document:
         n = len(features) if upto is None else upto
         new_cache = {}
         for f in features[:n]:
-            h.update(json.dumps(f, sort_keys=True).encode())
+            h.update(json.dumps({k: v for k, v in f.items() if k != "folder"}, sort_keys=True).encode())
             key = h.hexdigest()
             if key in self._cache:
                 state, err = self._cache[key]
@@ -261,7 +275,119 @@ class Document:
             self._cache = new_cache
         return state
 
+    # ------------------------------------------------------------------ folders
+    def folder_members(self, folder_id):
+        return [f["id"] for f in self.features if f.get("folder") == folder_id]
+
+    def is_run(self, fids):
+        """True if the features sit next to each other in the list (a folder holds one unbroken run)."""
+        idx = sorted(i for i, f in enumerate(self.features) if f["id"] in set(fids))
+        return bool(idx) and idx[-1] - idx[0] + 1 == len(idx)
+
+    def make_folder(self, fids, name=None):
+        """Put a run of features into a new folder (taking them out of any folder they were in).
+        Returns the folder id, or raises ValueError if the features aren't next to each other."""
+        fids = [f["id"] for f in self.features if f["id"] in set(fids)]
+        if not fids:
+            raise ValueError("Select the features to put in the folder")
+        if not self.is_run(fids):
+            raise ValueError("A folder holds features that are next to each other in the list. "
+                             "Drag them together first, or select a run of features.")
+        self.checkpoint()
+        n = 1
+        while f"D{n}" in self.folders:
+            n += 1
+        fo = f"D{n}"
+        names = {v["name"] for v in self.folders.values()}
+        k = 1
+        while name is None or name in names:
+            name, k = f"Folder {k}", k + 1
+        self.folders[fo] = {"name": name, "open": True}
+        for f in self.features:
+            if f["id"] in fids:
+                f["folder"] = fo
+        self._prune_folders()
+        self.notify()
+        return fo
+
+    def rename_folder(self, fo, name):
+        if fo in self.folders and name:
+            self.checkpoint()
+            self.folders[fo]["name"] = name
+            self.notify()
+
+    def set_folder_open(self, fo, open_):
+        """Expand / collapse a folder in the list (a view setting: no undo step)."""
+        if fo in self.folders and self.folders[fo].get("open", True) != open_:
+            self.folders[fo]["open"] = bool(open_)
+            self.dirty = True
+            self.notify()
+
+    def ungroup_folder(self, fo):
+        """Remove a folder, keeping its features where they are."""
+        if fo not in self.folders:
+            return
+        self.checkpoint()
+        for f in self.features:
+            if f.get("folder") == fo:
+                f.pop("folder", None)
+        self.folders.pop(fo, None)
+        self.notify()
+
+    def remove_from_folder(self, fids):
+        """Take features out of their folder. Ones at either end just leave it; ones from the middle move to
+        just after the folder, so it stays one unbroken run. If that move would break the model (a later member
+        uses a moved feature), nothing changes and ValueError is raised."""
+        fids = set(fids)
+        if not any(f["id"] in fids and f.get("folder") for f in self.features):
+            return
+        snap = self._snapshot()
+        errs_before = set(self.errors)
+        self.checkpoint()
+        for fo in {f["folder"] for f in self.features if f["id"] in fids and f.get("folder")}:
+            run = [i for i, f in enumerate(self.features) if f.get("folder") == fo]
+            span = self.features[run[0]:run[-1] + 1]
+            out = [f["id"] in fids for f in span]
+            # leading and trailing features just leave the folder
+            lo, hi = 0, len(span)
+            while lo < hi and out[lo]:
+                lo += 1
+            while hi > lo and out[hi - 1]:
+                hi -= 1
+            for f in span:
+                if f["id"] in fids:
+                    f.pop("folder", None)
+            middle = [f for f in span[lo:hi] if f["id"] in fids]
+            if middle:
+                inner = [f for f in span[lo:hi] if f["id"] not in fids]
+                self.features[run[0]:run[-1] + 1] = span[:lo] + inner + middle + span[hi:]
+        self._prune_folders()
+        self.rebuild()
+        if set(self.errors) - errs_before:
+            self._undo.pop()
+            self._restore(snap)
+            self.rebuild()
+            raise ValueError("Those features are used by later features in the folder, so they can't be moved "
+                             "out of its middle. Take them out from the top or bottom of the folder instead.")
+
+    def set_folder_suppressed(self, fo, value):
+        self.checkpoint()
+        for f in self.features:
+            if f.get("folder") == fo:
+                f["suppressed"] = bool(value)
+        self.rebuild()
+
+    def _prune_folders(self):
+        """Drop empty folders and forget folders features point at that no longer exist."""
+        used = {f.get("folder") for f in self.features}
+        for fo in [k for k in self.folders if k not in used]:
+            del self.folders[fo]
+        for f in self.features:
+            if f.get("folder") and f["folder"] not in self.folders:
+                f.pop("folder", None)
+
     def rebuild(self):
+        self._prune_folders()
         errors = {}
         self.state = self.compute(self.features, self.active_count(), errors).copy()
         self.errors = errors
@@ -300,7 +426,7 @@ class Document:
         return json.dumps({"format": "freeshape", "version": FILE_VERSION, "name": self.name, "uid": self.uid,
                            "features": self.features, "rollback": self.rollback,
                            "overrides": self.part_overrides, "hidden": sorted(self.hidden_parts),
-                           "hidden_features": sorted(self.hidden_features)}, indent=1)
+                           "hidden_features": sorted(self.hidden_features), "folders": self.folders}, indent=1)
 
     def save(self, path=None):
         path = path or self.path
@@ -321,6 +447,7 @@ class Document:
         doc.part_overrides = d.get("overrides", {})
         doc.hidden_parts = set(d.get("hidden", []))
         doc.hidden_features = set(d.get("hidden_features", []))
+        doc.folders = d.get("folders", {})
         doc.path = path
         nums = [int("".join(c for c in f["id"] if c.isdigit()) or 0) for f in doc.features]
         doc._counter = max(nums + [0])
@@ -337,5 +464,7 @@ class Document:
         shapes = [p.shape for p in parts]
         if str(path).lower().endswith((".stl",)):
             K.export_stl(shapes, path)
+        elif str(path).lower().endswith((".brep", ".brp")):
+            K.export_brep(shapes, path)
         else:
             K.export_step(shapes, path)

@@ -620,6 +620,23 @@ def draw(name: str, p: QPainter):
         p.setBrush(BLUE)
         p.drawRoundedRect(QRectF(3, 19, 22, 10), 2, 2)
         _text(p, "DXF", QColor("white"), 8, True, QRectF(3, 19, 22, 10))
+    elif name == "folder":
+        p.setPen(_pen(INK, 1.6))
+        p.setBrush(Qt.NoBrush)
+        path = QPainterPath()
+        path.moveTo(4, 9)
+        path.lineTo(12, 9)
+        path.lineTo(15, 12)
+        path.lineTo(28, 12)
+        path.lineTo(28, 25)
+        path.lineTo(4, 25)
+        path.closeSubpath()
+        p.drawPath(path)
+    elif name == "new_folder":
+        draw("folder", p)
+        p.setPen(_pen(BLUE, 2.2))
+        p.drawLine(QPointF(16, 15), QPointF(16, 23))
+        p.drawLine(QPointF(12, 19), QPointF(20, 19))
     elif name == "error":
         p.setPen(Qt.NoPen)
         p.setBrush(RED)

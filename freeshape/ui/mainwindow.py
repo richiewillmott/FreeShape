@@ -203,6 +203,8 @@ class MainWindow(QMainWindow):
         self._hl_cache = {}
         lp.filter.textChanged.connect(lambda t: (lp.features.set_filter(t), self._populate_lists()))
         lp.features.eyeClicked.connect(self._tree_eye)
+        lp.features.folderToggled.connect(self._toggle_folder)
+        lp.new_folder_btn.clicked.connect(lambda: self._new_folder(self.left.features.selected_feature_ids()))
         lp.parts.eyeClicked.connect(lambda pid: self.doc.toggle_part_hidden(pid) if self.doc is not None else None)
         lp.parts.partClicked.connect(self._part_clicked)
         lp.parts.contextRequested.connect(self._part_context)
@@ -248,10 +250,11 @@ class MainWindow(QMainWindow):
         self._add_action(m, "Save", self.save, "Ctrl+S")
         self._add_action(m, "Save as…", self.save_as, "Ctrl+Shift+S")
         m.addSeparator()
-        self._add_action(m, "Import STEP (new tab)…", self.import_step)
-        self._add_action(m, "Import STEP into this tab…", lambda: self.import_step(into_current=True))
+        self._add_action(m, "Import STEP / BREP (new tab)…", self.import_step)
+        self._add_action(m, "Import STEP / BREP into this tab…", lambda: self.import_step(into_current=True))
         self._add_action(m, "Export STEP…", lambda: self.export(None, "step"))
         self._add_action(m, "Export STL…", lambda: self.export(None, "stl"))
+        self._add_action(m, "Export BREP…", lambda: self.export(None, "brep"))
         m.addSeparator()
         self._add_action(m, "Keyboard shortcuts", self.show_shortcuts)
         self._add_action(m, "About FreeShape", self.show_about)
@@ -507,7 +510,7 @@ class MainWindow(QMainWindow):
             self._tb(h, name, tip, lambda _=False, n=name: self.start_feature(n))
         h.addWidget(_sep())
         self._tb(h, "import", "Import STEP (opens in a new tab)", lambda: self.import_step())
-        self._tb(h, "export", "Export STEP / STL", lambda: self.export(None, None))
+        self._tb(h, "export", "Export STEP / STL / BREP", lambda: self.export(None, None))
         h.addStretch(1)
         self.btn_section = self._tb(h, "section", "Section view (Ctrl+Shift+X) — select a face or plane first to cut there",
                                     self.toggle_section, checkable=True)
@@ -1219,14 +1222,15 @@ class MainWindow(QMainWindow):
                                     "been moved or deleted.")
             return
         ext = os.path.splitext(path)[1].lower()
-        if ext in (".step", ".stp"):
+        if ext in (".step", ".stp", ".brep", ".brp"):
             if self.mode != "idle":
                 self._leave_modes()
             self.import_step_file(path)
         elif ext in (".fshape", ".fcad", ".fasm", ".fdwg"):
             self.open_file(path)
         else:
-            QMessageBox.information(self, APP_NAME, "FreeShape opens .fshape, .fasm and .fdwg documents and STEP files.")
+            QMessageBox.information(self, APP_NAME, "FreeShape opens .fshape, .fasm and .fdwg documents, STEP files "
+                                    "and BREP files.")
             return
         self.show_workspace()
 
@@ -1562,23 +1566,90 @@ class MainWindow(QMainWindow):
 
     def _delete_features(self, ids):
         names = ", ".join(self.doc.feature(i)["name"] for i in ids)
+        if len(ids) > 4:
+            names = f"these {len(ids)} features"
         if QMessageBox.question(self, APP_NAME, f"Delete {names}?") == QMessageBox.Yes:
             self.doc.delete_features(ids)
 
     # ================================================================== tree interactions
-    def _tree_reordered(self, ids, rollback):
+    def _tree_reordered(self, ids, rollback, folders=None):
         if self.mode != "idle":
             self._populate_lists()
             return
+        folders = folders or {}
         order = {fid: i for i, fid in enumerate(ids)}
         new = sorted(self.doc.features, key=lambda f: order.get(f["id"], 1e9))
-        if [f["id"] for f in new] != [f["id"] for f in self.doc.features] or rollback != self.doc.active_count():
+        moved_folders = any(f.get("folder") != folders[f["id"]] for f in new if f["id"] in folders)
+        if [f["id"] for f in new] != [f["id"] for f in self.doc.features] or rollback != self.doc.active_count() \
+                or moved_folders:
             self.doc.checkpoint()
+            for f in new:
+                if f["id"] in folders:
+                    if folders[f["id"]]:
+                        f["folder"] = folders[f["id"]]
+                    else:
+                        f.pop("folder", None)
             self.doc.features = new
             self.doc.set_rollback(rollback if rollback < len(new) else None)
             self.doc.rebuild()
         else:
             self._populate_lists()
+
+    # ------------------------------------------------------------------ feature-list folders
+    def _toggle_folder(self, fo):
+        info = self.doc.folders.get(fo) if self.doc is not None else None
+        if info is not None:
+            self.doc.set_folder_open(fo, not info.get("open", True))
+
+    def _new_folder(self, ids):
+        if self.doc is None or self.is_asm or self.is_dwg or self.mode != "idle":
+            return
+        if not ids:
+            self.status.showMessage("Select the features to put in a folder first (Shift- or Ctrl-click to "
+                                    "select several), then click New folder.", 8000)
+            return
+        try:
+            fo = self.doc.make_folder(ids)
+        except ValueError as e:
+            QMessageBox.information(self, APP_NAME, str(e))
+            return
+        self._rename_folder(fo, first=True)
+
+    def _rename_folder(self, fo, first=False):
+        info = self.doc.folders.get(fo)
+        if info is None:
+            return
+        name, ok = QInputDialog.getText(self, "Name folder" if first else "Rename folder", "Name:",
+                                        text=info["name"])
+        if ok and name.strip() and name.strip() != info["name"]:
+            if first:                    # naming a new folder is part of making it: one undo step
+                info["name"] = name.strip()
+                self.doc.notify()
+            else:
+                self.doc.rename_folder(fo, name.strip())
+
+    def _remove_from_folder(self, ids):
+        try:
+            self.doc.remove_from_folder(ids)
+        except ValueError as e:
+            QMessageBox.information(self, APP_NAME, str(e))
+
+    def _folder_context(self, fo, gpos):
+        info = self.doc.folders.get(fo)
+        if info is None or self.mode != "idle":
+            return
+        members = self.doc.folder_members(fo)
+        m = QMenu(self)
+        m.addAction("Collapse" if info.get("open", True) else "Expand", lambda: self._toggle_folder(fo))
+        m.addAction("Rename…", lambda: self._rename_folder(fo))
+        m.addSeparator()
+        all_sup = all((self.doc.feature(i) or {}).get("suppressed") for i in members)
+        m.addAction("Unsuppress all" if all_sup else "Suppress all",
+                    lambda: self.doc.set_folder_suppressed(fo, not all_sup))
+        m.addAction("Ungroup (keep the features)", lambda: self.doc.ungroup_folder(fo))
+        m.addSeparator()
+        m.addAction(f"Delete folder and its {len(members)} feature(s)", lambda: self._delete_features(members))
+        m.exec(gpos)
 
     # ------------------------------------------------------------------ feature-list highlighting (like Onshape)
     def _feature_hovered(self, fid):
@@ -1697,6 +1768,9 @@ class MainWindow(QMainWindow):
 
     def _tree_context(self, key, gpos):
         kind, fid = key.split(":", 1)
+        if kind == "folder":
+            self._folder_context(fid, gpos)
+            return
         m = QMenu(self)
         if kind == "std_plane":
             m.addAction("New sketch", lambda: (self.viewport.set_selection([Pick("plane", ("std", fid))]),
@@ -1732,6 +1806,11 @@ class MainWindow(QMainWindow):
         ids = self.left.features.selected_feature_ids() or [fid]
         if fid not in ids:
             ids = [fid]
+        n = f" {len(ids)} features" if len(ids) > 1 else ""
+        m.addAction(icon("new_folder", 16), f"Add{n} to new folder", lambda: self._new_folder(ids))
+        if any((self.doc.feature(i) or {}).get("folder") for i in ids):
+            m.addAction(f"Remove{n} from folder", lambda: self._remove_from_folder(ids))
+        m.addSeparator()
         m.addAction("Delete", lambda: self._delete_features(ids))
         err = self.doc.errors.get(fid)
         if err:
@@ -1763,9 +1842,11 @@ class MainWindow(QMainWindow):
             # several parts selected and one of them right-clicked: the menu acts on all of them, like Onshape
             self._add_hide_actions(m, ids)
             m.addAction(f"Isolate {len(ids)} parts", lambda: self._isolate(ids))
+            m.addAction(f"Auto colour {len(ids)} parts", lambda: self._auto_color(ids))
             m.addSeparator()
             m.addAction(f"Export {len(ids)} parts as STEP…", lambda: self.export(ids, "step"))
             m.addAction(f"Export {len(ids)} parts as STL…", lambda: self.export(ids, "stl"))
+            m.addAction(f"Export {len(ids)} parts as BREP…", lambda: self.export(ids, "brep"))
             m.exec(gpos)
             return
         m.addAction("Rename…", lambda: self._rename_part(pid))
@@ -1782,6 +1863,7 @@ class MainWindow(QMainWindow):
                 {"kind": "studio", "uid": self.doc.uid, "part": pid, "flat": True}))
         m.addAction("Export STEP…", lambda: self.export([pid], "step"))
         m.addAction("Export STL…", lambda: self.export([pid], "stl"))
+        m.addAction("Export BREP…", lambda: self.export([pid], "brep"))
         m.exec(gpos)
 
     def _rename_part(self, pid):
@@ -1795,6 +1877,18 @@ class MainWindow(QMainWindow):
         c = QColorDialog.getColor(QColor.fromRgbF(*p.color), self, "Part colour")
         if c.isValid():
             self.doc.set_part_override(pid, color=[c.redF(), c.greenF(), c.blueF()])
+
+    def _auto_color(self, pids):
+        """Give each part a different colour. Doing it again moves along the palette, so a second go gives a
+        new set of colours."""
+        pids = [p for p in pids if p in self.doc.state.parts]
+        if not pids:
+            return
+        self._auto_color_turn = getattr(self, "_auto_color_turn", -1) + 1
+        cols = F.auto_colors(len(pids), shift=self._auto_color_turn * 5)
+        self.doc.set_part_colors(dict(zip(pids, cols)))
+        self.status.showMessage(f"Coloured {len(pids)} parts — choose Auto colour again for a different "
+                                "set, or Undo to go back", 6000)
 
     def _isolate(self, pids):
         keep = {pids} if isinstance(pids, str) else set(pids)
@@ -1902,6 +1996,7 @@ class MainWindow(QMainWindow):
                 self._add_hide_actions(m, ids)
                 if len(ids) > 1:
                     m.addAction(f"Isolate {len(ids)} parts", lambda: self._isolate(ids))
+                    m.addAction(f"Auto colour {len(ids)} parts", lambda: self._auto_color(ids))
                 else:
                     m.addAction("Isolate part", lambda: self._isolate(pid))
                     m.addAction("Select part", lambda: self.viewport.set_selection([Pick("part", (pid,))]))
@@ -1924,6 +2019,8 @@ class MainWindow(QMainWindow):
             vm.addAction(name, lambda n=name: self.viewport.set_standard_view(n))
         if self.doc.hidden_parts:
             m.addAction("Show all parts", self._show_all_parts)
+        if len(self.doc.state.parts) > 1:
+            m.addAction("Auto colour all parts", lambda: self._auto_color(list(self.doc.state.parts)))
         m.exec(gpos)
 
     def _selection_changed(self):
@@ -2414,8 +2511,8 @@ class MainWindow(QMainWindow):
     def open_dialog(self):
         self._leave_modes()
         path, _ = QFileDialog.getOpenFileName(
-            self, "Open", "", "FreeShape documents and STEP files (*.fshape *.fasm *.fdwg *.fcad *.step *.stp);;"
-            "Part Studios (*.fshape *.fcad);;Assemblies (*.fasm);;Drawings (*.fdwg);;STEP files (*.step *.stp);;"
+            self, "Open", "", "FreeShape documents, STEP and BREP files (*.fshape *.fasm *.fdwg *.fcad *.step *.stp *.brep *.brp);;"
+            "Part Studios (*.fshape *.fcad);;Assemblies (*.fasm);;Drawings (*.fdwg);;STEP files (*.step *.stp);;BREP files (*.brep *.brp);;"
             "All files (*)")
         if path:
             self.open_any(path)
@@ -2507,7 +2604,8 @@ class MainWindow(QMainWindow):
     def import_step(self, into_current=False):
         if self.mode != "idle":
             self._leave_modes()
-        path, _ = QFileDialog.getOpenFileName(self, "Import STEP", "", "STEP files (*.step *.stp);;All files (*)")
+        path, _ = QFileDialog.getOpenFileName(self, "Import", "", "STEP or BREP files (*.step *.stp *.brep *.brp);;"
+                                              "STEP files (*.step *.stp);;BREP files (*.brep *.brp);;All files (*)")
         if path:
             self.import_step_file(path, into_current)
 
@@ -2522,7 +2620,7 @@ class MainWindow(QMainWindow):
             raw = fh.read()
         prog = ImportProgress(self, f"Importing {fname}")
         try:
-            if not read_step_in_background(raw, prog, self):
+            if not F.is_brep_name(fname) and not read_step_in_background(raw, prog, self):
                 self.status.showMessage("Import cancelled", 5000)
                 return
             data = base64.b64encode(raw).decode()
@@ -2563,7 +2661,8 @@ class MainWindow(QMainWindow):
         except Exception:
             return True
         for f in feats:
-            if f.get("type") == "import" and not f.get("suppressed") and f.get("params", {}).get("data"):
+            if f.get("type") == "import" and not f.get("suppressed") and f.get("params", {}).get("data") \
+                    and not F.is_brep_name(f["params"].get("filename", "")):
                 try:
                     raw = base64.b64decode(f["params"]["data"])
                 except Exception:
@@ -2571,6 +2670,22 @@ class MainWindow(QMainWindow):
                 if not read_step_in_background(raw, prog, self):
                     return False
         return True
+
+    EXPORT_FORMATS = (("step", "STEP (*.step *.stp)", ".step"), ("stl", "STL (*.stl)", ".stl"),
+                      ("brep", "BREP — OpenCascade, exact (*.brep *.brp)", ".brep"))
+
+    def _export_path(self, title, base, fmt_):
+        """Ask where to save; returns a path with the chosen format's extension, or None."""
+        fmt_ = fmt_ if fmt_ in ("step", "stl", "brep") else "step"
+        filters = ";;".join(f for _k, f, _e in self.EXPORT_FORMATS)
+        sel = next(f for k, f, _e in self.EXPORT_FORMATS if k == fmt_)
+        ext = next(e for k, _f, e in self.EXPORT_FORMATS if k == fmt_)
+        path, chosen = QFileDialog.getSaveFileName(self, title, base + ext, filters, sel)
+        if not path:
+            return None
+        if not os.path.splitext(path)[1]:
+            path += next((e for _k, f, e in self.EXPORT_FORMATS if f == chosen), ".step")
+        return path
 
     def export(self, part_ids, fmt_=None):
         if self.is_dwg:
@@ -2580,14 +2695,9 @@ class MainWindow(QMainWindow):
             if not self.doc.instances:
                 QMessageBox.information(self, APP_NAME, "Insert some parts first.")
                 return
-            sel = "STL (*.stl)" if fmt_ == "stl" else "STEP (*.step *.stp)"
-            default = self.doc.name.replace(" ", "_") + (".stl" if fmt_ == "stl" else ".step")
-            path, chosen = QFileDialog.getSaveFileName(self, "Export assembly", default,
-                                                       "STEP (*.step *.stp);;STL (*.stl)", sel)
+            path = self._export_path("Export assembly", self.doc.name.replace(" ", "_"), fmt_)
             if not path:
                 return
-            if not os.path.splitext(path)[1]:
-                path += ".stl" if "STL" in chosen else ".step"
             try:
                 self.doc.export(path)
                 self.status.showMessage(f"Exported {path}", 5000)
@@ -2597,16 +2707,12 @@ class MainWindow(QMainWindow):
         if not self.doc.state.parts:
             QMessageBox.information(self, APP_NAME, "There are no parts to export yet.")
             return
-        filters = "STEP (*.step *.stp);;STL (*.stl)"
-        default = "part.stl" if fmt_ == "stl" else "part.step"
+        base = "part"
         if part_ids and len(part_ids) == 1:
-            default = self.doc.state.parts[part_ids[0]].name.replace(" ", "_") + (".stl" if fmt_ == "stl" else ".step")
-        sel = "STL (*.stl)" if fmt_ == "stl" else "STEP (*.step *.stp)"
-        path, chosen = QFileDialog.getSaveFileName(self, "Export", default, filters, sel)
+            base = self.doc.state.parts[part_ids[0]].name.replace(" ", "_")
+        path = self._export_path("Export", base, fmt_)
         if not path:
             return
-        if not os.path.splitext(path)[1]:
-            path += ".stl" if "STL" in chosen else ".step"
         try:
             self.doc.export(path, part_ids)
             self.status.showMessage(f"Exported {path}", 5000)

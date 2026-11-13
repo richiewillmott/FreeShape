@@ -879,17 +879,49 @@ def run_boolean(state, f):
     apply_body(state, body, "remove" if op == "subtract" else "intersect", f["id"], targets)
 
 
+# Auto colour: distinct colours that read well under the 3D view's lighting, on light and dark backgrounds.
+# Oranges and yellows are left out: those are the selection and hover highlight colours.
+AUTO_COLORS = ["#4e79a7", "#59a14f", "#e15759", "#76b7b2", "#b07aa1", "#6b5b95", "#2a9d8f", "#ff9da7",
+               "#c06c84", "#86bcb6", "#d37295", "#8cd17d", "#a0cbe8", "#5c7cfa", "#bab0ac", "#499894"]
+
+
+def auto_colors(n, shift=0):
+    """n clearly different colours as (r, g, b) in 0..1. Up to 16 come from the palette above (starting `shift`
+    places along it, so asking again gives a fresh set); beyond that, evenly spread extra hues are added."""
+    import colorsys
+    k = len(AUTO_COLORS)
+    out = []
+    for i in range(n):
+        if i < k:
+            h = AUTO_COLORS[(i + shift) % k].lstrip("#")
+            out.append(tuple(int(h[j:j + 2], 16) / 255 for j in (0, 2, 4)))
+        else:
+            hue = ((i - k) * 0.618033988749895 + 0.11) % 1.0      # golden-ratio steps
+            if 0.04 < hue < 0.18:                                  # skip the highlight oranges / yellows
+                hue += 0.16
+            out.append(colorsys.hsv_to_rgb(hue, 0.55, 0.82))
+    return out
+
+
+def is_brep_name(name) -> bool:
+    return str(name).lower().endswith((".brep", ".brp"))
+
+
 def run_import(state, f):
     p = f["params"]
     data = base64.b64decode(p["data"])
-    with tempfile.NamedTemporaryFile(suffix=".step", delete=False) as tmp:
+    brep = is_brep_name(p.get("filename", ""))
+    with tempfile.NamedTemporaryFile(suffix=".brep" if brep else ".step", delete=False) as tmp:
         tmp.write(data)
         path = tmp.name
     try:
-        try:
-            items = K.import_step_with_colors(path)
-        except Exception:
-            items = [(s, None, None, {}) for s in K.import_step(path)]   # plain geometry as a fallback
+        if brep:
+            items = [(s, None, None, {}) for s in K.import_brep(path)]     # BREP holds no names or colours
+        else:
+            try:
+                items = K.import_step_with_colors(path)
+            except Exception:
+                items = [(s, None, None, {}) for s in K.import_step(path)]   # plain geometry as a fallback
         for shape, name, color, fcols in items:
             part = state.new_part(shape, f["id"], tuple(color) if color else DEFAULT_COLOR)
             state.parts[part.id] = Part(part.id, name or part.name, part.shape, part.color, fcols or None)

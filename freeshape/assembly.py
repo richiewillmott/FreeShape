@@ -1071,6 +1071,8 @@ class AssemblyDoc:
             raise K.KernelError("Nothing to export")
         if str(path).lower().endswith(".stl"):
             K.export_stl([self.world_shape(i["id"]) for i in insts], path)
+        elif str(path).lower().endswith((".brep", ".brp")):
+            K.export_brep([self.world_shape(i["id"]) for i in insts], path)
         else:
             K.export_step_named([(self.parts[i["id"]].shape, np.array(i["T"], float), i["name"],
                                   self.instance_color(i)) for i in insts], path, self.name)
