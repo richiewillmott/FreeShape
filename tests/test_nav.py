@@ -37,6 +37,7 @@ def _window():
     from PySide6.QtWidgets import QApplication, QMessageBox
     app = QApplication.instance() or QApplication([])
     QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.No)
+    os.environ["FREESHAPE_NO_PLUGINS"] = "1"          # your own installed plugins stay out of the tests
     from freeshape.ui.mainwindow import MainWindow
     doc = Document()
     s = Sketch()

@@ -31,6 +31,7 @@ class Document:
         # configuration table: {"rows": [{"name", "vars": {name: expr}, "suppress": [fid]}], "active": index}
         self.configs: dict = {"rows": [], "active": 0}
         self.derived_fallback: dict = {}          # derived feature id -> saved copy of its parts (from the file)
+        self.plugin_fallback: dict = {}           # plugin feature id -> saved copy of what it made (from the file)
         self.path = None
         self.dirty = False
         self._undo: list[str] = []
@@ -303,6 +304,8 @@ class Document:
     def compute(self, features, upto=None, errors=None, config=None):
         """Replay features (with caching). Returns the resulting ModelState."""
         state = ModelState()
+        from . import plugins as _P
+        _P.CURRENT_DOC[0] = self.uid
         h = hashlib.sha1()
         n = len(features) if upto is None else upto
         new_cache = {}
@@ -315,6 +318,16 @@ class Document:
                 h.update(json.dumps(_F.link_stamp(f)).encode())       # rebuild when the source parts change
                 if f["id"] in self.derived_fallback:
                     f = dict(f, _fallback=self.derived_fallback[f["id"]])
+            elif str(f.get("type", "")).startswith("plugin:"):
+                from . import plugins as _P
+                h.update(b"P" if f["type"] in _P.FEATURES else b"-")    # rebuild once the plugin is (un)installed
+                f = dict(f, _raw_stamp=_P.stamp(f))
+                if f["id"] in self.plugin_fallback:
+                    fb = self.plugin_fallback[f["id"]]
+                    f = dict(f, _fallback=fb)
+                    if f["type"] not in _P.FEATURES:      # still work out its expressions without the plugin
+                        from . import features as _F
+                        _F.EXTRA_NUMERIC.setdefault(f["type"], set(fb.get("numeric", [])))
             key = h.hexdigest()
             if key in self._cache:
                 state, err = self._cache[key]
@@ -325,7 +338,12 @@ class Document:
                 if not f.get("suppressed"):
                     before = dict(state.parts)
                     try:
-                        RUNNERS[f["type"]](state, prepare(f, state))
+                        run = RUNNERS.get(f["type"])
+                        if run is None and str(f["type"]).startswith("plugin:"):
+                            from .plugins import run_feature as run
+                        if run is None:
+                            raise K.KernelError(f"Unknown feature type '{f['type']}' (made by a newer FreeShape?)")
+                        run(state, prepare(f, state))
                         for pid, part in list(state.parts.items()):
                             old = before.get(pid) or before.get(pid.split(".")[0])
                             if old is not None and old.face_colors and part.shape is not old.shape \
@@ -516,9 +534,18 @@ class Document:
                 out[f["id"]] = self.derived_fallback[f["id"]]
         return out
 
+    def _plugin_copies(self):
+        from . import plugins
+        out = plugins.saved_copies(self.features, self.uid)
+        for f in self.features:                  # keep copies of features whose plugin isn't here, untouched
+            if f["id"] not in out and f["id"] in self.plugin_fallback:
+                out[f["id"]] = self.plugin_fallback[f["id"]]
+        return out
+
     def to_json(self):
         return json.dumps({"format": "freeshape", "version": FILE_VERSION, "name": self.name, "uid": self.uid,
                            "derived_copies": self._derived_copies(),
+                           "plugin_copies": self._plugin_copies(),
                            "features": self.features, "rollback": self.rollback,
                            "overrides": self.part_overrides, "hidden": sorted(self.hidden_parts),
                            "hidden_features": sorted(self.hidden_features), "folders": self.folders,
@@ -546,6 +573,7 @@ class Document:
         doc.folders = d.get("folders", {})
         doc.configs = d.get("configs", {"rows": [], "active": 0})
         doc.derived_fallback = d.get("derived_copies", {})
+        doc.plugin_fallback = d.get("plugin_copies", {})
         doc.path = path
         nums = [int("".join(c for c in f["id"] if c.isdigit()) or 0) for f in doc.features]
         doc._counter = max(nums + [0])

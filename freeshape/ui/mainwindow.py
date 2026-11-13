@@ -74,6 +74,9 @@ class MainWindow(QMainWindow):
         from PySide6.QtCore import QSettings
         self.settings = QSettings("FreeShape", "FreeShape")
         F.LINKER = self._derived_link              # derived parts find their source studios through the window
+        if not os.environ.get("FREESHAPE_NO_PLUGINS"):
+            from .. import plugins as _plugins
+            _plugins.load_all()
         self._build_ui()
         self._bind_shortcuts()
         self.set_theme(str(self.settings.value("theme", "light")), save=False)
@@ -261,6 +264,10 @@ class MainWindow(QMainWindow):
         self._add_action(m, "Export STL…", lambda: self.export(None, "stl"))
         self._add_action(m, "Export BREP…", lambda: self.export(None, "brep"))
         self._add_action(m, "Nest sheet metal for cutting…", self.nest_for_cutting)
+        m.addSeparator()
+        plm = m.addMenu("Plugins")
+        from . import plugin_ui as _pui
+        plm.aboutToShow.connect(lambda mm=plm: _pui.fill_menu(mm, self))
         m.addSeparator()
         self._add_action(m, "Keyboard shortcuts", self.show_shortcuts)
         self._add_action(m, "About FreeShape", self.show_about)
@@ -521,6 +528,13 @@ class MainWindow(QMainWindow):
                  self.edit_configs)
         self._tb(h, "derived", "Derived — bring parts from another Part Studio, kept linked",
                  lambda: self.start_feature("derived"))
+        self.plugin_btn = self._tb(h, "plugin", "Plugins — features and commands added by Python plugins",
+                                   lambda: None)
+        self.plugin_btn.setPopupMode(QToolButton.InstantPopup)
+        pm = QMenu(self.plugin_btn)
+        from . import plugin_ui
+        pm.aboutToShow.connect(lambda m=pm: plugin_ui.fill_menu(m, self))
+        self.plugin_btn.setMenu(pm)
         self.config_box = QComboBox()
         self.config_box.setToolTip("The configuration shown")
         self.config_box.setMinimumWidth(110)
@@ -943,9 +957,27 @@ class MainWindow(QMainWindow):
         vp.clear_selection()
         self._populate_lists()
 
+    def _after_plugin(self, rebuild=False):
+        """After a plugin command / script ran, or plugins were reloaded: show what changed."""
+        doc = self.doc
+        if doc is None:
+            return
+        if rebuild and hasattr(doc, "features"):
+            doc._cache.clear()
+            doc.rebuild()
+        if hasattr(doc, "notify"):
+            doc.notify()
+        self._populate_lists()
+
     def edit_feature(self, fid):
         f = self.doc.feature(fid)
         if f is None or self.mode != "idle":
+            return
+        from .. import plugins as _plugins
+        if _plugins.is_plugin_type(f["type"]) and f["type"] not in _plugins.FEATURES:
+            QMessageBox.information(self, APP_NAME, f"“{f['name']}” was made with the "
+                                    f"“{_plugins.plugin_of(f)}” plugin, which isn't installed. It keeps the shape "
+                                    "saved in the file; install the plugin (Document ▸ Plugins) to change it.")
             return
         if f["type"] == "sketch":
             self.start_sketch(fid)

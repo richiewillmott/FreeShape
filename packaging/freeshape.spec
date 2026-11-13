@@ -34,6 +34,8 @@ if os.environ.get("FREESHAPE_FULL"):
 
 # FreeShape's own files: icons, logo, examples
 datas.append((os.path.join(ROOT, "freeshape", "assets"), os.path.join("freeshape", "assets")))
+datas.append((os.path.join(ROOT, "freeshape", "plugin_examples"), os.path.join("freeshape", "plugin_examples")))
+datas.append((os.path.join(ROOT, "PLUGINS.md"), "."))
 datas.append((os.path.join(ROOT, "examples"), "examples"))
 datas.append((os.path.join(ROOT, "README.md"), "."))
 datas.append((os.path.join(ROOT, "CHANGES.md"), "."))

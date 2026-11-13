@@ -613,13 +613,18 @@ NUMERIC_KEYS = {"depth", "depth2", "angle", "radius", "distance", "thickness", "
                 "countersink_dia", "k", "relief_scale"}
 
 
+# numeric params of plugin features: feature type -> set of keys (filled in by freeshape.plugins)
+EXTRA_NUMERIC: dict = {}
+
+
 def prepare(f, state):
     """A copy of feature f with every expression evaluated against the variables defined so far."""
     p = f.get("params", {})
-    if not any(isinstance(p.get(k), str) for k in NUMERIC_KEYS):
+    keys = NUMERIC_KEYS | EXTRA_NUMERIC.get(f.get("type"), set())
+    if not any(isinstance(p.get(k), str) for k in keys):
         return f
     p2 = dict(p)
-    for k in NUMERIC_KEYS:
+    for k in keys:
         v = p2.get(k)
         if isinstance(v, str):
             val = parse_number(v, angle=(k in ("angle", "rotate", "draft", "twist")), variables=state.vars)
@@ -1530,6 +1535,9 @@ RUNNERS = {
 def default_params(ftype: str, state: ModelState | None = None) -> dict:
     has_parts = bool(state and state.parts)
     op = "add" if has_parts else "new"
+    if ftype.startswith("plugin:"):
+        from . import plugins
+        return plugins.default_params(ftype, has_parts)
     return {
         "sketch": {"plane": {"kind": "std", "name": "Top"}, "sketch": Sketch().to_dict()},
         "extrude": {"regions": [], "faces": [], "end": "blind", "depth": 25.0, "depth2": 10.0,

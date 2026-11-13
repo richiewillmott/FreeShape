@@ -19,4 +19,4 @@ freeshape = "freeshape.__main__:main"
 include = ["freeshape*"]
 
 [tool.setuptools.package-data]
-freeshape = ["assets/*"]
+freeshape = ["assets/*", "plugin_examples/*.py"]

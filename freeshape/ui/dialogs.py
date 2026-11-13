@@ -614,6 +614,12 @@ SCHEMAS = {
 def params_to_fields(ftype, p):
     """Selection-field contents for a feature's params."""
     f = {}
+    if ftype.startswith("plugin:"):
+        from .. import plugins
+        for spec in plugins.dialog_schema(ftype):
+            if spec["t"] == "sel":
+                f[spec["key"]] = [tuple(it) for it in p.get(spec["key"]) or []]
+        return f
     if ftype in ("mirror", "linear_pattern", "circular_pattern"):
         f["features"] = [("feature", i) for i in p.get("features", [])]
     if ftype in ("extrude", "revolve"):
@@ -670,6 +676,12 @@ def params_to_fields(ftype, p):
 
 
 def fields_to_params(ftype, fields, p):
+    if ftype.startswith("plugin:"):
+        from .. import plugins
+        for spec in plugins.dialog_schema(ftype):
+            if spec["t"] == "sel":
+                p[spec["key"]] = [[k, r] for k, r in fields.get(spec["key"], [])]
+        return
     if ftype in ("sm_base", "sm_tab"):
         p["regions"] = [r for k, r in fields.get("profiles", []) if k == "region"]
     if ftype in ("sm_flange", "sm_hem", "sm_jog"):
@@ -856,6 +868,9 @@ class FeatureDialog(_ResizableFrame):
         except Exception:
             pass
         self.schema = SCHEMAS.get(self.ftype, [])
+        if self.ftype.startswith("plugin:"):
+            from .. import plugins
+            self.schema = plugins.dialog_schema(self.ftype)
         self.fields: dict[str, SelectionField] = {}
         self.widgets = {}
         self._info_rows = []
@@ -986,7 +1001,7 @@ class FeatureDialog(_ResizableFrame):
                 ed.setPlaceholderText(unit)
                 ed.setToolTip(f"Value in {unit}. Expressions, units and variables work: '25/2', '1 in', '#wall * 2'.")
 
-            def done(ed=ed, k=spec["key"], unit=unit, mn=spec.get("min")):
+            def done(ed=ed, k=spec["key"], unit=unit, mn=spec.get("min"), whole=bool(spec.get("int"))):
                 txt = ed.text()
                 v = parse_number(txt, angle=(unit == "deg"), variables=self.base_state.vars)
                 bad = v is None or (mn is not None and v < mn)
@@ -997,7 +1012,7 @@ class FeatureDialog(_ResizableFrame):
                     if has_vars(txt):
                         self._set(k, txt.strip())        # keep the expression so it follows the variable
                     else:
-                        self._set(k, int(round(v)) if k == "count" else v)
+                        self._set(k, int(round(v)) if k == "count" or whole else v)
             self.widgets[spec["key"]] = ed
             ed.textEdited.connect(lambda _t, f=done: f())
             ed.editingFinished.connect(lambda ed=ed, k=spec["key"]: ed.setText(_show(self.feature["params"].get(k, 0))))
@@ -1059,6 +1074,8 @@ class FeatureDialog(_ResizableFrame):
         for spec, lab in self._info_rows:
             txt = spec["text"](p)
             lab.setText(txt)
+            w_ = max(min(lab.width() if lab.width() > 50 else 10 ** 6, self.width() - 24), 200)
+            lab.setMinimumHeight(lab.heightForWidth(w_) if txt else 0)     # wrapped text gets all its lines
             if spec["key"] == "_info":           # warnings in red, hints in green
                 lab.setStyleSheet("color:#d93025; font-weight:600;" if txt.startswith("⚠")
                                   else "color:#2e9e44; font-weight:600;")

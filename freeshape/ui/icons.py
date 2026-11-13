@@ -71,6 +71,8 @@ def _text(p, s, c=INK, size=12, bold=True, rect=QRectF(0, 0, 32, 32)):
 
 def draw(name: str, p: QPainter):
     p.setBrush(Qt.NoBrush)
+    if name.startswith("plugin:"):
+        name = "plugin"
     if name == "undo" or name == "redo":
         if name == "redo":
             p.translate(32, 0)
@@ -335,6 +337,29 @@ def draw(name: str, p: QPainter):
             _arrow(p, 15, 26, 15, 21, BLUE, 1.6)
             p.setPen(_pen(BLUE, 1.6))
             p.drawLine(QPointF(26, 12), QPointF(30, 5))
+    elif name == "plugin":
+        # a jigsaw piece
+        path = QPainterPath()
+        path.moveTo(6, 10)
+        path.lineTo(12, 10)
+        path.cubicTo(10, 4, 20, 4, 18, 10)
+        path.lineTo(24, 10)
+        path.lineTo(24, 15)
+        path.cubicTo(30, 13, 30, 23, 24, 21)
+        path.lineTo(24, 27)
+        path.lineTo(6, 27)
+        path.closeSubpath()
+        p.setPen(_pen(INK, 1.3))
+        p.setBrush(BLUE_FILL)
+        p.drawPath(path)
+    elif name == "history":
+        p.setPen(_pen(INK, 1.5))
+        p.setBrush(QColor("white"))
+        p.drawEllipse(QPointF(17, 17), 11, 11)
+        p.setPen(_pen(BLUE, 1.8))
+        p.drawLine(QPointF(17, 17), QPointF(17, 10))
+        p.drawLine(QPointF(17, 17), QPointF(22, 20))
+        _arrow(p, 9, 9, 5, 5, INK, 1.4)
     elif name == "derived":
         p.setPen(_pen(INK, 1.3))
         p.setBrush(FACE)
