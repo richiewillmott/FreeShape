@@ -2,6 +2,21 @@
 
 ## 2.0 (in progress)
 
+### Navigation and export (from the 2.0 list)
+- **Binary STL**: exports are binary instead of text, about a fifth of the size for curved parts.
+- **Wheel zoom** follows how far you scroll, at most one notch per wheel event, so high-resolution wheels and
+  touchpads no longer zoom far too fast. **View > Zoom speed**: Slow, Normal, Fast.
+- **View > Mouse style**: Onshape (the default, unchanged), Touchpad (two-finger scroll pans, pinch or
+  Ctrl + scroll zooms, Alt-drag turns), and the FreeCAD-style CAD, Gesture, Blender, SolidWorks, OpenInventor,
+  Revit and OpenSCAD. A click without moving still selects in every style. All bindings are one table in
+  `freeshape/ui/navstyles.py`.
+- **Ctrl+Shift+arrow** pans the view.
+- **N** in the 3D view squares up to the flat face, plane or sketch under the mouse (or else the selected one)
+  from the nearer side; again for the other side. With nothing flat there it looks from the opposite side (Right
+  becomes Left); over a curved face it does nothing. (Issue #13.)
+- **Shift+E / Shift+W while sketching** finish the sketch and open Extrude / Revolve with its areas picked.
+- **Open, Save as, Import and Export** dialogs start in the folder you used last.
+
 ### 1.9.1 — stage 2 preview: drawings and cutting
 - **Section views**: click *Section view*, click two points across a view for the cutting line (it snaps level
   or upright; it can start just outside the view), then click beside it to place the section — you look from the

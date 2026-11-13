@@ -1276,6 +1276,7 @@ def export_stl(shapes, path, defl=0.05):
     shp = compound(shapes) if len(shapes) != 1 else shapes[0]
     BRepMesh_IncrementalMesh(shp, defl, False, 0.3, True)
     w = StlAPI_Writer()
+    w.ASCIIMode = False            # binary STL: about a fifth of the size of text STL for curved parts
     if not w.Write(shp, str(path)):
         raise KernelError("STL export failed")
 

@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog,
 from .. import drawing as DW
 from .. import kernel as K
 from ..drawing import DIRECTIONS, LAYER_STYLE, SCALES, SHEETS, TITLE_FIELDS, scale_label
+from . import filedlg
 from .icons import icon
 
 ROLE_ID = Qt.UserRole + 1
@@ -1818,7 +1819,7 @@ class DrawingController:
         if not self.wait_exact():
             return
         if fmt_ == "pdf":
-            path, _ = QFileDialog.getSaveFileName(self.w, "Export PDF", base + ".pdf", "PDF (*.pdf)")
+            path, _ = filedlg.getSaveFileName(self.w, "Export PDF", base + ".pdf", "PDF (*.pdf)")
             if not path:
                 return
             if not path.lower().endswith(".pdf"):
@@ -1852,7 +1853,7 @@ class DrawingController:
         lay.addWidget(bb)
         if abs(sc - 1.0) > 1e-12 and dlg.exec() != QDialog.Accepted:
             return
-        path, _ = QFileDialog.getSaveFileName(self.w, "Export DXF", base + ".dxf", "DXF (*.dxf)")
+        path, _ = filedlg.getSaveFileName(self.w, "Export DXF", base + ".dxf", "DXF (*.dxf)")
         if not path:
             return
         if not path.lower().endswith(".dxf"):

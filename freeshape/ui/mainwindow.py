@@ -21,6 +21,7 @@ from ..assembly import AssemblyDoc
 from ..drawing import DrawingDoc
 from ..sketch import Sketch
 from . import theme
+from . import filedlg
 from .icons import icon
 from .viewport import Viewport, Pick
 from .panels import LeftPanel, STD_PLANES, DocTabBar
@@ -75,6 +76,8 @@ class MainWindow(QMainWindow):
         self._bind_shortcuts()
         self.set_theme(str(self.settings.value("theme", "light")), save=False)
         self.set_orbit_mode(str(self.settings.value("orbit", "cursor")), save=False)
+        self.set_nav_style(str(self.settings.value("nav_style", "onshape")), save=False)
+        self.set_zoom_speed(str(self.settings.value("zoom_speed", "normal")), save=False)
         self.set_shiny(str(self.settings.value("shiny", "true")).lower() != "false", save=False)
         self._add_tab(self._new_document())
         self._autosave_timer = QTimer(self)
@@ -291,6 +294,27 @@ class MainWindow(QMainWindow):
             rgrp.addAction(a)
             rm.addAction(a)
             self.orbit_actions[mode] = a
+        from . import navstyles as NS
+        mm = vm.addMenu("Mouse style")
+        mgrp = _AG(self)
+        self.nav_actions = {}
+        for key, st in NS.STYLES.items():
+            a = QAction(st["label"], self)
+            a.setCheckable(True)
+            a.triggered.connect(lambda _=False, k=key: self.set_nav_style(k))
+            mgrp.addAction(a)
+            mm.addAction(a)
+            self.nav_actions[key] = a
+        zm = vm.addMenu("Zoom speed")
+        zgrp = _AG(self)
+        self.zoom_actions = {}
+        for key, label, _v in NS.ZOOM_SPEEDS:
+            a = QAction(label, self)
+            a.setCheckable(True)
+            a.triggered.connect(lambda _=False, k=key: self.set_zoom_speed(k))
+            zgrp.addAction(a)
+            zm.addAction(a)
+            self.zoom_actions[key] = a
         vm.addSeparator()
         tm = vm.addMenu("Theme")
         from PySide6.QtGui import QActionGroup
@@ -699,11 +723,11 @@ class MainWindow(QMainWindow):
         sc("Ctrl+Y", self.redo)
         sc("Ctrl+Shift+Z", self.redo)
         sc("Shift+S", lambda: self.start_sketch() if self.mode == "idle" and not self.is_dwg else None)
-        sc("Shift+E", lambda: self.start_feature("extrude"))
-        sc("Shift+W", lambda: self.start_feature("revolve"))
+        sc("Shift+E", lambda: self._feature_from_sketch("extrude"))
+        sc("Shift+W", lambda: self._feature_from_sketch("revolve"))
         sc("Shift+F", lambda: self.asm.start_mate("fastened") if self.is_asm else self.start_feature("fillet"))
 
-        sc("N", lambda: self.dwg.set_tool("note") if self.is_dwg else self._normal_to_sketch())
+        sc("N", lambda: self.dwg.set_tool("note") if self.is_dwg else self._normal_key())
         sc("Delete", self._delete_key)
         sc("Escape", self._escape)
 
@@ -1090,6 +1114,65 @@ class MainWindow(QMainWindow):
         self.tool_stack.setCurrentIndex(0)
         self._populate_lists()
 
+    def _feature_from_sketch(self, ftype):
+        """Shift+E / Shift+W: in a sketch, finish it and open Extrude / Revolve with its areas picked; otherwise
+        just open the feature."""
+        if self.mode == "sketch" and self.sk_ctx:
+            fid = self.sk_ctx["feature"]["id"]
+            self.finish_sketch()
+            if self.mode != "idle" or self.doc.feature(fid) is None:
+                return
+            self.start_feature(ftype)
+            if self.dialog is not None:
+                self._tree_sketch_to_dialog(fid)
+            return
+        self.start_feature(ftype)
+
+    def _normal_key(self):
+        """N: inside a sketch, look straight at it (as before). In the 3D view: look straight at the flat face,
+        plane or sketch under the mouse (or else the selected one) from the nearer side — again for the other
+        side; with nothing flat there, look from the opposite side. A curved face under the mouse: nothing."""
+        if self.mode == "sketch" and self.sketcher:
+            self._normal_to_sketch()
+            return
+        vp = self.viewport
+        kinds = {"face", "plane", "region", "sketch_line"}
+        pk = None
+        xy = getattr(vp, "_cursor_xy", None)
+        if xy is not None:
+            pk = vp.pick(xy[0], xy[1], kinds=kinds)
+        if pk is None:
+            pk = next((q for q in vp.selection if q.kind in kinds), None)
+        if pk is None:
+            vp.look_along(None)
+            return
+        try:
+            plane = self._flat_plane_of(pk)
+        except Exception:
+            plane = None
+        if plane is None:
+            return                                         # curved: nothing to square up to
+        vp.look_along(plane[0], plane[1])
+
+    def _flat_plane_of(self, pk):
+        """(normal, a point on it) for a flat face, a plane or a sketch; None if it isn't flat."""
+        if pk.kind == "face":
+            shape = self.viewport.part_shapes.get(pk.key[0])
+            if shape is None:
+                return None
+            face = K.faces(shape)[pk.key[1]]
+            pl = K.planar_face_plane(face)
+            return None if pl is None else (pl.normal, K.interior_point(face))
+        if pk.kind in ("region", "sketch_line"):
+            sr = self.doc.state.sketches.get(pk.key[0]) if not self.is_asm else None
+            return None if sr is None else (sr.plane.normal, None)
+        if pk.kind == "plane":
+            item = pick_to_item(self.viewport, pk, {"plane"})
+            if item:
+                pl = F.resolve_plane(self.doc.state, item[1])
+                return pl.normal, None
+        return None
+
     def _normal_to_sketch(self):
         if self.sketcher:
             self.viewport.normal_to(self.sketcher.plane)
@@ -1111,6 +1194,26 @@ class MainWindow(QMainWindow):
         self.viewport.update()
         if save:
             self.settings.setValue("shiny", "true" if on else "false")
+
+    def set_nav_style(self, key, save=True):
+        from . import navstyles as NS
+        key = key if key in NS.STYLES else NS.DEFAULT
+        self.viewport.nav_style = key
+        for k, a in getattr(self, "nav_actions", {}).items():
+            a.setChecked(k == key)
+        if save:
+            self.settings.setValue("nav_style", key)
+            self.status.showMessage(f"Mouse style: {NS.STYLES[key]['label']}", 4000)
+
+    def set_zoom_speed(self, key, save=True):
+        from . import navstyles as NS
+        speeds = {k: v for k, _l, v in NS.ZOOM_SPEEDS}
+        key = key if key in speeds else "normal"
+        self.viewport.zoom_speed = speeds[key]
+        for k, a in getattr(self, "zoom_actions", {}).items():
+            a.setChecked(k == key)
+        if save:
+            self.settings.setValue("zoom_speed", key)
 
     def set_orbit_mode(self, mode, save=True):
         mode = mode if mode in ("cursor", "centre", "origin") else "cursor"
@@ -1530,7 +1633,7 @@ class MainWindow(QMainWindow):
                 return
             pid = ids[names.index(name)]
         part = state.parts[pid]
-        path, _ = QFileDialog.getSaveFileName(self, "Export flat pattern", part.name.replace(" ", "_") + "_flat.dxf",
+        path, _ = filedlg.getSaveFileName(self, "Export flat pattern", part.name.replace(" ", "_") + "_flat.dxf",
                                               "DXF (*.dxf)")
         if not path:
             return
@@ -2588,7 +2691,7 @@ class MainWindow(QMainWindow):
 
     def open_dialog(self):
         self._leave_modes()
-        path, _ = QFileDialog.getOpenFileName(
+        path, _ = filedlg.getOpenFileName(
             self, "Open", "", "FreeShape documents, STEP and BREP files (*.fshape *.fasm *.fdwg *.fcad *.step *.stp *.brep *.brp);;"
             "Part Studios (*.fshape *.fcad);;Assemblies (*.fasm);;Drawings (*.fdwg);;STEP files (*.step *.stp);;BREP files (*.brep *.brp);;"
             "All files (*)")
@@ -2671,7 +2774,7 @@ class MainWindow(QMainWindow):
         ext = ".fdwg" if self.is_dwg else ".fasm" if self.is_asm else ".fshape"
         filt = "FreeShape drawings (*.fdwg)" if self.is_dwg else "FreeShape assemblies (*.fasm)" if self.is_asm \
             else "FreeShape documents (*.fshape)"
-        path, _ = QFileDialog.getSaveFileName(self, "Save as", self.doc.path or f"{self.doc.name}{ext}", filt)
+        path, _ = filedlg.getSaveFileName(self, "Save as", self.doc.path or f"{self.doc.name}{ext}", filt)
         if not path:
             return False
         if not path.lower().endswith(ext):
@@ -2682,7 +2785,7 @@ class MainWindow(QMainWindow):
     def import_step(self, into_current=False):
         if self.mode != "idle":
             self._leave_modes()
-        path, _ = QFileDialog.getOpenFileName(self, "Import", "", "STEP or BREP files (*.step *.stp *.brep *.brp);;"
+        path, _ = filedlg.getOpenFileName(self, "Import", "", "STEP or BREP files (*.step *.stp *.brep *.brp);;"
                                               "STEP files (*.step *.stp);;BREP files (*.brep *.brp);;All files (*)")
         if path:
             self.import_step_file(path, into_current)
@@ -2758,7 +2861,7 @@ class MainWindow(QMainWindow):
         filters = ";;".join(f for _k, f, _e in self.EXPORT_FORMATS)
         sel = next(f for k, f, _e in self.EXPORT_FORMATS if k == fmt_)
         ext = next(e for k, _f, e in self.EXPORT_FORMATS if k == fmt_)
-        path, chosen = QFileDialog.getSaveFileName(self, title, base + ext, filters, sel)
+        path, chosen = filedlg.getSaveFileName(self, title, base + ext, filters, sel)
         if not path:
             return None
         if not os.path.splitext(path)[1]:

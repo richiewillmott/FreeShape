@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QLabel
 from .. import kernel as K
 from . import theme
 from . import boxsel
+from . import navstyles
 from .camera import Camera, STANDARD_VIEWS, basis
 
 PLANE_HALF = 75.0          # the default planes are 150 x 150 mm
@@ -163,6 +164,9 @@ class Viewport(QOpenGLWidget):
         self.drag_handler = None  # assemblies: object with press(x, y, e) -> bool, move(x, y, e), release(x, y, e)
         self._part_drag = False
         self.orbit_mode = "cursor"     # what right-drag rotates about: cursor | centre | origin
+        self.nav_style = navstyles.DEFAULT   # mouse style (View > Mouse style)
+        self.zoom_speed = 1.0                # View > Zoom speed
+        self._nav = None                     # what the current drag does: orbit / pan / zoom / None
         self._thumb = False            # drawing a clean picture for the home page
         self._orbiting = False
         self.last_click = None
@@ -358,6 +362,34 @@ class Viewport(QOpenGLWidget):
             self.animate_to((target, R, scale))
         else:
             self.cam.set_state((target, R, scale))
+            self.update()
+
+    def look_along(self, normal=None, anchor=None, animate=True):
+        """N in the 3D view. With a flat thing's normal: look straight at it from whichever side is nearer, or
+        from the other side if the view already is. With None: look from the opposite side (Right -> Left).
+        Keeps the zoom and the way up; centres on `anchor` if given."""
+        R = self.cam.R
+        back, up = np.asarray(R[2], float), np.asarray(R[1], float)
+        if normal is None:
+            nb = -back
+        else:
+            n = np.asarray(normal, float) / (np.linalg.norm(normal) + 1e-300)
+            nb = n if float(n @ back) >= 0 else -n
+            if float(nb @ back) > 1 - 1e-6:                  # already square to it: the other side
+                nb = -nb
+        u = up - (up @ nb) * nb
+        if np.linalg.norm(u) < 1e-6:
+            u = np.asarray(R[2], float) - (np.asarray(R[2], float) @ nb) * nb
+        R2 = basis(nb, u / (np.linalg.norm(u) + 1e-300))
+        target = self.cam.target.copy()
+        if anchor is not None:
+            a = np.asarray(anchor, float)
+            target = a + ((target - a) @ nb) * nb             # bring the anchor to the middle of the view
+        state = (target, R2, self.cam.scale)
+        if animate:
+            self.animate_to(state)
+        else:
+            self.cam.set_state(state)
             self.update()
 
     def fit(self, animate=True):
@@ -1521,12 +1553,43 @@ class Viewport(QOpenGLWidget):
     def mousePressEvent(self, e):
         self._anim = None
         pos = e.position()
+        action = navstyles.drag_action(self.nav_style, e.buttons(), e.modifiers())
+        if self.sketcher and e.buttons() == Qt.LeftButton:
+            action = None                                  # in a sketch the left button draws and selects
+        if self._press is not None and e.buttons() != e.button():
+            # a second button joins a drag (a chord such as left + middle): switch to what the chord does
+            if action is not None:
+                self._nav = action
+                self._box_start, self._box, self._part_drag = None, None, False
+                if action == "orbit" and self._pivot is None:
+                    self._pivot = self.orbit_pivot(pos.x(), pos.y())
+            return
         self._press = (pos.x(), pos.y(), e.button())
         self._last = (pos.x(), pos.y())
         self._moved = False
         self._pivot = None
-        if e.button() == Qt.RightButton:
+        self._nav = action
+        if action == "orbit":
             self._pivot = self.orbit_pivot(pos.x(), pos.y())
+        if e.button() == Qt.LeftButton and action is not None:
+            # this style turns or moves the view with the left button: the cube and drag arrows still work,
+            # a click without moving still selects, but a drag doesn't draw a box
+            cube = self._cube_pick(pos.x(), pos.y())
+            if cube is not None:
+                self._press = None
+                self._nav = None
+                self._cube_click(cube)
+                return
+            mi = self._manip_hit(pos.x(), pos.y()) if self.manipulators else None
+            if mi is not None:
+                m = self.manipulators[mi]
+                t = self._manip_param(m, pos.x(), pos.y())
+                self._manip_drag = {"i": mi, "offset": (t - m["value"]) if t is not None else 0.0}
+                self._nav = None
+                return
+            self._part_drag = False
+            self._box_start, self._box = None, None
+            return
         if e.button() == Qt.LeftButton:
             cube = self._cube_pick(pos.x(), pos.y())
             if cube is not None:
@@ -1593,13 +1656,15 @@ class Viewport(QOpenGLWidget):
                 self._last = (x, y)
                 self.update()
                 return
-            if btn == Qt.RightButton and not (e.modifiers() & Qt.ControlModifier):
-                if self._moved:
-                    self.cam.orbit(dx, dy, self._pivot)
-                    self._orbiting = True
-                    self.update()
-            elif btn == Qt.MiddleButton or (btn == Qt.RightButton and e.modifiers() & Qt.ControlModifier):
-                self.cam.pan(dx, dy)
+            if self._nav is not None:
+                if self._nav == "orbit":
+                    if self._moved:
+                        self.cam.orbit(dx, dy, self._pivot)
+                        self._orbiting = True
+                elif self._nav == "pan":
+                    self.cam.pan(dx, dy)
+                elif self._nav == "zoom":                    # drag up to zoom in, about where the drag began
+                    self.cam.zoom(math.exp(dy * 0.01), self._press[0], self._press[1])
                 self.update()
             elif btn == Qt.LeftButton and self.sketcher:
                 self.sketcher.mouse_drag(self, x, y, e)
@@ -1735,6 +1800,9 @@ class Viewport(QOpenGLWidget):
                 m["on_done"]()
             self.update()
             return
+        nav, self._nav = self._nav, None
+        if nav is not None and self._moved:
+            return                                       # the drag turned / moved / zoomed the view: not a click
         if press[2] == Qt.RightButton and not self._moved:
             pk = self.pick(pos.x(), pos.y(), kinds={"face", "edge", "region", "plane", "sketch_line"}) \
                 if not self.sketcher else None
@@ -1786,11 +1854,23 @@ class Viewport(QOpenGLWidget):
     def wheelEvent(self, e):
         """Zoom at the cursor — glides over a few frames rather than jumping, like Onshape."""
         self._anim = None
+        act = navstyles.wheel_action(self.nav_style, e.modifiers())
+        if act == "pan":                                 # touchpad style: two-finger scroll moves the view
+            px = e.pixelDelta()
+            dx, dy = (px.x(), px.y()) if not px.isNull() else (e.angleDelta().x() / 4, e.angleDelta().y() / 4)
+            self.cam.pan(dx, dy)
+            self.update()
+            return
         delta = e.angleDelta().y()
         if delta == 0:
             return
         pos = e.position()
-        self._zoom_left += (delta / 120.0) * math.log(0.85)
+        # one wheel notch is 120; high-resolution wheels and touchpads send many small steps, so the zoom
+        # follows the amount scrolled, never more than one notch per event, times the zoom speed setting
+        steps = max(-1.0, min(1.0, delta / 120.0)) * self.zoom_speed
+        if act == "zoom_reverse":
+            steps = -steps
+        self._zoom_left += steps * math.log(0.85)
         self._zoom_at = (pos.x(), pos.y())
         if not self._zoom_timer.isActive():
             self._zoom_timer.start(12)
@@ -1837,7 +1917,29 @@ class Viewport(QOpenGLWidget):
         if k in self.ARROW_KEYS and plain and not self.sketcher:
             self.rotate_step(*self.ARROW_KEYS[k])
             return
+        mods = e.modifiers() & (Qt.ControlModifier | Qt.ShiftModifier | Qt.AltModifier | Qt.MetaModifier)
+        if k in self.ARROW_KEYS and mods == (Qt.ControlModifier | Qt.ShiftModifier):
+            # Ctrl+Shift+arrow pans, as in Onshape: the model moves the way the arrow points, a tenth of the view
+            sx, sy = {Qt.Key_Right: (1, 0), Qt.Key_Left: (-1, 0), Qt.Key_Up: (0, -1), Qt.Key_Down: (0, 1)}[k]
+            step = 0.1 * min(self.width(), self.height())
+            self.cam.pan(sx * step, sy * step)
+            self.update()
+            return
         super().keyPressEvent(e)
+
+    def event(self, e):
+        # touchpad pinch zooms at the fingers
+        from PySide6.QtCore import QEvent
+        if e.type() == QEvent.NativeGesture:
+            try:
+                if e.gestureType() == Qt.ZoomNativeGesture:
+                    p = e.position()
+                    self.cam.zoom(math.exp(-float(e.value())), p.x(), p.y())
+                    self.update()
+                    return True
+            except Exception:
+                pass
+        return super().event(e)
 
     def set_hover_none(self):
         if self.hover is not None:

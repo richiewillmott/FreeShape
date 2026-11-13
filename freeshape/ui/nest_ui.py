@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import nesting as N
+from . import filedlg
 
 
 class _Preview(QWidget):
@@ -257,7 +258,7 @@ class NestDialog(QDialog):
         if self.res is None or not self.res.count:
             return
         name = (getattr(self.doc, "name", "") or "nest").replace(" ", "_") + "_nest.dxf"
-        path, _ = QFileDialog.getSaveFileName(self, "Export nested sheets", name, "DXF (*.dxf)")
+        path, _ = filedlg.getSaveFileName(self, "Export nested sheets", name, "DXF (*.dxf)")
         if not path:
             return
         if not path.lower().endswith(".dxf"):

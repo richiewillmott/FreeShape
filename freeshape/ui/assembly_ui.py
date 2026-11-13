@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
 
 from .. import kernel as K
 from .. import assembly as A
+from . import filedlg
 from .icons import icon
 from .numparse import parse_number, fmt
 from .panels import swatch
@@ -289,7 +290,7 @@ class InsertPanel(QFrame):
         self.msg.setText(f"Inserted {it.text(0)}")
 
     def _from_file(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Insert from file", "",
+        path, _ = filedlg.getOpenFileName(self, "Insert from file", "",
                                               "Parts (*.fshape *.fcad *.step *.stp);;All files (*)")
         if not path:
             return
@@ -785,7 +786,7 @@ class BomDialog(QDialog):
         return "\n".join(out) + "\n"
 
     def _export(self):
-        path, _ = QFileDialog.getSaveFileName(self, "Export bill of materials", "bom.csv", "CSV (*.csv)")
+        path, _ = filedlg.getSaveFileName(self, "Export bill of materials", "bom.csv", "CSV (*.csv)")
         if path:
             if not path.lower().endswith(".csv"):
                 path += ".csv"
