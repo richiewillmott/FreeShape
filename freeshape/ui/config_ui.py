@@ -120,6 +120,8 @@ class ConfigDialog(QDialog):
             self._add_row(r)
 
     def _refresh_active(self, want=None):
+        if not hasattr(self, "active"):
+            return                         # still filling the table; __init__ sets the Active box afterwards
         cur = self.active.currentText() if want is None else None
         self.active.blockSignals(True)
         self.active.clear()

@@ -233,3 +233,16 @@ def test_tab_inside_the_sheet_is_refused_with_a_reason():
         assert False, "a tab inside the sheet adds nothing and should say so"
     except K.KernelError as e:
         assert "inside the sheet" in str(e)
+
+
+def test_configurations_window_opens_again_with_its_rows():
+    import os as _os
+    _os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from freeshape.ui.config_ui import ConfigDialog
+    doc, _hole = _spacer()
+    doc.set_configs([{"name": "Thin", "vars": {"len": "2"}}, {"name": "Thick", "vars": {"len": "5"}}], active=1)
+    d = ConfigDialog(None, doc)                 # used to fail: rows were added before the Active box existed
+    assert d.table.rowCount() == 2 and d.active.currentText() == "Thick"
+    assert [r["name"] for r in d.rows()] == ["Thin", "Thick"]
