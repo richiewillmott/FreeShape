@@ -59,6 +59,21 @@ class Sketch:
         return {"points": copy.deepcopy(self.points), "entities": copy.deepcopy(self.entities),
                 "constraints": copy.deepcopy(self.constraints)}
 
+    def helper_ids(self) -> set:
+        """Construction lines that only hold the sketch together — the diagonal of a centre rectangle, copies of
+        part edges made by snapping — which are shown while editing the sketch but not in the 3D view."""
+        out = {k for k, e in self.entities.items() if e.get("helper")}
+        used = set()
+        for e in self.entities.values():
+            if e["type"] == "line" and not e.get("construction"):
+                used |= {e["p1"], e["p2"]}
+        for c in self.constraints:
+            if c["type"] == "midpoint" and len(c.get("refs", [])) > 1:
+                e = self.entities.get(c["refs"][1])
+                if e and e["type"] == "line" and e.get("construction") and e["p1"] in used and e["p2"] in used:
+                    out.add(c["refs"][1])      # a centre rectangle's diagonal (older files have no "helper" flag)
+        return out
+
     @staticmethod
     def from_dict(d) -> "Sketch":
         s = Sketch()

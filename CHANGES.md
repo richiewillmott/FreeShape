@@ -9,6 +9,10 @@
   the edge is added for it), so the sketch stays attached to the part.
 - **Dimension from the part**: with the Dimension tool, click a corner of the face (or any part edge, as before)
   and then your sketch geometry.
+- Drawing a horizontal or vertical line up to one of the face's edges ends it exactly on the edge, keeping it
+  level / upright.
+- The dashed diagonal that holds a centre rectangle's centre (and the edge copies made by snapping) only shows
+  while you edit the sketch, not in the 3D view afterwards.
 
 ### 1.9.3 — stage 4 preview: configurations, derived parts, more sheet metal
 - **Configurations**: the Configurations button opens a table — each row a configuration (say "M5 × 20",

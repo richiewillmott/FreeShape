@@ -278,7 +278,8 @@ class Sketcher:
         if h and self.sk.entities[h[1]]["type"] != "point" and not pick:
             uv = self._project_on(h[1], uv)
             return uv, ("on", h[1])
-        me = self._model_edge_hit(vp, x, y) if not pick else None
+        me = self._model_edge_hit(vp, x, y) if not pick else (
+            self._model_edge_on_guide(vp, x, y, uv, pick) if len(pick) == 1 else None)
         if me:
             m_uv, key = me
             self.model_hover = key
@@ -363,6 +364,24 @@ class Sketcher:
                 best = (float(d[i]), (m_uv, (pid, ei, "on")))
         return best[1]
 
+    def _model_edge_on_guide(self, vp, x, y, uv, pick, tol=12.0):
+        """With a horizontal / vertical guide on, where the guide crosses an edge of the face near the cursor."""
+        axis = next(iter(pick))
+        k = 1 if axis == "H" else 0           # H: v is fixed; V: u is fixed
+        c = float(uv[k])
+        best = (tol, None)
+        for pid, ei, uvs, _pts in self._model_geo(vp):
+            a, b = uvs[:-1], uvs[1:]
+            da, db = a[:, k] - c, b[:, k] - c
+            for i in np.nonzero((da * db <= 0) & (np.abs(db - da) > 1e-12))[0]:
+                q = a[i] + (b[i] - a[i]) * (da[i] / (da[i] - db[i]))
+                q[k] = c
+                sq = self.scr(vp, q)
+                d = float(np.hypot(sq[0] - x, sq[1] - y))
+                if d < best[0]:
+                    best = (d, (q, (pid, ei, "on")))
+        return best[1]
+
     def _model_point(self, uv, snap):
         """A sketch point for a click snapped to the face being sketched on: a fixed point on a corner, edge
         midpoint or centre (so you can dimension from it), or a point held on the projected edge."""
@@ -378,6 +397,8 @@ class Sketcher:
             class _Pk:
                 kind, key = "edge", (part, ei)
             eid = self._use_edge(vp, _Pk(), construction=True, undo=False)
+            if eid in sk.entities:
+                sk.entities[eid]["helper"] = True
         pid = sk.add_point(*uv)
         if eid in sk.entities and sk.entities[eid]["type"] in ("line", "circle", "arc"):
             sk.add_constraint("point_on", pid, eid)
@@ -1036,6 +1057,7 @@ class Sketcher:
             sk.add_constraint("vertical", l4)
             if t == "center_rect":
                 diag = sk.add_line(a, c, True)
+                sk.entities[diag]["helper"] = True
                 sk.add_constraint("midpoint", ctr, diag)
             self.temp = []
             self.changed(True)

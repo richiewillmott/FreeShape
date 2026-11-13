@@ -918,7 +918,10 @@ class Viewport(QOpenGLWidget):
             if self.sketcher and self.sketcher.fid == fid:
                 continue
             sk = sr.sketch
+            helpers = sk.helper_ids()
             for eid, e in sk.entities.items():
+                if eid in helpers:
+                    continue
                 pk = Pick("sketch_line", (fid, eid))
                 col = self._sel_color(pk) or (theme.SKETCH_CONSTRUCTION if e.get("construction") else theme.SKETCH_REMOTE)
                 if e.get("construction"):
@@ -1340,8 +1343,9 @@ class Viewport(QOpenGLWidget):
             for fid, sr, _ in self.sketches:
                 if self.sketcher and self.sketcher.fid == fid:
                     continue
+                helpers = sr.sketch.helper_ids()
                 for eid, e in sr.sketch.entities.items():
-                    if e["type"] == "point":
+                    if e["type"] == "point" or eid in helpers:
                         continue
                     for poly in sr.sketch.polylines(eid, 32):
                         if len(poly) < 2:
@@ -1526,8 +1530,9 @@ class Viewport(QOpenGLWidget):
         want_sl, want_reg = want("sketch_line"), want("region") and not self.hidden_sketch_regions
         for fid, sr, meshes in self.sketches:
             if want_sl:
+                helpers = sr.sketch.helper_ids()
                 for eid, e in sr.sketch.entities.items():
-                    if e["type"] == "point":
+                    if e["type"] == "point" or eid in helpers:
                         continue
                     pts = np.array([sr.plane.to_world(u, v) for u, v in sr.sketch.polyline(eid, 32)], float)
                     if len(pts) >= 2 and boxsel.polyline_selected(self.cam.to_screen(pts)[:, :2], rect, crossing):
