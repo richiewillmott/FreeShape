@@ -214,3 +214,25 @@ def test_feature_pattern_follows_edits_to_the_original():
     s.entities[cid]["r"] = 2.0
     doc.replace_feature({**sk, "params": {**sk["params"], "sketch": s.to_dict()}})
     assert abs(_vol(doc.state.parts[pid].shape) - (60 * 60 * 5 - 6 * math.pi * 4 * 5)) < 1e-3
+
+
+# ------------------------------------------------------------------ fixes
+def test_horizontal_replaces_vertical_and_turns_the_line():
+    from PySide6.QtWidgets import QApplication
+    QApplication.instance() or QApplication([])
+    from freeshape.ui.sketcher import Sketcher
+    sk = Sketch()
+    a, b = sk.add_point(10, -20), sk.add_point(10, 0)
+    l1 = sk.add_line(a, b)
+    c, d = sk.add_point(30, 10), sk.add_point(30, 30)
+    l2 = sk.add_line(c, d)
+    S = Sketcher(K.std_plane("Top"), sk, "F1", lambda *a: None)
+    S._apply_constraint("vertical", [l1])
+    S._apply_constraint("vertical", [l2])
+    S._apply_constraint("horizontal", [l1, l2])               # both lines selected, then H
+    for line in (l1, l2):
+        e = sk.entities[line]
+        assert [k["type"] for k in sk.constraints if k["refs"] == [line]] == ["horizontal"]
+        assert abs(np.linalg.norm(sk.P(e["p2"]) - sk.P(e["p1"])) - 20) < 1e-6      # turned, not squashed
+    S._apply_constraint("horizontal", [l1])
+    assert sum(k["type"] == "horizontal" for k in sk.constraints) == 2           # no duplicate

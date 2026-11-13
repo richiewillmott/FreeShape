@@ -726,8 +726,9 @@ class Sketcher:
                         made.append(("fix", [pid], list(sk.points[pid])))
                 if p in sk.entities and sk.entities[p]["type"] == "circle":
                     made.append(("radius", [p], sk.entities[p]["r"]))
-        elif len(picks) == 1 and tool in ("horizontal", "vertical") and types[0] == "line":
-            made.append((tool, [picks[0]], None))
+        elif tool in ("horizontal", "vertical") and picks and all(t == "line" for t in types):
+            for p in picks:                        # one or several lines: each one made horizontal / vertical
+                made.append((tool, [p], None))
         elif len(picks) == 2:
             a, b = picks
             ta, tb = types
@@ -787,9 +788,48 @@ class Sketcher:
             return False
         self.push_undo()
         for t, refs, val in made:
+            if t in ("horizontal", "vertical"):
+                # a line can't be both: horizontal replaces vertical and the other way round (otherwise the line
+                # shrinks to a dot), and asking again for what it already is changes nothing
+                pair = self._hv_pair(refs)
+                other = "vertical" if t == "horizontal" else "horizontal"
+                if any(c["type"] == t and self._hv_pair(c["refs"]) == pair for c in sk.constraints):
+                    continue
+                sk.constraints = [c for c in sk.constraints
+                                  if not (c["type"] == other and self._hv_pair(c["refs"]) == pair)]
+                self._swing_to(pair, t)
             sk.add_constraint(t, *refs, value=val)
         self.changed(True)
         return True
+
+    def _swing_to(self, pair, t):
+        """Turn two points about their midpoint so they line up horizontally / vertically, keeping their distance.
+        Without this a vertical line made horizontal is squashed to a dot (the smallest move that satisfies the
+        solver), instead of being turned."""
+        sk = self.sk
+        a, b = sorted(pair)
+        if ORIGIN in (a, b) or a not in sk.points or b not in sk.points:
+            return
+        A, B = sk.P(a), sk.P(b)
+        d = B - A
+        L = float(np.linalg.norm(d))
+        along = abs(d[0]) if t == "horizontal" else abs(d[1])
+        across = abs(d[1]) if t == "horizontal" else abs(d[0])
+        if L < 1e-9 or along >= across:
+            return                              # already more that way than the other: the solver just nudges it
+        m = (A + B) / 2
+        sgn = 1.0 if (d[1] if t == "horizontal" else d[0]) >= 0 else -1.0
+        half = np.array([sgn * L / 2, 0.0]) if t == "horizontal" else np.array([0.0, sgn * L / 2])
+        sk.points[a] = (m - half).tolist()
+        sk.points[b] = (m + half).tolist()
+
+    def _hv_pair(self, refs):
+        """The two points a horizontal / vertical constraint lines up (from a line, or two points), unordered."""
+        sk = self.sk
+        if len(refs) == 1 and refs[0] in sk.entities and sk.entities[refs[0]].get("type") == "line":
+            e = sk.entities[refs[0]]
+            return frozenset((e["p1"], e["p2"]))
+        return frozenset(refs[:2])
 
     # ------------------------------------------------------------------ drawing tools
     def _draw_click(self, vp, x, y):
