@@ -101,6 +101,8 @@ else needed:
   `chmod +x FreeShape-2.0.0-x86_64.AppImage && ./FreeShape-2.0.0-x86_64.AppImage`
   (or right-click → Properties → "Allow executing as program", then double-click). If it says FUSE is missing, run
   it with `--appimage-extract-and-run`, or install `libfuse2` (Ubuntu: `sudo apt install libfuse2t64`).
+  Using the [AM package manager](https://github.com/ivan-hc/AM)? Install and update it with `am -i freeshape`
+  (it's in the [Portable Linux Apps](https://portable-linux-apps.github.io/) catalogue).
 
 Want to run it from the source code, change it, or build the installers yourself? See **[BUILDING.md](BUILDING.md)**.
 
