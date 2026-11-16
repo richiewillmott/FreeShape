@@ -144,6 +144,9 @@ The view turns to face the sketch plane.
 | Slot | | click the two end centres, type the width |
 | Mirror | | select geometry, then click the line to mirror about — the copy stays linked to the original |
 | Linear / circular pattern | | select geometry, then click a direction line (copies go towards where you click) or a centre point; type the count and spacing / angle |
+| Spline | | click the points the curve passes through; double-click or Enter to finish, or click the first point to close it |
+| Ellipse | | centre, end of the long axis, then the width |
+| Text | | click where it starts and type; choose font, size, bold / italic and angle. Letters are real outlines you can extrude, cut or engrave |
 
 **Typing sizes as you draw:** right after you finish a line, rectangle, circle or arc, a dimension box pops up — type a value (e.g. `25`, `1/2 in`) and press Enter and the shape snaps to it. For a rectangle you get width, then height. Just keep drawing (or press Esc) to skip it.
 
@@ -160,9 +163,10 @@ feature list, so you can define them part-way through and use them in later feat
 **Part features** — each opens a floating dialog with a live preview; ✓ (Enter) accepts, ✕ (Esc) cancels.
 Things selected before opening a feature are pre-filled. Extrude and Plane show a **blue arrow you can drag** to set the depth/offset (drag back past the start to flip direction; hold Shift for finer, unsnapped values).
 
-- **Extrude** — New / Add / Remove / Intersect; Blind, Symmetric, Through all; second direction. Cuts
-  automatically go into the material.
-- **Revolve** — around a sketch line, a part edge, or the X/Y/Z axis; full, one direction or symmetric.
+- **Extrude** — New / Add / Remove / Intersect; Blind, Symmetric, Through all, Up to next / face / part /
+  vertex; second direction. Cuts automatically go into the material.
+- **Revolve** — around a sketch line, a part edge, or the X/Y/Z axis; full, one direction, symmetric or up to
+  a face, part or vertex.
 - **Fillet / Chamfer** — pick edges, or a face to do all its edges.
 - **Shell** — pick faces to remove, inward or outward.
 - **Hole** — at the points and circle centres of a sketch (click the sketch, or pick it in the dialog);
@@ -177,13 +181,15 @@ Things selected before opening a feature are pre-filled. Extrude and Plane show 
 - **Sweep** — a profile along a path (connected sketch curves or part edges), e.g. pipes and handles.
 - **Loft** — blend between two or more profiles on different planes; tick *Straight sides* for a ruled loft.
 - **Draft** — tilt faces by an angle from a neutral plane, for moulded or 3D-printed parts.
-- **Split** — cut parts in two with a plane or flat face; keep both sides or one.
+- **Split** — cut parts with planes, flat or curved faces, or sketch curves — several tools at once — keeping
+  both sides or just the side each arrow points to.
 - **Move** — move and/or rotate parts (or imports), optionally keeping the original as a copy.
 - **Plane** — offset, plane + point, line + angle, point + edge normal, three points, mid plane, curve + point or
   tangent; *Automatic* picks the type from your selection.
 - **Delete face / Move face / Offset surface** — remove fillets, chamfers, bosses and holes from imported parts
   (heal, cap or leave open), push or pull flat faces, or make a surface a set distance from faces.
-- **Mirror**, **Linear pattern**, **Circular pattern** — of parts.
+- **Mirror**, **Linear pattern**, **Circular pattern** — of whole parts, or of features (repeat a hole, pocket
+  or boss; the copies follow when you edit the original).
 - **Boolean** — union, subtract, intersect parts.
 - **Import STEP / BREP** and **Export STEP / STL / BREP** (whole studio, or selected parts from the Parts list).
 
@@ -276,8 +282,12 @@ Part Studios save as `.fshape`, and older `.fcad` files still open (plain JSON o
 Where two bends meet at a corner, a **corner relief** (a square notch, 1.5 × thickness by default) is cut
 automatically so the corner folds cleanly; turn it off or change its size in the Sheet metal feature.
 
-The flat is exact: each bend uses *angle × (radius + K × thickness)* of sheet. Not yet: hems, jogs, rolled /
-conical sheet, and cuts that cross a bend (they're left out of the flat).
+**Hems**, **jogs** and **tabs** add to the sheet, and **Convert to sheet metal** turns a flat plate of even
+thickness (imported or extruded) into sheet metal. **Nesting** lays flat patterns out on stock sheets, with
+material use, weight and cost, and exports the layout to DXF.
+
+The flat is exact: each bend uses *angle × (radius + K × thickness)* of sheet. Not yet: rolled / conical sheet,
+and cuts that cross a bend (they're left out of the flat).
 
 ## Drawings
 
@@ -316,9 +326,11 @@ Run a Python script…** runs a script against the open Part Studio — both are
 
 This is a capable hobby/prototyping tool, not a replacement for Onshape:
 
-- **No FeatureScript.** Sheet metal covers flanges, corner reliefs and flat patterns, not hems or jogs. Assemblies are one level deep (no sub-assemblies yet), and
-  there are no gear / rack / screw relations, mate limits or exploded views.
-- Drawings have no section, detail or broken views, angle dimensions, hole tables, GD&T or multiple sheets yet.
+- **No FeatureScript** (Python plugins cover some of the same ground — see [PLUGINS.md](PLUGINS.md)).
+- Assemblies are one level deep (no sub-assemblies yet), and there are no mate limits.
+- Sheet metal has no rolled / conical sheet, and cuts that cross a bend are left out of the flat pattern.
+- Drawings have no broken views, angle dimensions, hole tables, GD&T or multiple sheets yet.
+- The installers aren't code-signed yet, so Windows and macOS warn the first time you run them.
 - **No real-time collaboration, branching or cloud storage** (it is deliberately local).
 - **Reference tracking is geometric**: after an upstream edit, later features re-find their faces, edges and
   regions by position and shape. That handles resizing and most edits well, but a drastic topology change can
