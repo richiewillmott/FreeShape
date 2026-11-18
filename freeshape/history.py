@@ -16,15 +16,19 @@ BLOB_MIN = 2000            # imported geometry bigger than this is stored once, 
 
 
 # ---------------------------------------------------------------------- snapshots
+BLOB_KEYS = ("data", "brep")   # an import's STEP (older files) or its saved geometry
+
+
 def _blobify(features, blobs):
     out = copy.deepcopy(features)
     for f in out:
         p = f.get("params", {})
-        d = p.get("data")
-        if isinstance(d, str) and len(d) > BLOB_MIN:
-            h = hashlib.sha1(d.encode()).hexdigest()
-            blobs.setdefault(h, d)
-            p["data"] = "@blob:" + h
+        for key in BLOB_KEYS:
+            d = p.get(key)
+            if isinstance(d, str) and len(d) > BLOB_MIN:
+                h = hashlib.sha1(d.encode()).hexdigest()
+                blobs.setdefault(h, d)
+                p[key] = "@blob:" + h
     return out
 
 
@@ -32,9 +36,10 @@ def _unblob(features, blobs):
     out = copy.deepcopy(features)
     for f in out:
         p = f.get("params", {})
-        d = p.get("data")
-        if isinstance(d, str) and d.startswith("@blob:"):
-            p["data"] = blobs.get(d[6:], "")
+        for key in BLOB_KEYS:
+            d = p.get(key)
+            if isinstance(d, str) and d.startswith("@blob:"):
+                p[key] = blobs.get(d[6:], "")
     return out
 
 
@@ -88,9 +93,10 @@ def _prune_blobs(doc):
     used = set()
     for v in doc.versions:
         for f in v["snapshot"]["features"]:
-            d = f.get("params", {}).get("data")
-            if isinstance(d, str) and d.startswith("@blob:"):
-                used.add(d[6:])
+            for key in BLOB_KEYS:
+                d = f.get("params", {}).get(key)
+                if isinstance(d, str) and d.startswith("@blob:"):
+                    used.add(d[6:])
     for h in list(doc.version_blobs):
         if h not in used:
             del doc.version_blobs[h]
@@ -230,7 +236,7 @@ def describe_params(ftype, old, new):
             out.append(f"#{new.get('name')}: {old.get('expr')} → {new.get('expr')}")
         return out
     if ftype == "import":
-        if old.get("data") != new.get("data"):
+        if old.get("data") != new.get("data") or old.get("brep") != new.get("brep"):
             out.append(f"Geometry replaced ({new.get('filename') or 'new file'})")
         return out
     for key in list(old) + [k for k in new if k not in old]:

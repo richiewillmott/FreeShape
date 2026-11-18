@@ -17,7 +17,7 @@ from .icons import CONSTRAINT_GLYPHS
 from .numparse import parse_number, fmt, has_vars
 from .. import sketch_ops as OPS
 
-DRAW_TOOLS = {"line", "rect", "center_rect", "circle", "arc3", "arc_center", "point", "spline", "ellipse", "text"}
+DRAW_TOOLS = {"line", "rect", "center_rect", "hexagon", "circle", "arc3", "arc_center", "point", "spline", "ellipse", "text"}
 
 # constraint tool -> (description, list of acceptable selection signatures)
 CONSTRAINT_TOOLS = {
@@ -39,6 +39,8 @@ TOOL_HINTS = {
     "line": "Click to start a line, click again to finish it. Lines chain — press Esc to stop.",
     "rect": "Click two opposite corners.",
     "center_rect": "Click the centre, then a corner.",
+    "hexagon": "Click the centre, then a corner. It snaps level near flat-top or point-top; type the size "
+               "across flats.",
     "circle": "Click the centre, then click to set the radius.",
     "arc3": "Click the start point, the end point, then a point on the arc.",
     "arc_center": "Click the centre, the start point, then sweep to the end point.",
@@ -58,6 +60,31 @@ TOOL_HINTS = {
     "sk_cpattern": "Select geometry, then click the centre point; type the count and angle.",
 }
 PICK_FIRST_TOOLS = {"sk_mirror", "sk_lpattern", "sk_cpattern"}   # keep the selection when chosen
+
+
+def _hexagon_angle(d, snap_deg=4.0):
+    """Angle of a hexagon's first corner from the centre-to-mouse vector d, and whether it snapped level:
+    'flat_top' (a corner at 0°, so top and bottom sides are level), 'point_top' (a corner at 90°), or None."""
+    ang = math.atan2(d[1], d[0])
+    k = math.degrees(ang) % 60.0
+    if min(k, 60.0 - k) < snap_deg:
+        return round(math.degrees(ang) / 60.0) * math.pi / 3, "flat_top"
+    if abs(k - 30.0) < snap_deg:
+        return (math.floor(math.degrees(ang) / 60.0) * 60.0 + 30.0) * math.pi / 180, "point_top"
+    return ang, None
+
+
+def _gl_draw(mode, world_pts):
+    """Draw a run of 3D points in one call (a vertex array) rather than one glVertex call per point."""
+    pts = np.ascontiguousarray(world_pts, np.float32)
+    if not len(pts):
+        return
+    GL.glEnableClientState(GL.GL_VERTEX_ARRAY)
+    try:
+        GL.glVertexPointer(3, GL.GL_FLOAT, 0, pts)
+        GL.glDrawArrays(mode, 0, len(pts))
+    finally:
+        GL.glDisableClientState(GL.GL_VERTEX_ARRAY)
 
 
 class Sketcher:
@@ -168,6 +195,25 @@ class Sketcher:
         s = vp.cam.to_screen(self.plane.to_world(float(uv[0]), float(uv[1])))
         return np.array([s[0], s[1]])
 
+    def scr_many(self, vp, uvs):
+        """Screen positions of many sketch points at once ((n,2) -> (n,2)): one numpy call, not one per point."""
+        uvs = np.asarray(uvs, float).reshape(-1, 2)
+        pl = self.plane
+        world = pl.origin + uvs[:, :1] * pl.xdir + uvs[:, 1:2] * pl.ydir
+        try:
+            s = np.asarray(vp.cam.to_screen(world), float)
+            if s.shape == (len(uvs), 3) or (s.ndim == 2 and s.shape[0] == len(uvs) and s.shape[1] >= 2):
+                return s[:, :2]
+        except Exception:
+            pass
+        # a camera that only takes one point at a time
+        return np.array([self.scr(vp, p) for p in uvs]).reshape(-1, 2)
+
+    def world_many(self, uvs):
+        uvs = np.asarray(uvs, float).reshape(-1, 2)
+        pl = self.plane
+        return pl.origin + uvs[:, :1] * pl.xdir + uvs[:, 1:2] * pl.ydir
+
     def hit(self, vp, x, y, kinds=("point", "entity", "constraint"), exclude=()):
         if "constraint" in kinds:
             for cid, r in self._dim_rects.items():
@@ -177,23 +223,20 @@ class Sketcher:
                 if r.contains(QPointF(x, y)) and cid not in exclude:
                     return ("constraint", cid)
         if "point" in kinds:
-            best = (8.0, None)
-            for pid, p in self.sk.points.items():
-                if pid in exclude:
-                    continue
-                s = self.scr(vp, p)
-                d = math.hypot(s[0] - x, s[1] - y)
-                if d < best[0]:
-                    best = (d, pid)
-            if best[1]:
-                return ("point", best[1])
+            pids = [pid for pid in self.sk.points if pid not in exclude]
+            if pids:
+                S = self.scr_many(vp, [self.sk.points[pid] for pid in pids])
+                d = np.hypot(S[:, 0] - x, S[:, 1] - y)
+                i = int(np.argmin(d))
+                if d[i] < 8.0:
+                    return ("point", pids[i])
         if "entity" in kinds:
             best = (7.0, None)
             for eid, ent in self.sk.entities.items():
                 if eid in exclude:
                     continue
                 if ent["type"] == "text":            # text: anywhere inside its box
-                    box = np.array([self.scr(vp, p) for p in self.sk.text_box(eid)])
+                    box = self.scr_many(vp, self.sk.text_box(eid))
                     if _inside_poly(box[:-1], (x, y)):
                         if 2.0 < best[0]:
                             best = (2.0, eid)
@@ -201,7 +244,7 @@ class Sketcher:
                 for pts in self.sk.polylines(eid, 64):
                     if len(pts) < 2:
                         continue
-                    S = np.array([self.scr(vp, p) for p in pts])
+                    S = self.scr_many(vp, pts)
                     A, B = S[:-1], S[1:]
                     ab = B - A
                     L2 = np.maximum((ab ** 2).sum(1), 1e-12)
@@ -705,11 +748,22 @@ class Sketcher:
             elif d.get("toggle") and not moved:
                 if d["id"] in self.selection:
                     self.selection.remove(d["id"])
-        if self.tool in DRAW_TOOLS and moved and self.temp and self.tool in ("circle", "rect", "center_rect", "line"):
+        if self.tool in DRAW_TOOLS and moved and self.temp and self.tool in ("circle", "rect", "center_rect", "hexagon", "line"):
             # click-drag-release drawing
             self._draw_click(vp, x, y)
 
+    PASSIVE_TOOLS = ("select", "sk_fillet", "offset", "sk_mirror", "sk_lpattern", "sk_cpattern")
+
     def mouse_move(self, vp, x, y, e):
+        """Track the mouse. Returns False when nothing on screen changed (just moving over empty space or
+        the same item with the select tool), so the view needn't be redrawn for every mouse move."""
+        before = (self.hover, getattr(vp, "hover", None), getattr(self, "_dim_over_item", None))
+        self._mouse_move(vp, x, y, e)
+        if self.tool in self.PASSIVE_TOOLS or self.tool in CONSTRAINT_TOOLS:
+            return before != (self.hover, getattr(vp, "hover", None), getattr(self, "_dim_over_item", None))
+        return True
+
+    def _mouse_move(self, vp, x, y, e):
         anchor = None
         if self.tool == "line" and self.chain_anchor is not None:
             anchor = self.sk.P(self.chain_anchor) if isinstance(self.chain_anchor, str) else self.chain_anchor
@@ -806,7 +860,7 @@ class Sketcher:
         shortcuts = {Qt.Key_L: "line", Qt.Key_R: "rect", Qt.Key_C: "circle", Qt.Key_A: "arc3",
                      Qt.Key_D: "dimension", Qt.Key_I: "coincident", Qt.Key_H: "horizontal",
                      Qt.Key_V: "vertical", Qt.Key_E: "equal", Qt.Key_T: "tangent", Qt.Key_S: "select",
-                     Qt.Key_P: "point", Qt.Key_U: "use", Qt.Key_O: "offset"}
+                     Qt.Key_P: "point", Qt.Key_U: "use", Qt.Key_O: "offset", Qt.Key_X: "hexagon"}
         if k == Qt.Key_Q:
             self.toggle_construction()
             return True
@@ -1068,6 +1122,41 @@ class Sketcher:
                 ("distance", [l1], float(hi[0] - lo[0]), np.array([(lo[0] + hi[0]) / 2, hi[1] + gap])),
                 ("distance", [l2], float(hi[1] - lo[1]), np.array([hi[0] + gap * 2, (lo[1] + hi[1]) / 2])),
             ])
+            return True
+        if t == "hexagon":
+            if not self.temp:
+                self.temp = [(uv, snap)]
+                self._first_cons = icons
+                return True
+            c_uv, cs = self.temp[0]
+            r = float(np.linalg.norm(uv - c_uv))
+            if r < 1e-6:
+                return True
+            ang, level = _hexagon_angle(uv - c_uv)
+            self.push_undo()
+            ctr = self._point_at(c_uv, cs, self._first_cons)
+            corner_uv = np.asarray(c_uv, float) + r * np.array([math.cos(ang), math.sin(ang)])
+            pts = [self._point_at(corner_uv, snap, icons) if level is None else sk.add_point(*corner_uv)]
+            for k in range(1, 6):
+                a = ang + k * math.pi / 3
+                pts.append(sk.add_point(c_uv[0] + r * math.cos(a), c_uv[1] + r * math.sin(a)))
+            sides = [sk.add_line(pts[k], pts[(k + 1) % 6], cons) for k in range(6)]
+            # a regular hexagon: corners on a construction circle, all sides the same length
+            circ = sk.add_circle(ctr, r, True)
+            for pid in pts:
+                sk.add_constraint("point_on", pid, circ)
+            for k in range(1, 6):
+                sk.add_constraint("equal", sides[0], sides[k])
+            if level == "point_top":       # corners at 30°, 90° …: the sides from 330° to 30° are vertical
+                sk.add_constraint("vertical", sides[5])
+            elif level == "flat_top":      # corners at 0°, 60° …: the side from 60° to 120° is level
+                sk.add_constraint("horizontal", sides[1])
+            self.temp = []
+            self.changed(True)
+            flats = r * math.sqrt(3)
+            out = np.array([math.cos(ang + math.pi / 6), math.sin(ang + math.pi / 6)])
+            self._offer_dims(vp, [("distance", [pts[0], sides[3]], flats,
+                                   np.asarray(c_uv, float) + out * (r + 14 * vp.cam.scale))])
             return True
         if t == "circle":
             if not self.temp:
@@ -1626,7 +1715,8 @@ class Sketcher:
             txt = ed.text().strip()
             v = parse_number(txt, variables=self.variables)
             self._close_editor()
-            if v is not None and v > 0 and all(r in self.sk.entities for r in refs):
+            # (refs can be curves or points: e.g. a hexagon's across-flats runs from a corner to a side)
+            if v is not None and v > 0 and all(r in self.sk.entities or r in self.sk.points for r in refs):
                 self.push_undo()
                 c = self.sk.add_constraint(ctype, *refs, value=float(v))
                 c["pos"] = [float(pos[0]), float(pos[1])]
@@ -1876,19 +1966,18 @@ class Sketcher:
         cu, cv = pl.to_local(vp.cam.target)
         GL.glLineWidth(1)
         GL.glColor4f(0.3, 0.45, 0.7, 0.10)
-        GL.glBegin(GL.GL_LINES)
         n = int(span / step)
         if n < 400:
             u0 = math.floor((cu - span / 2) / step) * step
             v0 = math.floor((cv - span / 2) / step) * step
-            for k in range(n + 2):
-                u = u0 + k * step
-                GL.glVertex3f(*pl.to_world(u, v0))
-                GL.glVertex3f(*pl.to_world(u, v0 + span + step))
-                v = v0 + k * step
-                GL.glVertex3f(*pl.to_world(u0, v))
-                GL.glVertex3f(*pl.to_world(u0 + span + step, v))
-        GL.glEnd()
+            k = np.arange(n + 2) * step
+            uu, vv = u0 + k, v0 + k
+            seg = np.empty((len(k), 4, 2))
+            seg[:, 0] = np.stack([uu, np.full_like(uu, v0)], 1)
+            seg[:, 1] = np.stack([uu, np.full_like(uu, v0 + span + step)], 1)
+            seg[:, 2] = np.stack([np.full_like(vv, u0), vv], 1)
+            seg[:, 3] = np.stack([np.full_like(vv, u0 + span + step), vv], 1)
+            _gl_draw(GL.GL_LINES, self.world_many(seg.reshape(-1, 2)))
         sk = self.sk
         for eid, e in sk.entities.items():
             if e["type"] == "point":
@@ -1900,10 +1989,8 @@ class Sketcher:
             GL.glLineWidth(3.0 if col in (theme.SELECT, theme.HOVER) else 2.0)
             GL.glColor3f(*col)
             for poly in sk.polylines(eid, 96):
-                GL.glBegin(GL.GL_LINE_STRIP)
-                for u, v in poly:
-                    GL.glVertex3f(*pl.to_world(u, v))
-                GL.glEnd()
+                if len(poly):
+                    _gl_draw(GL.GL_LINE_STRIP, self.world_many(poly))
             if e["type"] == "text" and (eid == self.hover or eid in self.selection):
                 GL.glLineWidth(1.0)            # the text's box, while hovered or selected
                 GL.glBegin(GL.GL_LINE_STRIP)
@@ -1963,6 +2050,12 @@ class Sketcher:
             c = self.temp[0][0]
             h = cur - c
             strip([c - h, (c[0] + h[0], c[1] - h[1]), c + h, (c[0] - h[0], c[1] + h[1])], True)
+        elif t == "hexagon" and self.temp:
+            c = np.asarray(self.temp[0][0], float)
+            r = np.linalg.norm(cur - c)
+            ang, _level = _hexagon_angle(cur - c)
+            a = ang + np.arange(6) * math.pi / 3
+            strip(c + r * np.c_[np.cos(a), np.sin(a)], True)
         elif t == "circle" and self.temp:
             c = self.temp[0][0]
             r = np.linalg.norm(cur - c)
@@ -2114,6 +2207,8 @@ class Sketcher:
                 txt = fmt(np.linalg.norm(self.cursor_uv - self.sk.P(self.chain_anchor)))
             elif self.tool in ("circle",) and self.temp:
                 txt = "Ø" + fmt(2 * np.linalg.norm(self.cursor_uv - self.temp[0][0]))
+            elif self.tool == "hexagon" and self.temp:
+                txt = fmt(math.sqrt(3) * np.linalg.norm(self.cursor_uv - self.temp[0][0])) + " A/F"
             elif self.tool in ("rect", "center_rect") and self.temp:
                 d = np.abs(self.cursor_uv - self.temp[0][0]) * (2 if self.tool == "center_rect" else 1)
                 txt = f"{fmt(d[0])} × {fmt(d[1])}"

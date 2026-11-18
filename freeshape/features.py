@@ -684,12 +684,14 @@ def _profile_normal(state, p, profs):
 
 
 def run_extrude(state, f):
+    from . import body_options as BO
     p = f["params"]
-    profs = _profiles(state, p)
+    profs = BO.profiles(state, p, _profiles(state, p))
     if not profs:
         raise K.KernelError("Select sketch regions or a planar face")
-    n = _profile_normal(state, p, profs)
-    op = p.get("op", "add")
+    n = BO.profile_normal(state, p, profs)
+    surface = BO.creation(p) == "surface"
+    op = p.get("op", "add") if not surface else "new"
     flip = p.get("flip", False)
     end = p.get("end", "blind")
     depth = float(p.get("depth", 10))
@@ -698,33 +700,75 @@ def run_extrude(state, f):
     if cutting and not p.get("regions"):
         # cutting from a face goes into the part by default
         flip = not flip
+    # (files from before per-end options only had a Blind second end, and only after a Blind first end)
+    second = bool(p.get("second")) and end not in ("symmetric", "through") and (end == "blind" or "end2" in p)
+    end2 = p.get("end2", "blind") if second else None
+    draft_on = bool(p.get("draft")) and not surface
+    a1 = float(p.get("draft_angle", 0)) if draft_on and end not in UP_TO else 0.0
+    a2 = float(p.get("draft_angle2", 0)) if draft_on and p.get("draft2") and end2 not in UP_TO else 0.0
+    through_both = end == "through" and (p.get("both", False) or (cutting and p.get("regions")))
+
+    def through_len():
+        lo, hi = np.full(3, 1e18), np.full(3, -1e18)
+        for part in state.parts.values():
+            a, b = K.bbox(part.shape)
+            lo, hi = np.minimum(lo, a), np.maximum(hi, b)
+        return float(np.linalg.norm(hi - lo)) * 2 + 10 if state.parts else depth
+
+    def one_side(direction, end_type, length, up_to, offset, angle):
+        """One end of the extrusion, from the sketch outwards: blind, through all or up to something — the
+        same code for the first and the second end."""
+        if end_type in UP_TO:
+            q = dict(p, end=end_type, up_to=up_to, offset=offset)
+            body = K.combine([_sweep_up_to(state, q, prof, "extrude", direction) for prof in profs])
+        else:
+            body = K.extrude(profs, direction, through_len() if end_type == "through" else length)
+        if angle:
+            body = BO.taper(body, _profile_origin(state, p, profs), n, direction, angle)
+        return body
 
     def make(direction):
-        if end == "through":
-            lo, hi = np.full(3, 1e18), np.full(3, -1e18)
-            for part in state.parts.values():
-                a, b = K.bbox(part.shape)
-                lo, hi = np.minimum(lo, a), np.maximum(hi, b)
-            dd = float(np.linalg.norm(hi - lo)) * 2 + 10 if state.parts else depth
-            both = p.get("both", False) or (cutting and p.get("regions"))
-            return K.extrude(profs, direction, dd, depth2=dd if both else 0.0)
-        depth2 = float(p.get("depth2", 0)) if p.get("second", False) and not symmetric else 0.0
-        return K.extrude(profs, direction, depth, symmetric=symmetric, depth2=depth2)
+        side1 = ("blind" if symmetric else end, depth / 2 if symmetric else depth, p.get("up_to"),
+                 p.get("offset", 0.0), a1)
+        if symmetric:
+            side2 = ("blind", depth / 2, None, 0.0, a1)
+        elif through_both:
+            side2 = ("through", 0.0, None, 0.0, a1)
+        elif second:
+            side2 = (end2, float(p.get("depth2", 0)), p.get("up_to2"), p.get("offset2", 0.0), a2)
+        else:
+            side2 = None
+        plain = not (a1 or a2) and end not in UP_TO and (side2 is None or side2[0] in ("blind", "through"))
+        if plain:
+            # one prism from end to end (as files made before per-end options always did)
+            if end == "through":
+                dd = through_len()
+                return K.extrude(profs, direction, dd, depth2=dd if through_both else 0.0)
+            depth2 = float(p.get("depth2", 0)) if second else 0.0
+            return K.extrude(profs, direction, depth, symmetric=symmetric, depth2=depth2)
+        body = one_side(direction, *side1)
+        if side2 is not None:
+            body = K.combine([body, one_side(-direction, *side2)])
+        return body
 
     d = -n if flip else n
-    if end in UP_TO:
-        body = K.fuse_all([_sweep_up_to(state, p, prof, "extrude", d) for prof in profs])
-        apply_body(state, body, op, f["id"], p.get("scope"))
-        return
     body = make(d)
-    if cutting and end == "blind" and not p.get("second") and state.parts:
+    if cutting and end == "blind" and not second and state.parts:
         # like Onshape, a cut that misses everything is tried in the other direction
         targets = [state.parts[i] for i in (p.get("scope") or state.parts) if i in state.parts]
         if not any(K.intersects(t.shape, body) for t in targets):
             alt = make(-d)
             if any(K.intersects(t.shape, alt) for t in targets):
                 body = alt
-    apply_body(state, body, op, f["id"], p.get("scope"))
+    BO.apply(state, body, dict(p, op=op), f["id"])
+
+
+def _profile_origin(state, p, profs):
+    """A point on the plane the profiles lie in (where an extrusion starts)."""
+    if p.get("regions"):
+        return np.asarray(state.sketches[p["regions"][0]["sketch"]].plane.origin, float)
+    lo, hi = K.bbox(K.compound(profs))
+    return (lo + hi) / 2
 
 
 UP_TO = ("up_to_face", "up_to_vertex", "up_to_part", "up_to_next")
@@ -746,7 +790,8 @@ def _sweep_up_to(state, p, face, kind, how):
     end = p.get("end")
     target = p.get("up_to") or {}
     offset = float(p.get("offset", 0.0) or 0.0)
-    start = K.interior_point(face)
+    sheet = face.ShapeType() != 4             # a curve (wire) making a surface, not a face making a solid
+    start = _first_point(face) if sheet else K.interior_point(face)     # a point on the profile
     size = _model_size(state, [face]) * 2 + 10
 
     if kind == "extrude":
@@ -794,23 +839,37 @@ def _sweep_up_to(state, p, face, kind, how):
         if not state.parts:
             raise K.KernelError("There are no parts for it to reach")
         tool = K.compound([pt.shape for pt in state.parts.values()])
+    if sheet:
+        return K.keep_sheet_from(sweep_long(), tool, face)
     return K.keep_piece_from(sweep_long(), tool, seed)
 
 
+def _first_point(wire):
+    from . import body_options as BO
+    return BO._ends(wire)[0]
+
+
 def run_revolve(state, f):
+    from . import body_options as BO
     p = f["params"]
-    profs = _profiles(state, p)
+    profs = BO.profiles(state, p, _profiles(state, p))
     a, d = resolve_axis(state, p.get("axis", {}))
     if p.get("flip"):
         d = -d
     end = p.get("end", "full")
     if end in UP_TO:
-        body = K.fuse_all([_sweep_up_to(state, p, prof, "revolve", (a, d)) for prof in profs])
-        apply_body(state, body, p.get("op", "add"), f["id"], p.get("scope"))
+        body = K.combine([_sweep_up_to(state, p, prof, "revolve", (a, d)) for prof in profs])
+        BO.apply(state, body, p, f["id"])
         return
     angle = 360.0 if end == "full" else float(p.get("angle", 180))
-    body = K.revolve(profs, a, d, angle, symmetric=(end == "symmetric"))
-    apply_body(state, body, p.get("op", "add"), f["id"], p.get("scope"))
+    back = 0.0
+    if end == "two":                                   # two directions: angle one way, angle2 the other
+        back = float(p.get("angle2", 90))
+        if angle + back > 360 + 1e-9:
+            raise K.KernelError("The two angles add up to more than 360°")
+        angle += back
+    body = K.revolve(profs, a, d, angle, symmetric=(end == "symmetric"), back=back)
+    BO.apply(state, body, p, f["id"])
 
 
 def _group_by_part(state, refs, kind):
@@ -828,7 +887,9 @@ def run_fillet(state, f):
         raise K.KernelError("Select edges to fillet")
     for pid, es in groups.items():
         part = state.parts[pid]
-        state.parts[pid] = Part(pid, part.name, K.fillet(part.shape, es, float(p.get("radius", 1))), part.color)
+        r2 = float(p.get("radius2", 1)) if p.get("variable") else None
+        state.parts[pid] = Part(pid, part.name, K.fillet(part.shape, es, float(p.get("radius", 1)), r2),
+                                part.color)
 
 
 def run_chamfer(state, f):
@@ -838,7 +899,10 @@ def run_chamfer(state, f):
         raise K.KernelError("Select edges to chamfer")
     for pid, es in groups.items():
         part = state.parts[pid]
-        state.parts[pid] = Part(pid, part.name, K.chamfer(part.shape, es, float(p.get("distance", 1))), part.color)
+        mode = p.get("type", "equal")
+        shape = K.chamfer(part.shape, es, float(p.get("distance", 1)), mode, float(p.get("distance2", 1)),
+                          float(p.get("angle", 45)), bool(p.get("flip")))
+        state.parts[pid] = Part(pid, part.name, shape, part.color)
 
 
 def run_shell(state, f):
@@ -951,45 +1015,98 @@ def _features_mode(p):
     return p.get("type") == "features"
 
 
+def face_feature_bodies(state, refs):
+    """For 'pattern / mirror faces': the material the picked faces make — a boss, rib or pocket — found by healing
+    those faces away (as Delete face does) and comparing. {part id: (added material, removed material)}."""
+    out = {}
+    for pid, fs in _group_by_part(state, refs, "face").items():
+        part = state.parts[pid]
+        healed = K.delete_faces(part.shape, fs, "heal")
+        added = K.cut(part.shape, healed)
+        removed = K.cut(healed, part.shape)
+        add_s, rem_s = K.solids(added), K.solids(removed)
+        if not add_s and not rem_s:
+            raise K.KernelError("Those faces don't make a boss or pocket that can be repeated — pick all the "
+                                "faces of one (e.g. a boss's side and top)")
+        out[pid] = (K.compound(add_s) if add_s else None, K.compound(rem_s) if rem_s else None)
+    if not out:
+        raise K.KernelError("Select the faces to repeat")
+    return out
+
+
+def repeat_faces(state, p, moves):
+    """Copy the material made by the picked faces with each of `moves` (shape -> moved shape), into its part."""
+    for pid, (added, removed) in face_feature_bodies(state, p.get("faces", [])).items():
+        part = state.parts[pid]
+        shape = part.shape
+        for mv in moves:
+            if added is not None:
+                shape = K.fuse(shape, mv(added))
+        for mv in moves:
+            if removed is not None:
+                shape = K.cut(shape, mv(removed))
+        set_part_shape(state, part, shape)
+
+
+def _faces_mode(p):
+    return p.get("type") == "faces"
+
+
 def run_mirror(state, f):
     p = f["params"]
     if _features_mode(p):
         plane = resolve_plane(state, p["plane"])
         _repeat_features(state, f, [lambda s_: K.mirror(s_, plane)])
         return
+    if _faces_mode(p):
+        plane = resolve_plane(state, p["plane"])
+        repeat_faces(state, p, [lambda s_: K.mirror(s_, plane)])
+        return
     ids = _selected_parts(state, p)
     plane = resolve_plane(state, p["plane"])
     bodies = [K.mirror(state.parts[i].shape, plane) for i in ids]
     body = K.compound(bodies)
-    apply_body(state, body, p.get("op", "add"), f["id"], ids if p.get("op", "add") == "add" else None)
+    op = p.get("op", "add")
+    apply_body(state, body, op, f["id"], p.get("scope") or (ids if op == "add" else None))
 
 
 def run_linear_pattern(state, f):
     p = f["params"]
-    ids = [] if _features_mode(p) else _selected_parts(state, p)
+    ids = [] if _features_mode(p) or _faces_mode(p) else _selected_parts(state, p)
     dref = p.get("direction", {"kind": "std", "name": "X"})
     _, d = resolve_axis(state, dref)
     if p.get("flip"):
         d = -d
     n = int(p.get("count", 3))
     sp = float(p.get("spacing", 20))
-    if _features_mode(p):
-        if n < 2:
+    # a second direction makes a grid: every step one way combined with every step the other way
+    n2, d2, sp2 = 1, np.zeros(3), 0.0
+    if p.get("second"):
+        _, d2 = resolve_axis(state, p.get("direction2") or {"kind": "std", "name": "Y"})
+        if p.get("flip2"):
+            d2 = -d2
+        n2, sp2 = int(p.get("count2", 2)), float(p.get("spacing2", 20))
+        if n2 < 1:
+            raise K.KernelError("Second count must be at least 1")
+    offsets = [d * sp * i + d2 * sp2 * j for j in range(n2) for i in range(n) if (i, j) != (0, 0)]
+    if _features_mode(p) or _faces_mode(p):
+        if not offsets:
             raise K.KernelError("Count must be at least 2")
-        _repeat_features(state, f, [lambda s_, k=k: K.translate(s_, d * sp * k) for k in range(1, n)])
+        moves = [lambda s_, v=v: K.translate(s_, v) for v in offsets]
+        if _faces_mode(p):
+            repeat_faces(state, p, moves)
+        else:
+            _repeat_features(state, f, moves)
         return
-    copies = []
-    for i in ids:
-        for k in range(1, n):
-            copies.append(K.translate(state.parts[i].shape, d * sp * k))
+    copies = [K.translate(state.parts[i].shape, v) for i in ids for v in offsets]
     if not copies:
         raise K.KernelError("Count must be at least 2")
-    apply_body(state, K.compound(copies), p.get("op", "add"), f["id"])
+    apply_body(state, K.compound(copies), p.get("op", "add"), f["id"], p.get("scope"))
 
 
 def run_circular_pattern(state, f):
     p = f["params"]
-    ids = [] if _features_mode(p) else _selected_parts(state, p)
+    ids = [] if _features_mode(p) or _faces_mode(p) else _selected_parts(state, p)
     a, d = resolve_axis(state, p.get("axis", {"kind": "std", "name": "Z"}))
     n = int(p.get("count", 4))
     total = float(p.get("angle", 360))
@@ -999,13 +1116,18 @@ def run_circular_pattern(state, f):
             raise K.KernelError("Count must be at least 2")
         _repeat_features(state, f, [lambda s_, k=k: K.rotate(s_, a, d, step * k) for k in range(1, n)])
         return
+    if _faces_mode(p):
+        if n < 2:
+            raise K.KernelError("Count must be at least 2")
+        repeat_faces(state, p, [lambda s_, k=k: K.rotate(s_, a, d, step * k) for k in range(1, n)])
+        return
     copies = []
     for i in ids:
         for k in range(1, n):
             copies.append(K.rotate(state.parts[i].shape, a, d, step * k))
     if not copies:
         raise K.KernelError("Count must be at least 2")
-    apply_body(state, K.compound(copies), p.get("op", "add"), f["id"])
+    apply_body(state, K.compound(copies), p.get("op", "add"), f["id"], p.get("scope"))
 
 
 def run_boolean(state, f):
@@ -1060,10 +1182,28 @@ def auto_colors(n, shift=0):
 # Set by the main window: callable(params) -> [(name, shape, colour, face colours)] — the parts of another Part
 # Studio (in a configuration). Raises KernelError if it can't be reached.
 LINKER = None
+# Also set by the main window: callable(params, for_save=False) -> a string that identifies the saved source file
+# as it is now (for_save: as the parts in this document came from it), or None when that can't be trusted (the
+# source is open in a tab, missing, ...). Lets a document use the copy of the parts saved in it, instead of
+# loading and rebuilding the whole source file, when the source hasn't changed since.
+LINK_SOURCE_STAMP = None
+
+
+def saved_copy_is_current(f) -> bool:
+    fb = f.get("_fallback")
+    if not fb or LINK_SOURCE_STAMP is None:
+        return False
+    try:
+        now = LINK_SOURCE_STAMP(f["params"])
+    except Exception:
+        return False
+    return now is not None and all(it.get("src") == now for it in fb)
 
 
 def link_stamp(f):
     """Something that changes whenever a derived feature's source parts change (part of the rebuild cache key)."""
+    if saved_copy_is_current(f):
+        return ["saved", f["_fallback"][0]["src"]]
     if LINKER is None:
         return "nolink"
     try:
@@ -1078,7 +1218,9 @@ def run_derived(state, f):
     p = f["params"]
     items = None
     err = None
-    if LINKER is not None:
+    if saved_copy_is_current(f):
+        pass                      # source unchanged since this file was saved: use the saved copy (below)
+    elif LINKER is not None:
         try:
             items = LINKER(p)
         except K.KernelError as e:
@@ -1102,6 +1244,11 @@ def is_brep_name(name) -> bool:
 
 def run_import(state, f):
     p = f["params"]
+    if p.get("brep"):              # saved as exact geometry: no STEP to translate
+        for shape, name, color, fcols in K.unpack_import(p["brep"], p.get("meta") or []):
+            part = state.new_part(shape, f["id"], tuple(color) if color else DEFAULT_COLOR)
+            state.parts[part.id] = Part(part.id, name or part.name, part.shape, part.color, fcols or None)
+        return
     data = base64.b64decode(p["data"])
     brep = is_brep_name(p.get("filename", ""))
     with tempfile.NamedTemporaryFile(suffix=".brep" if brep else ".step", delete=False) as tmp:
@@ -1136,7 +1283,8 @@ def run_hole(state, f):
     dia, cb, cs, _label = hole_dims(p)
     if dia <= 0:
         raise K.KernelError("Hole diameter must be positive")
-    through = p.get("end", "through") == "through"
+    end = p.get("end", "through")
+    through = end == "through"
     depth = float(p.get("depth", 10))
     n = np.asarray(sk.plane.normal, float)
     lo, hi = np.full(3, 1e18), np.full(3, -1e18)
@@ -1152,6 +1300,12 @@ def run_hole(state, f):
         return sum(K.volume(K.common(sh, probe)) for sh in shapes if K.intersects(sh, probe))
 
     d = -n if material_on(-n) >= material_on(n) else n
+    depths = [depth] * len(centres)
+    if end in ("up_to_next", "up_to_face", "up_to_vertex"):
+        # the shared up-to ends: each hole goes as deep as its own centre needs
+        depths = [_hole_depth_up_to(state, p, np.asarray(sk.plane.to_world(u, v), float), d, shapes)
+                  for (u, v) in centres]
+        depth = depths[0]
     modelled = p.get("standard") == "tapped" and p.get("model_thread") and p.get("size") in K.ISO_PITCH
     if modelled:
         _model_hole_threads(state, f, p, sk, centres, d, through, depth, back, big)
@@ -1159,7 +1313,7 @@ def run_hole(state, f):
     from_circles = p.get("standard") == "sketch"
     if from_circles and not any(sizes):
         raise K.KernelError("“Size of the sketch circles” needs circles in the sketch")
-    for (u, v), circle_d in zip(centres, sizes):
+    for (u, v), circle_d, depth in zip(centres, sizes, depths):
         if from_circles:
             if not circle_d:
                 continue                              # a plain point: no size to take
@@ -1188,6 +1342,40 @@ def run_hole(state, f):
             tools.append(K.cone(c - d * back, d, cs / 2 + back, dia / 2, h + back))
     if tools:
         apply_body(state, K.fuse_all(tools), "remove", f["id"])
+
+
+def _hole_depth_up_to(state, p, c, d, shapes):
+    """How deep a hole at c (going along d) goes for an up-to end: to where it next comes out of the material,
+    or to a face / plane / vertex — less any 'stop short by' offset."""
+    end = p.get("end")
+    target = p.get("up_to") or {}
+    offset = float(p.get("offset", 0.0) or 0.0)
+    if end == "up_to_next":
+        hits = sorted({round(t, 9) for sh in shapes for t in K.ray_hits(sh, c, d) if t > 1e-6})
+        for t in hits:
+            if not any(K.material_at(sh, c + d * (t + 1e-4)) for sh in shapes):
+                return t - offset
+        raise K.KernelError("The hole doesn't come out of the part — use Through all or Blind")
+    if end == "up_to_vertex":
+        if target.get("kind") != "vertex":
+            raise K.KernelError("Pick the vertex the hole goes up to")
+        t = float((resolve_point(state, target["ref"]) - c) @ d)
+    else:
+        if target.get("kind") == "face":
+            _pid, face = resolve(state, target["ref"], "face")
+            surf = K.termination_face(face, 0.0, c)
+        elif target.get("kind") == "plane":
+            surf = K.termination_plane(resolve_plane(state, target["ref"]), 0.0, c)
+        else:
+            raise K.KernelError("Pick the face or plane the hole goes up to")
+        hits = [t for t in K.ray_hits(surf, c, d) if t > 1e-6]
+        if not hits:
+            raise K.KernelError("The hole never reaches that face — pick another")
+        t = hits[0]
+    t -= offset
+    if t <= 1e-6:
+        raise K.KernelError("That is behind the start of the hole")
+    return t
 
 
 def _material_range(shapes, origin, axis, radius, big):
@@ -1261,6 +1449,7 @@ def run_thread(state, f):
         specs = [thread_spec(state, p, face) for face in fs]
         part = state.parts[pid]
         shape = part.shape
+        taps = []                  # internal threads, cut together at the end
         for sp in specs:
             P, ax, p0 = sp["pitch"], sp["axis"], sp["p0"]
             z0, z1 = sp["zmin"], sp["zmax"]
@@ -1282,12 +1471,14 @@ def run_thread(state, f):
                     open_lo = False
             if sp["internal"]:
                 core = sp["r"] + 0.002 if abs(sp["r"] - (sp["major"] / 2 - K.THREAD_H * P)) < 0.01 * P else sp["r"]
-                shape = K.cut_internal_thread(shape, p0, ax, sp["major"], P, z0, z1, core_r=core,
-                                              extend=(open_lo, open_hi), left=left, clearance=clearance)
+                taps.append((p0, ax, sp["major"], P, z0, z1,
+                             dict(core_r=core, extend=(open_lo, open_hi), left=left, clearance=clearance)))
             else:
                 if abs(sp["major"] / 2 - sp["r"]) > 0.25 * P:
                     raise K.KernelError(f"Shaft Ø{2 * sp['r']:.4g} doesn't suit {sp['size']} — pick the size or use Custom")
                 shape = K.external_thread(shape, p0, ax, sp["r"], P, z0, z1, left=left, clearance=clearance)
+        if taps:
+            shape = K.cut_internal_threads(shape, taps)
         set_part_shape(state, part, shape)
 
 
@@ -1322,24 +1513,70 @@ def _path_wire(state, refs):
 
 
 def run_sweep(state, f):
+    from . import body_options as BO
     p = f["params"]
-    profs = _profiles(state, p)
+    profs = BO.profiles(state, p, _profiles(state, p))
     if not p.get("path"):
         raise K.KernelError("Select the path to sweep along")
-    body = K.sweep(profs, _path_wire(state, p["path"]))
-    apply_body(state, body, p.get("op", "add"), f["id"], p.get("scope"))
+    path = _path_wire(state, p["path"])
+    control = sweep_control(state, p)
+    body = K.sweep_curves(profs, path, control) if BO.creation(p) == "surface" else K.sweep(profs, path, control)
+    BO.apply(state, body, p, f["id"])
+
+
+def sweep_control(state, p):
+    """How a swept profile turns along the path (Sweep's 'Profile control')."""
+    mode = p.get("control", "none")
+    if mode == "lock_direction":
+        ref = p.get("lock_dir") or {"kind": "std", "name": p.get("lock_std") or "Z"}
+        return {"mode": mode, "dir": resolve_axis(state, ref)[1]}
+    if mode == "lock_faces":
+        fs = [resolve(state, r, "face")[1] for r in p.get("support", [])]
+        if not fs:
+            raise K.KernelError("Select the faces the path runs on")
+        return {"mode": mode, "support": K.compound(fs)}
+    if mode == "guide":
+        if not p.get("guide"):
+            raise K.KernelError("Select the guide curve")
+        return {"mode": mode, "guide": _path_wire(state, p["guide"])}
+    return {"mode": mode}
 
 
 def run_loft(state, f):
+    from . import body_options as BO
+    from OCP.BRepTools import BRepTools
     p = f["params"]
-    profs = []
+    profs, normals = [], []                           # faces (regions / faces) or wires (curves), in order
     for item in p.get("profiles", []):
+        ref = item["ref"]
         if item["kind"] == "region":
-            profs += resolve_regions(state, [item["ref"]])
+            got = resolve_regions(state, [ref])
+        elif item["kind"] == "path":
+            got = [_path_wire(state, [ref])]
         else:
-            profs.append(resolve(state, item["ref"], "face")[1])
-    body = K.loft(profs, p.get("ruled", False))
-    apply_body(state, body, p.get("op", "add"), f["id"], p.get("scope"))
+            got = [resolve(state, ref, "face")[1]]
+        sk = state.sketches.get(ref.get("sketch")) if isinstance(ref, dict) else None
+        profs += got
+        normals += [np.asarray(sk.plane.normal, float) if sk else None] * len(got)
+    c = BO.creation(p)
+    path = _path_wire(state, p["path"]) if p.get("path") else None
+    ruled = p.get("ruled", False)
+    wires = [BRepTools.OuterWire_s(x) if x.ShapeType() == 4 else x for x in profs]
+    if c == "solid" and path is None and all(x.ShapeType() == 4 for x in profs):
+        body = K.loft(profs, ruled)                       # as before
+    elif c == "solid":
+        body = K.loft_wires(wires, True, ruled, path)
+    elif c == "surface":
+        body = K.loft_wires(wires, False, ruled, path)
+    else:                                             # thin: loft the wall's outer outlines, less the inner ones
+        rings = [BO.thin_outlines(w, p.get("thickness", 2.0), p.get("thin_side", "mid"), nrm,
+                                  p.get("thickness2", p.get("thickness", 2.0))) for w, nrm in zip(wires, normals)]
+        if len({inner is None for _o, inner in rings}) > 1:
+            raise K.KernelError("Thin loft profiles must be all closed or all open")
+        body = K.loft_wires([o for o, _i in rings], True, ruled, path)
+        if rings[0][1] is not None:
+            body = K.cut(body, K.loft_wires([i for _o, i in rings], True, ruled, path))
+    BO.apply(state, body, p, f["id"])
 
 
 def run_draft(state, f):
@@ -1588,12 +1825,15 @@ def default_params(ftype: str, state: ModelState | None = None) -> dict:
         return plugins.default_params(ftype, has_parts)
     return {
         "sketch": {"plane": {"kind": "std", "name": "Top"}, "sketch": Sketch().to_dict()},
-        "extrude": {"regions": [], "faces": [], "end": "blind", "depth": 25.0, "depth2": 10.0,
-                    "second": False, "flip": False, "op": op},
-        "revolve": {"regions": [], "faces": [], "axis": {}, "end": "full", "angle": 180.0,
-                    "flip": False, "op": op},
-        "fillet": {"edges": [], "radius": 2.0},
-        "chamfer": {"edges": [], "distance": 1.0},
+        "extrude": {"creation": "solid", "regions": [], "faces": [], "curves": [], "thickness": 2.0,
+                    "thickness2": 1.0, "thin_side": "mid", "end": "blind", "depth": 25.0, "depth2": 10.0,
+                    "second": False, "end2": "blind", "flip": False, "draft": False, "draft_angle": 3.0,
+                    "draft2": False, "draft_angle2": 3.0, "op": op},
+        "revolve": {"creation": "solid", "regions": [], "faces": [], "curves": [], "thickness": 2.0,
+                    "thickness2": 1.0, "thin_side": "mid", "axis": {}, "end": "full", "angle": 180.0, "angle2": 90.0, "flip": False,
+                    "op": op},
+        "fillet": {"edges": [], "radius": 2.0, "variable": False, "radius2": 1.0},
+        "chamfer": {"edges": [], "type": "equal", "distance": 1.0, "distance2": 2.0, "angle": 45.0, "flip": False},
         "shell": {"faces": [], "thickness": 2.0, "outward": False},
         "delete_face": {"faces": [], "mode": "heal"},
         "move_face": {"faces": [], "distance": 2.0, "flip": False},
@@ -1601,7 +1841,9 @@ def default_params(ftype: str, state: ModelState | None = None) -> dict:
         "plane": {"type": "auto", "refs": [], "offset": 20.0, "angle": 45.0, "flip": False},
         "mirror": {"parts": [], "plane": {"kind": "std", "name": "Right"}, "op": "add"},
         "linear_pattern": {"parts": [], "direction": {"kind": "std", "name": "X"}, "count": 3,
-                           "spacing": 30.0, "flip": False, "op": "new"},
+                           "spacing": 30.0, "flip": False, "second": False,
+                           "direction2": {"kind": "std", "name": "Y"}, "dir2_std": "Y", "count2": 2,
+                           "spacing2": 30.0, "flip2": False, "op": "new"},
         "circular_pattern": {"parts": [], "axis": {"kind": "std", "name": "Z"}, "count": 6,
                              "angle": 360.0, "op": "new"},
         "boolean": {"op": "union", "tools": [], "targets": [], "keep_tools": False},
@@ -1614,8 +1856,11 @@ def default_params(ftype: str, state: ModelState | None = None) -> dict:
                  "model_thread": False, "thread_clearance": 0.0, "left_hand": False,
                  "depth": 10.0, "end": "through", "style": "simple", "tip": True,
                  "counterbore_dia": 9.0, "counterbore_depth": 3.0, "countersink_dia": 10.0},
-        "sweep": {"regions": [], "faces": [], "path": [], "op": op},
-        "loft": {"profiles": [], "ruled": False, "op": op},
+        "sweep": {"creation": "solid", "regions": [], "faces": [], "curves": [], "thickness": 2.0,
+                  "thickness2": 1.0, "thin_side": "mid", "path": [], "control": "none", "lock_std": "Z",
+                  "support": [], "guide": [], "op": op},
+        "loft": {"creation": "solid", "profiles": [], "thickness": 2.0, "thickness2": 1.0, "thin_side": "mid",
+                 "ruled": False, "path": [], "op": op},
         "draft": {"faces": [], "neutral": {"kind": "std", "name": "Top"}, "angle": 3.0, "flip": False},
         "split": {"parts": [], "tools": []},
         "move": {"parts": [], "dx": 0.0, "dy": 0.0, "dz": 0.0, "axis": {"kind": "std", "name": "Z"},

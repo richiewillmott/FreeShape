@@ -75,6 +75,7 @@ class MainWindow(QMainWindow):
         from PySide6.QtCore import QSettings
         self.settings = QSettings("FreeShape", "FreeShape")
         F.LINKER = self._derived_link              # derived parts find their source studios through the window
+        F.LINK_SOURCE_STAMP = self._derived_source_stamp
         if not os.environ.get("FREESHAPE_NO_PLUGINS"):
             from .. import plugins as _plugins
             _plugins.load_all()
@@ -699,7 +700,8 @@ class MainWindow(QMainWindow):
         h.addWidget(_sep())
         tools = [("select", "Select (S)", "point"),
                  ("line", "Line (L)", None), ("rect", "Corner rectangle (R)", None),
-                 ("center_rect", "Center rectangle", None), ("circle", "Circle (C)", None),
+                 ("center_rect", "Center rectangle", None),
+                 ("hexagon", "Hexagon — click the centre, then a corner (X)", None), ("circle", "Circle (C)", None),
                  ("arc3", "3-point arc (A)", None), ("arc_center", "Center-point arc", None),
                  ("spline", "Spline — click points, double-click or Enter to finish", None),
                  ("ellipse", "Ellipse", None), ("text", "Text", "sk_text"),
@@ -2472,6 +2474,30 @@ class MainWindow(QMainWindow):
         parts = [p for p in st.parts.values() if "*" in want or p.id in want]
         return [(p.name, p.shape, p.color, p.face_colors) for p in parts]
 
+    def _derived_source_stamp(self, params, for_save=False):
+        """Identifies the saved source file of a derived feature (path + modification time), so a document can
+        use the copy of the parts saved in it rather than load and rebuild the whole source when nothing changed.
+        None when the saved copy can't be trusted: the source is open in a tab (live or with unsaved edits)."""
+        uid, path = params.get("uid"), params.get("path")
+        studios = self.studio_docs()
+        doc = next((d for d in studios if uid and d.uid == uid), None)
+        if doc is None and path:
+            ap = os.path.abspath(path)
+            doc = next((d for d in studios if d.path and os.path.abspath(d.path) == ap), None)
+        if doc is not None:
+            if not for_save or doc.dirty or not doc.path or not os.path.exists(doc.path):
+                return None
+            ap = os.path.abspath(doc.path)
+            return f"{ap}|{os.path.getmtime(ap)!r}"
+        if not path or not os.path.exists(path):
+            return None
+        ap = os.path.abspath(path)
+        if for_save:
+            hit = self.__dict__.get("_linked_docs", {}).get(ap)
+            if hit is not None:                       # the parts came from this load of the file
+                return f"{ap}|{hit[0]!r}"
+        return f"{ap}|{os.path.getmtime(ap)!r}"
+
     def _update_derived_from(self, src_doc):
         """A Part Studio changed: rebuild the ones that derive parts from it."""
         if getattr(src_doc, "kind", None) != "studio" or getattr(self, "_derive_busy", False):
@@ -2994,6 +3020,8 @@ class MainWindow(QMainWindow):
                 return
             prog.stage("Rebuilding the model…")
             self.viewport.progress_cb = prog.step
+            from .. import document as _D
+            _D.PROGRESS = prog.step
             try:
                 if path.lower().endswith(".fasm"):
                     doc = AssemblyDoc.load(path, resolver=self._resolve_source)
@@ -3013,6 +3041,8 @@ class MainWindow(QMainWindow):
             QTimer.singleShot(400, lambda d=doc: self._update_thumbnail(d))
         finally:
             self.viewport.progress_cb = None
+            from .. import document as _D
+            _D.PROGRESS = None
             if prog is not None:
                 prog.close()
         self._add_recent(path)
@@ -3086,7 +3116,24 @@ class MainWindow(QMainWindow):
             if not F.is_brep_name(fname) and not read_step_in_background(raw, prog, self):
                 self.status.showMessage("Import cancelled", 5000)
                 return
-            data = base64.b64encode(raw).decode()
+            params = {"data": base64.b64encode(raw).decode(), "filename": fname}
+            if not F.is_brep_name(fname):
+                # keep the parts as exact geometry, so opening the file never translates the STEP again
+                try:
+                    items = K._STEP_CACHE.get(K.step_cache_key(raw))
+                    if items is None:
+                        import tempfile
+                        with tempfile.NamedTemporaryFile(suffix=".step", delete=False) as tmp:
+                            tmp.write(raw)
+                        try:
+                            items = K.import_step_with_colors(tmp.name)
+                        finally:
+                            os.unlink(tmp.name)
+                    b64, meta = K.pack_import(items)
+                    K.adopt_import(K.step_cache_key(raw), b64)
+                    params = {"brep": b64, "meta": meta, "filename": fname}
+                except Exception:
+                    pass                       # keep the STEP itself; it still opens, just more slowly
             if into_current:
                 doc = self.doc
             else:
@@ -3094,7 +3141,7 @@ class MainWindow(QMainWindow):
                 doc.name = os.path.splitext(fname)[0]
             f = doc.make_feature("import")
             f["name"] = "Import " + fname
-            f["params"] = {"data": data, "filename": fname}
+            f["params"] = params
             prog.stage("Building the parts…")
             self.viewport.progress_cb = prog.step
             if not into_current:
@@ -3123,7 +3170,13 @@ class MainWindow(QMainWindow):
                 feats = json.load(fh).get("features", [])
         except Exception:
             return True
+        from .progress import read_saved_import_in_background
         for f in feats:
+            p = f.get("params", {})
+            if f.get("type") == "import" and not f.get("suppressed") and p.get("brep"):
+                if not read_saved_import_in_background(p["brep"], p.get("meta") or [], prog, self):
+                    return False
+                continue
             if f.get("type") == "import" and not f.get("suppressed") and f.get("params", {}).get("data") \
                     and not F.is_brep_name(f["params"].get("filename", "")):
                 try:

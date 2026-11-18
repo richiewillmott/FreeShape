@@ -52,8 +52,10 @@ class ImportProgress:
         self._pump(force=True)
 
     def step(self, i, n, text):
-        if self.d.maximum() != n:
+        if self.d.maximum() != max(n, 1):
             self.d.setRange(0, max(n, 1))
+        if text != getattr(self, "_text", None):
+            self._text = text
             self.d.setLabelText(f"{self.title}\n\n{text}")
         self.d.setValue(i)
         self._pump()
@@ -64,18 +66,34 @@ class ImportProgress:
         self.d.deleteLater()
 
 
-def read_step_in_background(data: bytes, prog: ImportProgress, parent=None) -> bool:
+def read_saved_import_in_background(brep_b64: str, meta, prog: ImportProgress, parent=None) -> bool:
+    """For an import saved as exact geometry: prepare its parts and display meshes in the background the first
+    time (later opens find them in the disk cache). Returns False only if the user cancelled."""
+    import json
+    key = K.saved_import_key(brep_b64)
+    payload = json.dumps({"brep": brep_b64, "meta": meta}).encode()
+    return read_step_in_background(payload, prog, parent, key=key, src_name="in.fsimport")
+
+
+def read_step_in_background(data: bytes, prog: ImportProgress, parent=None, key=None, src_name="in.step") -> bool:
     """Read STEP bytes in a separate process (so the window keeps drawing and Cancel works), leaving the result
     in the kernel's cache for the import that follows. Returns False only if the user cancelled.
     If the background read can't run, it quietly returns True and the import reads the file itself."""
-    key = K.step_cache_key(data)
-    if key in K._STEP_CACHE:
+    key = key or K.step_cache_key(data)
+    if key in K._STEP_CACHE and (key in K._STEP_MESHES or len(data) < WORKER_MIN_BYTES):
+        return True
+    prog.stage("Looking for this STEP file read before…")
+    disk = K.load_step_disk_cache(key)
+    if disk is not None and disk[1] is not None:
+        # read in an earlier session, display meshes and all: no need to read it again. (An entry without
+        # meshes, saved when the file was only loaded for a derived part, is redone below to add them.)
+        K.remember_step(key, disk[0], disk[1])
         return True
     if len(data) < WORKER_MIN_BYTES or os.environ.get("FREESHAPE_NO_STEP_WORKER"):
         prog.stage("Reading the STEP file…")
         return True
     tmp = tempfile.mkdtemp(prefix="freeshape_step_")
-    src, prefix = os.path.join(tmp, "in.step"), os.path.join(tmp, "out")
+    src, prefix = os.path.join(tmp, src_name), os.path.join(tmp, "out")
     try:
         with open(src, "wb") as fh:
             fh.write(data)
@@ -154,7 +172,9 @@ def read_step_in_background(data: bytes, prog: ImportProgress, parent=None) -> b
         if state["done"] and os.path.exists(prefix + ".brep") and os.path.exists(prefix + ".json"):
             prog.stage("Loading the parts…")
             try:
-                K.remember_step(key, K.load_step_result(prefix))
+                res = K.load_step_result(prefix)
+                K.remember_step(key, res, K.load_step_meshes(prefix, res))
+                K.store_step_disk_cache(key, src_prefix=prefix)
             except Exception:
                 pass                       # the import will read the file itself
         return True

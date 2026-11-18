@@ -12,6 +12,32 @@ from .features import RUNNERS, FEATURE_LABELS, ModelState, default_params, Part,
 FILE_VERSION = 1
 
 
+# Set by the window while it waits on a rebuild: callable(i, n, text). Lets the progress bar move feature by
+# feature (only features that actually run are reported; cached ones are instant).
+PROGRESS = None
+
+_BIG_DIGESTS: dict = {}     # id of a big string (an imported STEP) -> (the string, its sha1)
+
+
+def _digest(text: str) -> str:
+    hit = _BIG_DIGESTS.get(id(text))
+    if hit is None or hit[0] is not text:
+        if len(_BIG_DIGESTS) > 64:
+            _BIG_DIGESTS.clear()
+        hit = (text, "sha1:" + hashlib.sha1(text.encode()).hexdigest())
+        _BIG_DIGESTS[id(text)] = hit
+    return hit[1]
+
+
+def _feature_key(f) -> bytes:
+    """A feature as bytes for the rebuild cache key. Big embedded files (an imported STEP can be tens of MB)
+    are stood in for by their checksum, worked out once, so every rebuild doesn't re-serialise them."""
+    p = f.get("params")
+    if isinstance(p, dict) and any(isinstance(v, str) and len(v) > 100_000 for v in p.values()):
+        f = dict(f, params={k: (_digest(v) if isinstance(v, str) and len(v) > 100_000 else v) for k, v in p.items()})
+    return json.dumps({k: v for k, v in f.items() if k != "folder"}, sort_keys=True).encode()
+
+
 class Document:
     kind = "studio"
 
@@ -65,14 +91,39 @@ class Document:
                 "suppressed": False, "params": default_params(ftype, state or self.state)}
 
     # ------------------------------------------------------------------ undo / redo
+    _BLOB_TAG = "\u0000blob:"
+
     def _snapshot(self) -> str:
-        return json.dumps({"features": self.features, "rollback": self.rollback,
+        # Big embedded files (an imported STEP) are left out and referred to by checksum: they never change, and
+        # copying tens of MB into every undo step made each edit slow and could fill memory (up to 200 steps).
+        blobs = self.__dict__.setdefault("_blobs", {})
+        feats = []
+        for f in self.features:
+            p = f.get("params")
+            if isinstance(p, dict) and any(isinstance(v, str) and len(v) > 100_000 for v in p.values()):
+                q = {}
+                for k, v in p.items():
+                    if isinstance(v, str) and len(v) > 100_000:
+                        d = _digest(v)
+                        blobs[d] = v
+                        v = self._BLOB_TAG + d
+                    q[k] = v
+                f = dict(f, params=q)
+            feats.append(f)
+        return json.dumps({"features": feats, "rollback": self.rollback,
                            "overrides": self.part_overrides, "hidden": sorted(self.hidden_parts),
                            "hidden_features": sorted(self.hidden_features), "folders": self.folders,
                            "configs": self.configs})
 
     def _restore(self, snap: str):
         d = json.loads(snap)
+        blobs = self.__dict__.get("_blobs", {})
+        for f in d["features"]:
+            p = f.get("params")
+            if isinstance(p, dict):
+                for k, v in p.items():
+                    if isinstance(v, str) and v.startswith(self._BLOB_TAG):
+                        p[k] = blobs[v[len(self._BLOB_TAG):]]
         self.features = d["features"]
         self.rollback = d["rollback"]
         self.part_overrides = d["overrides"]
@@ -312,14 +363,14 @@ class Document:
         n = len(features) if upto is None else upto
         new_cache = {}
         row = self._config_row(config)
-        for f in features[:n]:
+        for idx, f in enumerate(features[:n]):
             f = self._configured(f, row)
-            h.update(json.dumps({k: v for k, v in f.items() if k != "folder"}, sort_keys=True).encode())
+            h.update(_feature_key(f))
             if f.get("type") == "derived":
                 from . import features as _F
-                h.update(json.dumps(_F.link_stamp(f)).encode())       # rebuild when the source parts change
                 if f["id"] in self.derived_fallback:
                     f = dict(f, _fallback=self.derived_fallback[f["id"]])
+                h.update(json.dumps(_F.link_stamp(f)).encode())       # rebuild when the source parts change
             elif str(f.get("type", "")).startswith("plugin:"):
                 from . import plugins as _P
                 h.update(b"P" if f["type"] in _P.FEATURES else b"-")    # rebuild once the plugin is (un)installed
@@ -337,6 +388,11 @@ class Document:
                 prev = state
                 state = state.copy()
                 err = None
+                if PROGRESS is not None:
+                    try:
+                        PROGRESS(idx, n, f"Rebuilding {self.name or 'the model'}: {f.get('name', f['type'])}")
+                    except Exception:
+                        pass
                 if not f.get("suppressed"):
                     before = dict(state.parts)
                     try:
@@ -522,12 +578,22 @@ class Document:
             if f.get("type") != "derived":
                 continue
             items = []
+            from . import features as _F
+            stamp = None
+            if _F.LINK_SOURCE_STAMP is not None:
+                try:
+                    stamp = _F.LINK_SOURCE_STAMP(f["params"], for_save=True)
+                except Exception:
+                    stamp = None
             for pid, p in self.state.parts.items():
                 if pid.startswith(f["id"] + ":"):
                     try:
                         import base64
-                        items.append({"name": p.name, "color": list(p.color),
-                                      "brep": base64.b64encode(K.shape_to_brep(p.shape)).decode()})
+                        it = {"name": p.name, "color": list(p.color),
+                              "brep": base64.b64encode(K.shape_to_brep(p.shape)).decode()}
+                        if stamp:
+                            it["src"] = stamp       # which saved version of the source these parts came from
+                        items.append(it)
                     except Exception:
                         pass
             if items:
@@ -558,6 +624,7 @@ class Document:
         """Write the file. Unless version=False (autosave), a save also records an automatic version when the
         model changed since the last one."""
         path = path or self.path
+        self._upgrade_imports()
         if version:
             from . import history
             history.create(self, auto=True)
@@ -565,6 +632,47 @@ class Document:
             fh.write(self.to_json())
         self.path = path
         self.dirty = False
+
+    def _upgrade_imports(self):
+        """Files from before imports were kept as exact geometry hold the imported STEP itself, which has to be
+        translated again on every open. Swap it for the geometry it was read as — in the model and in any saved
+        versions holding the same STEP. Only STEP files already read in this session are converted, so saving
+        stays quick; the rest are converted on a later save."""
+        import base64
+        from . import features as _F, history
+        done = {}                                   # sha1 of the STEP text -> new params
+        for f in self.features:
+            p = f.get("params", {})
+            d = p.get("data")
+            if f.get("type") != "import" or p.get("brep") or not isinstance(d, str) or not d \
+                    or _F.is_brep_name(p.get("filename", "")):
+                continue
+            h = hashlib.sha1(d.encode()).hexdigest()
+            if h not in done:
+                try:
+                    key = K.step_cache_key(base64.b64decode(d))
+                    items = K._STEP_CACHE.get(key)
+                    if items is None:
+                        continue
+                    b64, meta = K.pack_import(items)
+                    K.adopt_import(key, b64)
+                except Exception:
+                    continue
+                done[h] = {"brep": b64, "meta": meta, "filename": p.get("filename", "")}
+            f["params"] = dict(done[h])
+        if not done:
+            return
+        for v in self.versions:                    # saved versions of the same STEP share the new geometry
+            for f in v.get("snapshot", {}).get("features", []):
+                p = f.get("params", {})
+                d = p.get("data")
+                if f.get("type") == "import" and isinstance(d, str) and d.startswith("@blob:") and d[6:] in done:
+                    new = done[d[6:]]
+                    hb = hashlib.sha1(new["brep"].encode()).hexdigest()
+                    self.version_blobs.setdefault(hb, new["brep"])
+                    f["params"] = {"brep": "@blob:" + hb, "meta": new["meta"], "filename": new["filename"]}
+        history._prune_blobs(self)
+        self.dirty = True
 
     @staticmethod
     def load(path) -> "Document":

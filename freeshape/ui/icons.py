@@ -410,6 +410,13 @@ def draw(name: str, p: QPainter):
         p.drawLine(QPointF(5, 24), QPointF(27, 9))
         _dot(p, 16, 16.5)
         _dot(p, 27, 9)
+    elif name == "hexagon":
+        p.setPen(_pen(INK, 2))
+        pts = [QPointF(16 + 11 * math.cos(math.radians(a)), 16 + 11 * math.sin(math.radians(a)))
+               for a in range(0, 360, 60)]
+        p.drawPolygon(QPolygonF(pts))
+        _dot(p, 16, 16)
+        _dot(p, 27, 16)
     elif name == "circle":
         p.setPen(_pen(INK, 2))
         p.drawEllipse(QPointF(16, 16), 10, 10)

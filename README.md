@@ -29,10 +29,11 @@ real parts.
 
 ## What it does
 
-- **Part Studios** — sketches with constraints and dimensions; extrude, revolve, sweep, loft, fillet, chamfer,
-  shell, draft, holes (ISO clearance / tapped / counterbore / countersink), real modelled ISO threads, patterns,
-  mirror, booleans, split (with planes, curved faces or sketch curves), variables; rollback bar; **folders** in
-  the feature list; STEP import with colours; export to STEP, STL and **BREP**.
+- **Part Studios** — sketches with constraints and dimensions; solid, surface and thin extrude, revolve, sweep
+  and loft; fillet, chamfer, shell, draft, holes (ISO clearance / tapped / counterbore / countersink), real
+  modelled ISO threads, patterns and mirror (of parts, features or faces), booleans, split (with planes, curved
+  faces or sketch curves), variables; rollback bar; **folders** in the feature list; STEP import with colours;
+  export to STEP, STL and **BREP**.
 - **Assemblies** — insert parts (linked to their Part Studios), fastened / revolute / slider / cylindrical /
   planar / ball mates, gear / rack and pinion / screw relations, drag parts through their mates, an Onshape-style
   move / rotate triad, a standard parts library (ISO screws, nuts, washers, bearings), patterns, exploded views,
@@ -51,12 +52,50 @@ real parts.
   commands; see [PLUGINS.md](PLUGINS.md). A spur gear feature comes as an example.
 - **Fast to drive** — a **Search tools** box (Ctrl+Space) finds any tool by name, box selection with a Select
   filter, Space to deselect, arrow keys to turn the view, and smart sketch snapping (see [CHANGES.md](CHANGES.md)).
+- **Onshape feature parity** — tracked option by option in [FEATURE_PARITY.md](FEATURE_PARITY.md), along with
+  the shared tools (end conditions, creation type, thin wall, draft …) that several features are built from.
 - **Feels like Onshape** — view cube, home page with recent projects, mouse controls, dark / light theme,
   autosave and crash recovery, a Windows installer with file icons.
 
 | Part Studio | Assemblies | Drawings | Sheet metal (folded and flat) |
 |---|---|---|---|
 | ![](docs/screenshot.png) | ![](docs/images/assembly.png) | ![](docs/images/drawing.png) | ![](docs/images/sheet_metal.png) |
+
+## What's new in 2.1
+
+- **Feature options, built once and shared** — following [issue #27](https://github.com/richiewillmott/FreeShape/issues/27),
+  options that several features have are written once and reused, so they behave the same everywhere. Progress
+  is tracked option by option in [FEATURE_PARITY.md](FEATURE_PARITY.md) (95% of the listed Onshape options).
+  - **Solid / Surface / Thin** for Extrude, Revolve, Sweep and Loft — surfaces from sketch curves, edges or region
+    outlines; thin walls from curves or outlines, either side, both, or two different thicknesses.
+  - **Extrude** — draft (taper) on either end, a second end with its own end type (Blind, Through all or any
+    Up to), and Up to ends for surfaces.
+  - **Revolve** — two directions with a different angle each way.
+  - **Sweep** — profile control (normal to the path, keep orientation, lock to a direction or to faces, or
+    follow a guide curve).
+  - **Loft** — sketch curves as profiles, and lofting along a path.
+  - **Chamfer** — two distances, or distance and angle. **Fillet** — variable radius along the edge.
+  - **Hole** — Up to next (just through the material), up to a face, plane or vertex.
+  - **Patterns and Mirror** — **faces** (pick a boss, rib or pocket and only that is repeated), a second
+    direction for linear patterns, and Remove / Intersect as well as New / Add.
+  - **Merge scope** — choose which parts Add / Remove / Intersect act on.
+- **Hexagon sketch tool** (`X`) — centre then corner; snaps flat-top or point-top, and the size box takes the
+  size across flats.
+- **Much faster with big models**
+  - Imported STEP files are now kept in the `.fshape` as exact geometry, so opening one no longer translates the
+    STEP again — a 600-part model loads in under a second instead of about 15 (its 3D view still takes a little
+    while the first time on a computer), and the file is about a fifth of the size. Older files convert
+    themselves the next time you save them.
+  - Read STEP files and their 3D view are cached on your computer, so the second open of a big model is quick
+    even after restarting.
+  - The 3D view of a big import is built in the background, so the window doesn't freeze.
+  - A part derived from another Part Studio uses its saved copy when the source file hasn't changed, instead of
+    loading and rebuilding the whole source.
+  - Modelled threads build several times faster (identical threads are made once).
+  - Sketching is far smoother on detailed parts; edits no longer re-measure the whole part, and the view only
+    redraws when something under the mouse changes.
+  - Undo no longer copies big imported files for every step (this could use a lot of memory).
+- **Progress bar** — moves feature by feature while a model rebuilds, showing which feature it's on.
 
 ## What's new in 2.0
 
@@ -92,13 +131,13 @@ See [CHANGES.md](CHANGES.md) for the full history.
 Get it from the [**latest release**](https://github.com/richiewillmott/FreeShape/releases/latest) — no Python or anything
 else needed:
 
-- **Windows:** `FreeShape-Setup-2.0.0.exe` — run it and follow the installer (it also updates an older version).
+- **Windows:** `FreeShape-Setup-2.1.0.exe` — run it and follow the installer (it also updates an older version).
   Windows SmartScreen may warn the first time because the installer isn't code-signed yet: click
   **More info → Run anyway**.
-- **Mac (Apple Silicon, M1 or newer):** `FreeShape-2.0.0-mac-arm64.dmg` — open it and drag FreeShape into Applications.
+- **Mac (Apple Silicon, M1 or newer):** `FreeShape-2.1.0-mac-arm64.dmg` — open it and drag FreeShape into Applications.
   It isn't signed by Apple yet, so the first time: right-click FreeShape in Applications → **Open** → **Open**.
-- **Linux:** `FreeShape-2.0.0-x86_64.AppImage` — make it executable and run it:
-  `chmod +x FreeShape-2.0.0-x86_64.AppImage && ./FreeShape-2.0.0-x86_64.AppImage`
+- **Linux:** `FreeShape-2.1.0-x86_64.AppImage` — make it executable and run it:
+  `chmod +x FreeShape-2.1.0-x86_64.AppImage && ./FreeShape-2.1.0-x86_64.AppImage`
   (or right-click → Properties → "Allow executing as program", then double-click). If it says FUSE is missing, run
   it with `--appimage-extract-and-run`, or install `libfuse2` (Ubuntu: `sudo apt install libfuse2t64`).
   Using the [AM package manager](https://github.com/ivan-hc/AM)? Install and update it with `am -i freeshape`
@@ -133,6 +172,7 @@ The view turns to face the sketch plane.
 |---|---|---|
 | Line | `L` | click-click; lines chain until `Esc` or you click an existing point. Hover a point or midpoint then move level / plumb for a yellow guide; start from an arc's end or hover a circle to snap tangent |
 | Corner / centre rectangle | `R` | adds horizontal/vertical constraints automatically |
+| Hexagon | `X` | centre, then a corner — a regular hexagon (corners on a construction circle, equal sides). Snaps flat-top or point-top; size it across flats |
 | Circle | `C` | centre, then radius |
 | 3-point arc / centre-point arc | `A` | |
 | Point | `P` | used for hole centres |
@@ -150,7 +190,7 @@ The view turns to face the sketch plane.
 | Ellipse | | centre, end of the long axis, then the width |
 | Text | | click where it starts and type; choose font, size, bold / italic and angle. Letters are real outlines you can extrude, cut or engrave |
 
-**Typing sizes as you draw:** right after you finish a line, rectangle, circle or arc, a dimension box pops up — type a value (e.g. `25`, `1/2 in`) and press Enter and the shape snaps to it. For a rectangle you get width, then height. Just keep drawing (or press Esc) to skip it.
+**Typing sizes as you draw:** right after you finish a line, rectangle, hexagon, circle or arc, a dimension box pops up — type a value (e.g. `25`, `1/2 in`) and press Enter and the shape snaps to it. For a rectangle you get width, then height; for a hexagon, the size across flats. Just keep drawing (or press Esc) to skip it.
 
 Drawing snaps to existing points and curves (adding coincident constraints) and infers horizontal/vertical.
 Geometry is **blue while under-defined and black when fully defined**; conflicting constraints turn red.
@@ -165,15 +205,23 @@ feature list, so you can define them part-way through and use them in later feat
 **Part features** — each opens a floating dialog with a live preview; ✓ (Enter) accepts, ✕ (Esc) cancels.
 Things selected before opening a feature are pre-filled. Extrude and Plane show a **blue arrow you can drag** to set the depth/offset (drag back past the start to flip direction; hold Shift for finer, unsnapped values).
 
+- **Solid, Surface or Thin** — Extrude, Revolve, Sweep and Loft can make a solid from regions and faces, a
+  **surface** from sketch curves, edges or region outlines, or a **thin** wall by thickening them (both sides
+  equally, one side, or two different thicknesses).
+- **Merge scope** — for Add / Remove / Intersect, pick the parts it should act on (none picked: all of them).
 - **Extrude** — New / Add / Remove / Intersect; Blind, Symmetric, Through all, Up to next / face / part /
-  vertex; second direction. Cuts automatically go into the material.
-- **Revolve** — around a sketch line, a part edge, or the X/Y/Z axis; full, one direction, symmetric or up to
-  a face, part or vertex.
-- **Fillet / Chamfer** — pick edges, or a face to do all its edges.
+  vertex; a **second end** with its own end type; **draft** (taper) on either end. Cuts automatically go into
+  the material.
+- **Revolve** — around a sketch line, a part edge, or the X/Y/Z axis; full, one direction, symmetric, **two
+  directions** (a different angle each way), or up to a face, part or vertex.
+- **Fillet** — pick edges, or a face to do all its edges; smooth (tangent) chains are followed; constant or
+  **variable radius**.
+- **Chamfer** — equal distance, **two distances** or **distance and angle**, with *Flip sides*.
 - **Shell** — pick faces to remove, inward or outward.
 - **Hole** — at the points and circle centres of a sketch (click the sketch, or pick it in the dialog);
   "Size of the sketch circles" makes each hole the size you drew it, or use ISO clearance (close / normal / loose fit), ISO tapped (M2–M12, sized to the
-  tap drill), or a custom size; simple, counterbored or countersunk; through or blind with a drill point.
+  tap drill), or a custom size; simple, counterbored or countersunk; through, blind with a drill point, **up to
+  next** (just through the material it starts in), or **up to a face, plane or vertex**.
 - **Thread** — real, modelled ISO metric threads (M1.6–M24, coarse pitch) on any round face: pick a hole to tap
   it (internal thread) or a shaft to thread it (external). The size is detected from the diameter (a Ø5 hole →
   M6, a Ø6 shaft → M6), or choose it, or set a custom diameter and pitch. Whole face or a set length, left-hand,
@@ -181,7 +229,10 @@ Things selected before opening a feature are pre-filled. Extrude and Plane show 
   straight from the Hole feature (*Model the thread*). Real threads take a few seconds to build, so plain tapped
   holes (sized for the tap drill) stay the default — like Onshape.
 - **Sweep** — a profile along a path (connected sketch curves or part edges), e.g. pipes and handles.
-- **Loft** — blend between two or more profiles on different planes; tick *Straight sides* for a ruled loft.
+  *Profile control*: keep it normal to the path, keep its orientation, lock it to a direction or to faces, or
+  follow a guide curve.
+- **Loft** — blend between two or more profiles (regions, faces or sketch curves) on different planes, optionally
+  **along a path**; tick *Straight sides* for a ruled loft.
 - **Draft** — tilt faces by an angle from a neutral plane, for moulded or 3D-printed parts.
 - **Split** — cut parts with planes, flat or curved faces, or sketch curves — several tools at once — keeping
   both sides or just the side each arrow points to.
@@ -190,9 +241,12 @@ Things selected before opening a feature are pre-filled. Extrude and Plane show 
   tangent; *Automatic* picks the type from your selection.
 - **Delete face / Move face / Offset surface** — remove fillets, chamfers, bosses and holes from imported parts
   (heal, cap or leave open), push or pull flat faces, or make a surface a set distance from faces.
-- **Mirror**, **Linear pattern**, **Circular pattern** — of whole parts, or of features (repeat a hole, pocket
-  or boss; the copies follow when you edit the original).
-- **Boolean** — union, subtract, intersect parts.
+- **Mirror**, **Linear pattern**, **Circular pattern** — of whole parts, of features (repeat a hole, pocket
+  or boss; the copies follow when you edit the original), or of **faces** (pick all the faces of a boss, rib or
+  pocket — handy on imported parts with no feature history). Linear patterns can have a **second direction**
+  for a grid; copies of parts can be added, or Remove / Intersect other parts.
+- **Boolean** — union, subtract, intersect parts (intersect keeps only the targets' material inside the tools —
+  Onshape's *subtract complement*).
 - **Import STEP / BREP** and **Export STEP / STL / BREP** (whole studio, or selected parts from the Parts list).
 
 **Feature list** — double-click to edit any feature; the model rolls back while you edit and everything
@@ -214,7 +268,15 @@ Right plane, or select a face first to cut exactly there; drag the slider or typ
 other side.
 
 **Big imports** — large STEP files are read in the background with a progress window (and a Cancel button), so
-FreeShape doesn't freeze while it works; the view stays quick even with hundreds of parts.
+FreeShape doesn't freeze while it works; the 3D view is prepared in the background too, and stays quick even with
+hundreds of parts. An imported STEP is kept in the `.fshape` as exact geometry (OpenCascade BREP, with the part
+names and colours), so opening the file later doesn't translate the STEP again. Read STEP files and their 3D view
+are also cached on your computer (`%LOCALAPPDATA%\FreeShape\step_cache` on Windows, `~/.cache/FreeShape/step_cache`
+elsewhere; oldest entries go past 3 GB; safe to delete), so a big model opens quickly the second time.
+
+**Derived parts** — a part brought in from another Part Studio uses the copy saved in your file while the source
+file hasn't changed since, so the source isn't loaded and rebuilt each time; edit the source (or open it in a tab)
+and the part follows it again.
 
 **Imported colours** — STEP files keep their part names and colours, including models where only some faces are
 coloured; the colours stay on those faces after later features like fillets and cuts.
@@ -267,7 +329,7 @@ still opens if a Part Studio file goes missing (it says so, and shows the saved 
 
 **Tabs** — each tab along the bottom is a Part Studio or an Assembly. **Import STEP** and **Open** put the file in a new tab (or reuse the current tab if it's empty); **+** adds a new Part Studio or Assembly (Ctrl+N for a Part Studio). Drag tabs to reorder, double-click to rename, right-click for rename / duplicate / close, or middle-click / Ctrl+W to close. To bring a STEP into the model you're working on instead, use Document → *Import STEP into this tab*.
 
-Part Studios save as `.fshape`, and older `.fcad` files still open (plain JSON of the feature history — imported STEP data is embedded).
+Part Studios save as `.fshape`, and older `.fcad` files still open (plain JSON of the feature history — imported parts are embedded as exact geometry; files from 2.0 and earlier that hold the STEP itself are converted when next saved).
 
 ## Sheet metal
 
@@ -329,6 +391,8 @@ Run a Python script…** runs a script against the open Part Studio — both are
 This is a capable hobby/prototyping tool, not a replacement for Onshape:
 
 - **No FeatureScript** (Python plugins cover some of the same ground — see [PLUGINS.md](PLUGINS.md)).
+- Some feature options are still missing — conic fillets, loft guide curves and start / end tangency, and
+  parting-line draft; sweep takes one guide curve. [FEATURE_PARITY.md](FEATURE_PARITY.md) has the full list.
 - Assemblies are one level deep (no sub-assemblies yet), and there are no mate limits.
 - Sheet metal has no rolled / conical sheet, and cuts that cross a bend are left out of the flat pattern.
 - Drawings have no broken views, angle dimensions, hole tables, GD&T or multiple sheets yet.

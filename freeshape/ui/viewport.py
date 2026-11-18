@@ -592,13 +592,23 @@ class Viewport(QOpenGLWidget):
             ranges[pid] = (nt, m, color)
             nv += len(m.verts)
             nt += len(m.tris)
-            for poly in m.edge_polys:
-                poly = np.asarray(poly, np.float32)
-                if len(poly) >= 2:
-                    seg = np.empty((2 * (len(poly) - 1), 3), np.float32)
-                    seg[0::2] = poly[:-1]
-                    seg[1::2] = poly[1:]
-                    E.append(seg)
+            segs = getattr(m, "_edge_segs", None)
+            if segs is None:              # a part's edge lines only change with its mesh: build them once
+                parts_e = []
+                for poly in m.edge_polys:
+                    poly = np.asarray(poly, np.float32)
+                    if len(poly) >= 2:
+                        seg = np.empty((2 * (len(poly) - 1), 3), np.float32)
+                        seg[0::2] = poly[:-1]
+                        seg[1::2] = poly[1:]
+                        parts_e.append(seg)
+                segs = np.vstack(parts_e) if parts_e else np.zeros((0, 3), np.float32)
+                try:
+                    m._edge_segs = segs
+                except Exception:
+                    pass
+            if len(segs):
+                E.append(segs)
         cat = lambda a, shape: np.ascontiguousarray(np.vstack(a), np.float32) if a else np.zeros(shape, np.float32)
         self._batch = {"V": cat(V, (0, 3)), "N": cat(N, (0, 3)), "C": cat(C, (0, 3)),
                        "T": np.ascontiguousarray(np.vstack(T), np.uint32) if T else np.zeros((0, 3), np.uint32),
@@ -1726,8 +1736,8 @@ class Viewport(QOpenGLWidget):
             return
         self.setCursor(Qt.ArrowCursor)
         if self.sketcher:
-            self.sketcher.mouse_move(self, x, y, e)
-            self.update()
+            if self.sketcher.mouse_move(self, x, y, e) is not False:
+                self.update()
             return
         # picking under the mouse can take a few ms on big models: do it once per event-loop turn with the latest
         # position, rather than for every mouse-move event in a burst

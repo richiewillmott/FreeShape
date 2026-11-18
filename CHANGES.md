@@ -1,5 +1,87 @@
 # FreeShape revisions
 
+## 2.1.0
+
+Feature options brought up to Onshape's, built once and shared between features (issue #27), a hexagon sketch
+tool, and big speed-ups for large models — especially ones with imported STEP files.
+
+### Feature options, built once and shared (issue #27)
+- Options that several features have are now written **once** and used by every feature that has them, so they
+  look and behave the same everywhere. **FEATURE_PARITY.md** lists every feature's options against Onshape —
+  done, partial or still to do — with a parity percentage (95% overall), and the shared tools each is built on.
+  It is generated from `freeshape/parity.py` (`python -m freeshape.parity`); a test keeps it current.
+- **Creation type — Solid / Surface / Thin** for Extrude, Revolve, Sweep and Loft. *Surface* makes open
+  surfaces from sketch curves, part edges or region outlines (e.g. extrude an L-shaped curve into a sheet, or a
+  rectangle's outline into an open tube). *Thin* thickens curves or outlines into a wall — both sides equally,
+  one side, or two different thicknesses — and the wall then joins the model like any solid.
+- **Extrude**
+  - **Draft** (taper) — + narrows, − widens. A Symmetric extrude with draft now narrows both ways (before, it
+    narrowed one way and widened the other).
+  - **Second end** with its own end type — Blind, Through all or any Up to — and its own **draft angle**.
+  - **Up to** ends now work for surfaces too (Extrude and Revolve).
+- **Revolve** — **Two directions**, a different angle each way.
+- **Sweep** — **Profile control**: normal to the path (as before), keep the profile's orientation, lock it to a
+  direction, lock it to faces the path runs on, or follow a guide curve.
+- **Loft** — Surface and Thin; **sketch curves** as profiles; **loft along a path**.
+- **Chamfer** — **Two distances**, or **Distance and angle**, with *Flip sides*.
+- **Fillet** — **Variable radius**, changing from one radius to another along the edge.
+- **Hole** — **Up to next** (just through the material it starts in), **Up to face / plane** and **Up to vertex**,
+  each with *Stop short by*. Counterbores, countersinks and drill points work with them as usual.
+- **Linear pattern** — a **second direction**, for a grid.
+- **Patterns and Mirror**
+  - **Faces**: pick all the faces of a boss, rib or pocket and only that is repeated or mirrored — useful on
+    imported parts with no feature history. (It works out the boss / pocket by healing the faces away, the same
+    way Delete face does.)
+  - Copies of parts can now **Remove** from or **Intersect** with other parts, as well as New / Add.
+- **Merge scope** — for Add / Remove / Intersect, choose which parts it acts on (none chosen: all of them), in
+  Extrude, Revolve, Sweep, Loft, the patterns and Mirror.
+- Already there, now recorded: fillets, chamfers and drafts follow smooth (tangent) chains of edges and faces;
+  Boolean *Intersect* is Onshape's *Subtract complement*.
+- Not yet (listed in FEATURE_PARITY.md): conic fillets, loft guide curves and start / end tangency, parting-line
+  draft; sweep takes one guide curve.
+
+### Sketching
+- **Hexagon** tool (`X`, next to the rectangles): click the centre, then a corner. It is a true regular hexagon —
+  corners on a construction circle, all sides equal — so it stays regular when resized. It snaps flat-top or
+  point-top (and is locked that way) when drawn close to either. While drawing, the size across flats shows by
+  the cursor, and the size box that pops up afterwards takes the size **across flats** (13 for an M8 nut).
+  Click-and-drag works too.
+- The size box that pops up after drawing now also works for dimensions that measure from a point (it ignored
+  them before).
+- **Smoother sketching on detailed parts**: moving the mouse only redraws the view when what's under it changes;
+  finding what's under the mouse and drawing the sketch are many times faster; and editing a sketch no longer
+  re-measures every face of the part it sits on.
+
+### Speed, especially with big models
+- **Imported STEP files are kept as exact geometry** in the `.fshape` (OpenCascade's BREP, with the part names
+  and colours) instead of the STEP text. Opening the file no longer translates the STEP again: a 638-part model
+  loads in 0.4 s instead of 14.5 s, and its file went from 65 MB to 12.5 MB (the STEP was also stored twice,
+  once for version history). Files from 2.0 and earlier still open, and convert themselves when next saved —
+  versions in their history that hold the same STEP are converted too.
+- **Read STEP files are cached** on your computer with their 3D view, so a big model opens quickly the second
+  time, even after restarting (`%LOCALAPPDATA%\FreeShape\step_cache` on Windows, `~/.cache/FreeShape/step_cache`
+  elsewhere; oldest entries go past 3 GB; safe to delete).
+- **The 3D view of a big import is built in the background** with the STEP reader, so the window no longer
+  freezes afterwards; turning parts into triangles is about twice as fast, and repeated parts (screws in an
+  assembly STEP) are meshed once.
+- **Derived parts** use the copy saved in the file while the source Part Studio file hasn't changed since,
+  instead of loading and rebuilding the whole source each time the file opens (13.6 s → 0.01 s on a part derived
+  from a large STEP). Edit the source, or have it open in a tab, and the part follows it again.
+- **Modelled threads** build several times faster: identical threads (four M4 holes) are made once, cut into the
+  part in one go, and booleans use all CPU cores (a bracket with four threaded holes: 5.8 s → 1.4 s to open).
+- **Undo** no longer copies big imported files into every step — each step could hold tens of MB, up to 200 of
+  them.
+- The rebuild cache no longer re-reads large embedded files on every change.
+
+### Other
+- The **progress bar** moves feature by feature while a model rebuilds, showing which feature it's on.
+- The Windows exe's version details (Properties ▸ Details) showed 1.9.3; they now match the release.
+
+### Compatibility
+- Everything made in 2.0 opens and rebuilds the same in 2.1; new options default to the old behaviour.
+- A Part Studio holding an imported STEP, **once saved in 2.1**, keeps the import as geometry — FreeShape 2.0
+  can't rebuild that import. Keep a copy saved from 2.0 if you need to go back.
+
 ## 2.0.0
 
 The biggest update yet: everyday modelling (splines, ellipses, text, "Up to" ends, feature patterns, sketching

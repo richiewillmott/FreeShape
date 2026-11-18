@@ -75,7 +75,13 @@ class Plane:
 
     @property
     def ydir(self) -> np.ndarray:
-        return np.cross(self.normal, self.xdir)
+        # used for every sketch point drawn on screen, so remember it (re-worked out if the axes change)
+        key = (np.asarray(self.normal, float).tobytes(), np.asarray(self.xdir, float).tobytes())
+        hit = self.__dict__.get("_ydir")
+        if hit is None or hit[0] != key:
+            hit = (key, np.cross(self.normal, self.xdir))
+            self.__dict__["_ydir"] = hit
+        return hit[1]
 
     def to_world(self, u, v) -> np.ndarray:
         return self.origin + u * self.xdir + v * self.ydir
@@ -239,8 +245,22 @@ def mass_props(shape):
     return {"volume": g.Mass(), "area": sa.Mass(), "centroid": _np(g.CentreOfMass())}
 
 
+_FACE_INFO: dict = {}     # hash(face) -> (face, info): faces are re-measured on every rebuild otherwise
+
+
 def face_info(face) -> dict:
     """A geometric signature of a face, used to re-find it after a rebuild."""
+    key = hash(face)
+    hit = _FACE_INFO.get(key)
+    if hit is None or not (hit[0].IsSame(face) and hit[0].IsEqual(face)):
+        if len(_FACE_INFO) > 20_000:
+            _FACE_INFO.clear()
+        hit = (face, _face_info(face))
+        _FACE_INFO[key] = hit
+    return {k: (list(v) if isinstance(v, list) else v) for k, v in hit[1].items()}
+
+
+def _face_info(face) -> dict:
     g = GProp_GProps()
     BRepGProp.SurfaceProperties_s(face, g)
     ad = BRepAdaptor_Surface(face)
@@ -667,10 +687,11 @@ def extrude(profile_faces, direction: np.ndarray, depth: float, symmetric=False,
         if not mk.IsDone():
             raise KernelError("Extrude failed")
         results.append(mk.Shape())
-    return fuse_all(results)
+    return combine(results)
 
 
-def revolve(profile_faces, axis_p, axis_d, angle_deg: float, symmetric=False):
+def revolve(profile_faces, axis_p, axis_d, angle_deg: float, symmetric=False, back: float = 0.0):
+    """back: start that many degrees behind the profile (two directions: angle_deg is then the total)."""
     if not profile_faces:
         raise KernelError("Select sketch regions to revolve")
     ax = gp_Ax1(_pnt(axis_p), _dir(axis_d))
@@ -680,6 +701,8 @@ def revolve(profile_faces, axis_p, axis_d, angle_deg: float, symmetric=False):
         start = f
         if symmetric and angle_deg < 360:
             start = rotate(f, axis_p, axis_d, -angle_deg / 2)
+        elif back:
+            start = rotate(f, axis_p, axis_d, -back)
         if abs(angle_deg) >= 360 - 1e-9:
             mk = BRepPrimAPI_MakeRevol(start, ax)
         else:
@@ -688,7 +711,7 @@ def revolve(profile_faces, axis_p, axis_d, angle_deg: float, symmetric=False):
         if not mk.IsDone():
             raise KernelError("Revolve failed (does the profile cross the axis?)")
         out.append(mk.Shape())
-    return fuse_all(out)
+    return combine(out)
 
 
 # --------------------------------------------------------------------------- "up to" end conditions
@@ -762,6 +785,44 @@ def keep_piece_from(long_body, tool, seed) -> object:
         if cl.State() == TopAbs_IN:
             return sol
     raise KernelError("Couldn't find where the extrude meets that")
+
+
+def keep_sheet_from(long_sheet, tool, start):
+    """The surface version of keep_piece_from: cut a sheet (curves swept too far) with `tool` and keep the
+    pieces still joined to the start curves `start` — the surface up to where it first meets the tool."""
+    from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+    sp = BRepAlgoAPI_Splitter()
+    sp.SetArguments(_list([long_sheet]))
+    sp.SetTools(_list([tool]))
+    sp.SetFuzzyValue(1e-7)
+    sp.Build()
+    if not sp.IsDone():
+        raise KernelError("Couldn't find where the surface meets that")
+    pieces = faces(sp.Shape())
+    if len(pieces) <= len(faces(long_sheet)):
+        raise KernelError("It never reaches that — check the direction (Opposite direction) or pick another")
+    keep = []
+    for f in pieces:
+        dd = BRepExtrema_DistShapeShape(f, start)
+        if dd.IsDone() and dd.Value() < 1e-6:
+            keep.append(f)
+    if not keep:
+        raise KernelError("Couldn't find where the surface meets that")
+    return keep[0] if len(keep) == 1 else compound(keep)
+
+
+def ray_hits(shape, origin, direction):
+    """Distances along a ray (origin, direction) at which it crosses the shape's faces, nearest first."""
+    from OCP.BRepIntCurveSurface import BRepIntCurveSurface_Inter
+    from OCP.gp import gp_Lin
+    d = np.asarray(direction, float) / np.linalg.norm(direction)
+    it = BRepIntCurveSurface_Inter()
+    it.Init(shape, gp_Lin(_pnt(origin), _dir(d)), 1e-7)
+    out = []
+    while it.More():
+        out.append(float(it.W()))
+        it.Next()
+    return sorted(out)
 
 
 def rotate_point(q, axis_p, axis_d, angle_deg):
@@ -844,10 +905,12 @@ def _run_boolean(cls, a, b, fuzzy, preset):
         op.SetArguments(_list([a]))
         op.SetTools(_list([b]))
         op.SetFuzzyValue(fuzzy)
+        op.SetRunParallel(True)    # same result, spread over the CPU cores (threads: several plugs at once)
         op.Build()
     else:                          # the original one-step form (runs with its own defaults)
         op = cls(a, b)
         op.SetFuzzyValue(fuzzy)
+        op.SetRunParallel(True)
         op.Build()
     return op.Shape() if op.IsDone() else None
 
@@ -890,6 +953,22 @@ def cut(a, b, check=False, volume_check=False):
 
 def common(a, b, check=False, volume_check=False):
     return _boolean(BRepAlgoAPI_Common, a, b, check, False, volume_check)
+
+
+def combine(shapes):
+    """Results of moving several profiles: solids are fused into one body; surfaces (from curves) are kept side
+    by side in a compound — fusing open sheets isn't meaningful."""
+    shapes = [s for s in shapes if s is not None]
+    if not shapes:
+        return None
+    if all(solids(s) for s in shapes):
+        return fuse_all(shapes)
+    return shapes[0] if len(shapes) == 1 else compound(shapes)
+
+
+def sweep_curves(wires, path_wire, control=None):
+    """Surfaces made by sweeping curves (wires) along a path."""
+    return combine([_pipe_shell(path_wire, w, control, solid=False) for w in wires])
 
 
 def fuse_all(shapes):
@@ -940,10 +1019,15 @@ def _blend_ok(before, after):
         return False
 
 
-def _try_blend(make, shape, edge_list, size):
+def _try_blend(make, shape, edge_list, size, add=None):
+    """Fillet / chamfer the edges; None if it doesn't work. add(mk, edge, size) adds one edge (default: one
+    radius / distance); variable radii and two-distance chamfers pass their own."""
     mk = make(shape)
     for e in edge_list:
-        mk.Add(float(size), e)
+        if add is None:
+            mk.Add(float(size), e)
+        else:
+            add(mk, e, float(size))
     try:
         mk.Build()
     except Exception:
@@ -954,14 +1038,14 @@ def _try_blend(make, shape, edge_list, size):
     return out if _blend_ok(shape, out) else None
 
 
-def _largest_blend(make, shape, edge_list, size):
+def _largest_blend(make, shape, edge_list, size, add=None):
     """The largest size below `size` that works (binary search), or None — for a helpful error message."""
     if len(edge_list) > 24:
         return None
     lo, hi = 0.0, float(size)
     for _ in range(9):
         mid = (lo + hi) / 2
-        if _try_blend(make, shape, edge_list, mid) is not None:
+        if _try_blend(make, shape, edge_list, mid, add) is not None:
             lo = mid
         else:
             hi = mid
@@ -974,30 +1058,72 @@ def _nice_down(x):
     return math.floor(x / step) * step
 
 
-def fillet(shape, edge_list, radius: float):
+def fillet(shape, edge_list, radius: float, radius2: float | None = None):
+    """Round the edges (and the smooth chains they belong to). radius2: a variable fillet whose radius changes
+    evenly from `radius` at one end of each chain to radius2 at the other."""
     if not edge_list:
         raise KernelError("Select edges to fillet")
-    if radius <= 0:
+    if radius <= 0 or (radius2 is not None and radius2 <= 0):
         raise KernelError("Radius must be positive")
-    out = _try_blend(BRepFilletAPI_MakeFillet, shape, edge_list, radius)
+    add = None
+    if radius2 is not None:
+        ratio = float(radius2) / float(radius)
+
+        def add(mk, e, r):
+            mk.Add(r, r * ratio, e)
+    out = _try_blend(BRepFilletAPI_MakeFillet, shape, edge_list, radius, add)
     if out is None:
-        best = _largest_blend(BRepFilletAPI_MakeFillet, shape, edge_list, radius)
+        best = _largest_blend(BRepFilletAPI_MakeFillet, shape, edge_list, radius, add)
         hint = f" — the largest that works here is about {_nice_down(best):g} mm" if best else ""
         raise KernelError(f"Fillet radius too large for these edges (the rounds would overlap or not fit){hint}")
     return out
 
 
-def chamfer(shape, edge_list, dist: float):
+def chamfer(shape, edge_list, dist: float, mode="equal", dist2: float | None = None, angle: float | None = None,
+            flip=False):
+    """Bevel the edges. mode: 'equal' (dist on both faces), 'two' (dist on one face, dist2 on the other) or
+    'angle' (dist on one face, at `angle` degrees to it). flip swaps which face is measured from."""
     if not edge_list:
         raise KernelError("Select edges to chamfer")
-    if dist <= 0:
+    if dist <= 0 or (mode == "two" and (dist2 or 0) <= 0):
         raise KernelError("Distance must be positive")
-    out = _try_blend(BRepFilletAPI_MakeChamfer, shape, edge_list, dist)
+    if mode == "angle" and not (0 < float(angle or 0) < 90):
+        raise KernelError("Angle must be between 0° and 90°")
+    add = None
+    if mode in ("two", "angle"):
+        owner = _edge_faces(shape)
+        ratio = float(dist2) / float(dist) if mode == "two" else None
+
+        def add(mk, e, d):
+            fs = owner.get(e)
+            if not fs:
+                mk.Add(d, e)
+                return
+            face = fs[1] if flip and len(fs) > 1 else fs[0]
+            if mode == "two":
+                mk.Add(d, d * ratio, e, face)
+            else:
+                mk.AddDA(d, math.radians(float(angle)), e, face)
+    out = _try_blend(BRepFilletAPI_MakeChamfer, shape, edge_list, dist, add)
     if out is None:
-        best = _largest_blend(BRepFilletAPI_MakeChamfer, shape, edge_list, dist)
+        best = _largest_blend(BRepFilletAPI_MakeChamfer, shape, edge_list, dist, add)
         hint = f" — the largest that works here is about {_nice_down(best):g} mm" if best else ""
         raise KernelError(f"Chamfer too large for these edges (the cuts would overlap or not fit){hint}")
     return out
+
+
+class _EdgeFaces:
+    """The faces each edge of a shape lies on."""
+
+    def __init__(self, shape):
+        self.fe = [(f, edges(f)) for f in faces(shape)]
+
+    def get(self, e):
+        return [f for f, es in self.fe if any(e.IsSame(x) for x in es)]
+
+
+def _edge_faces(shape):
+    return _EdgeFaces(shape)
 
 
 def shell(shape, remove_faces, thickness: float, outward=False):
@@ -1136,47 +1262,98 @@ class Mesh:
     face_edges: list = field(default_factory=list)    # per face: indices (into edge_polys) of its boundary edges
 
 
+def default_deflection(shape) -> float:
+    """Linear mesh tolerance used for display: 0.1 % of the part's size."""
+    lo, hi = bbox(shape)
+    return max(float(np.linalg.norm(hi - lo)) * 0.001, 1e-3)
+
+
+_INSTANCE_MESHES: dict = {}     # repeated parts (screws in an assembly STEP): the shared shape's mesh, built once
+
+
+def _rigid_matrix(trsf):
+    """4x4 matrix of a gp_Trsf, or None if it isn't a plain rotation + translation (scaled / mirrored)."""
+    M = np.array([[trsf.Value(r, c) for c in range(1, 5)] for r in range(1, 4)], float)
+    R = M[:, :3]
+    if not np.allclose(R @ R.T, np.eye(3), atol=1e-9) or np.linalg.det(R) < 0:
+        return None
+    return M
+
+
+def _moved_mesh(m: "Mesh", M) -> "Mesh":
+    R, t = M[:, :3], M[:, 3]
+    return Mesh((m.verts @ R.T + t).astype(np.float32), (m.normals @ R.T).astype(np.float32), m.tris,
+                m.tri_face, list(m.face_ranges),
+                [(np.asarray(e, float) @ R.T + t).astype(np.float32) if len(e) else e for e in m.edge_polys],
+                (np.asarray(m.vertices, float) @ R.T + t).astype(np.float32).reshape(-1, 3), m.face_edges)
+
+
 def tessellate(shape, lin_defl: float | None = None, ang_defl: float = 0.2) -> Mesh:
+    if lin_defl is None and ang_defl == 0.2:
+        ready = _ready_step_mesh(shape)
+        if ready is not None:
+            return ready
+    loc = shape.Location()
+    if not loc.IsIdentity():
+        # A placed copy of a shared shape (STEP assemblies repeat parts this way): mesh the shared shape once
+        # and move the result, instead of pulling the same triangles out of OpenCascade for every copy.
+        M = _rigid_matrix(loc.Transformation())
+        if M is not None:
+            base = shape.Located(TopLoc_Location())
+            key = (hash(base), lin_defl, ang_defl)
+            hit = _INSTANCE_MESHES.get(key)
+            if hit is None or not (hit[0].IsSame(base) and hit[0].IsEqual(base)):
+                if len(_INSTANCE_MESHES) > 256:
+                    _INSTANCE_MESHES.clear()
+                hit = (base, _tessellate(base, lin_defl, ang_defl))
+                _INSTANCE_MESHES[key] = hit
+            return _moved_mesh(hit[1], M)
+    return _tessellate(shape, lin_defl, ang_defl)
+
+
+def _tessellate(shape, lin_defl: float | None = None, ang_defl: float = 0.2) -> Mesh:
     if lin_defl is None:
-        lo, hi = bbox(shape)
-        lin_defl = max(np.linalg.norm(hi - lo) * 0.001, 1e-3)
+        lin_defl = default_deflection(shape)
     BRepMesh_IncrementalMesh(shape, lin_defl, False, ang_defl, True)
     V, N, T, TF, ranges = [], [], [], [], []
     base = 0
+    ntri = 0
     for fi, f in enumerate(faces(shape)):
         loc = TopLoc_Location()
         tri = BRep_Tool.Triangulation_s(f, loc)
-        start = sum(len(t) for t in T)
         if tri is None:
-            ranges.append((start, start))
+            ranges.append((ntri, ntri))
             continue
-        trsf = loc.Transformation()
+        # One Python call per node / triangle is the slow part, so keep each to a single call and do the
+        # rest (placement, winding, normals) on whole arrays.
         nb = tri.NbNodes()
-        pts = np.empty((nb, 3))
-        for i in range(1, nb + 1):
-            p = tri.Node(i).Transformed(trsf)
-            pts[i - 1] = (p.X(), p.Y(), p.Z())
+        node = tri.Node
+        pts = np.array([node(i).Coord() for i in range(1, nb + 1)], float).reshape(-1, 3)
         nt = tri.NbTriangles()
-        idx = np.empty((nt, 3), dtype=np.int64)
+        trg = tri.Triangle
+        idx = np.array([trg(i).Get() for i in range(1, nt + 1)], np.int64).reshape(-1, 3) - 1
         rev = f.Orientation() == TopAbs_REVERSED
-        for i in range(1, nt + 1):
-            a, b, c = tri.Triangle(i).Get()
-            idx[i - 1] = (a - 1, c - 1, b - 1) if rev else (a - 1, b - 1, c - 1)
+        if rev:
+            idx = idx[:, [0, 2, 1]]
+        R = None
+        if not loc.IsIdentity():
+            trsf = loc.Transformation()
+            Mx = np.array([[trsf.Value(r, c) for c in range(1, 5)] for r in range(1, 4)], float)
+            R = Mx[:, :3]
+            pts = pts @ R.T + Mx[:, 3]
         # vertex normals from the surface if available, else from triangles
-        nrm = np.zeros((nb, 3))
         if tri.HasNormals():
-            for i in range(1, nb + 1):
-                d = tri.Normal(i)
-                nrm[i - 1] = (d.X(), d.Y(), d.Z())
-            if not loc.IsIdentity():
-                R = np.array([[trsf.Value(r, c) for c in range(1, 4)] for r in range(1, 4)])
+            nrm = np.array([tri.Normal(i).Coord() for i in range(1, nb + 1)], float).reshape(-1, 3)
+            if R is not None:
                 nrm = nrm @ R.T
             if rev:
                 nrm = -nrm
         else:
             fn = np.cross(pts[idx[:, 1]] - pts[idx[:, 0]], pts[idx[:, 2]] - pts[idx[:, 0]])
+            nrm = np.zeros((nb, 3))
             for k in range(3):
-                np.add.at(nrm, idx[:, k], fn)
+                for c in range(3):
+                    nrm[:, c] += np.bincount(idx[:, k], weights=fn[:, c], minlength=nb)
         ln = np.linalg.norm(nrm, axis=1, keepdims=True)
         ln[ln == 0] = 1
         nrm /= ln
@@ -1184,7 +1361,8 @@ def tessellate(shape, lin_defl: float | None = None, ang_defl: float = 0.2) -> M
         N.append(nrm)
         T.append(idx + base)
         TF.append(np.full(nt, fi, dtype=np.int32))
-        ranges.append((start, start + nt))
+        ranges.append((ntri, ntri + nt))
+        ntri += nt
         base += nb
     seams = seam_edge_indices(shape)
     polys = []
@@ -1289,10 +1467,112 @@ def step_cache_key(data: bytes) -> str:
     return hashlib.sha1(data).hexdigest()
 
 
-def remember_step(key, result):
+_STEP_MESHES: dict = {}     # same key -> {hash(solid): (solid, Mesh)}: display meshes made by the background reader
+
+
+def remember_step(key, result, meshes=None):
     if len(_STEP_CACHE) > 6:
-        _STEP_CACHE.pop(next(iter(_STEP_CACHE)))
+        old = next(iter(_STEP_CACHE))
+        _STEP_CACHE.pop(old)
+        _STEP_MESHES.pop(old, None)
     _STEP_CACHE[key] = result
+    if meshes:
+        _STEP_MESHES[key] = {hash(sol): (sol, m) for (sol, *_r), m in zip(result, meshes) if m is not None}
+
+
+def _ready_step_mesh(shape):
+    if not _STEP_MESHES:
+        return None
+    h = hash(shape)
+    for table in _STEP_MESHES.values():
+        hit = table.get(h)
+        if hit is not None and hit[0].IsSame(shape) and hit[0].IsEqual(shape):
+            return hit[1]
+    return None
+
+
+def step_disk_cache_dir():
+    """Where read STEP files are kept between sessions (FREESHAPE_STEP_CACHE overrides; "off" disables)."""
+    import os
+    env = os.environ.get("FREESHAPE_STEP_CACHE")
+    if env:
+        return None if env.lower() == "off" else env
+    base = os.environ.get("LOCALAPPDATA") or os.path.join(os.path.expanduser("~"), ".cache")
+    return os.path.join(base, "FreeShape", "step_cache")
+
+
+STEP_DISK_CACHE_MAX_BYTES = 3_000_000_000     # oldest entries go once the cache is bigger than this
+
+
+def load_step_disk_cache(key):
+    """(result, meshes or None) for a STEP file read in an earlier session, or None. Reading a big STEP is
+    the slow part of opening a file that holds one; the result of reading it never changes."""
+    import os
+    d = step_disk_cache_dir()
+    if not d:
+        return None
+    prefix = os.path.join(d, key)
+    if not (os.path.exists(prefix + ".brep") and os.path.exists(prefix + ".json")):
+        return None
+    try:
+        res = load_step_result(prefix)
+        meshes = load_step_meshes(prefix, res)
+        now = None
+        for ext in (".brep", ".json", ".mesh.npz"):
+            if os.path.exists(prefix + ext):
+                os.utime(prefix + ext, now)          # recently used: keep it longest
+        return res, meshes
+    except Exception:
+        return None
+
+
+def store_step_disk_cache(key, src_prefix=None, result=None):
+    """Keep a read STEP file for next time: copy the background reader's files (src_prefix), or write
+    `result`. Never fails loudly — the cache is only an optimisation."""
+    import os, shutil
+    d = step_disk_cache_dir()
+    if not d:
+        return
+    try:
+        os.makedirs(d, exist_ok=True)
+        dst = os.path.join(d, key)
+        tmp = dst + f".tmp{os.getpid()}"
+        if src_prefix is not None:
+            for ext in (".mesh.npz", ".json", ".brep"):        # .brep last: it marks the entry complete
+                if os.path.exists(src_prefix + ext):
+                    shutil.copyfile(src_prefix + ext, tmp + ext)
+                    os.replace(tmp + ext, dst + ext)
+        elif result is not None:
+            save_step_result(result, tmp)
+            for ext in (".json", ".brep"):
+                os.replace(tmp + ext, dst + ext)
+        _trim_step_disk_cache(d)
+    except Exception:
+        pass
+
+
+def _trim_step_disk_cache(d):
+    import os
+    entries = {}
+    for name in os.listdir(d):
+        if ".tmp" in name:
+            continue
+        key = name.split(".")[0]
+        fp = os.path.join(d, name)
+        sz, mt = os.path.getsize(fp), os.path.getmtime(fp)
+        e = entries.setdefault(key, [0, 0.0])
+        e[0] += sz
+        e[1] = max(e[1], mt)
+    total = sum(e[0] for e in entries.values())
+    for key, (sz, _mt) in sorted(entries.items(), key=lambda kv: kv[1][1]):
+        if total <= STEP_DISK_CACHE_MAX_BYTES:
+            break
+        for ext in (".brep", ".json", ".mesh.npz"):
+            try:
+                os.remove(os.path.join(d, key + ext))
+            except OSError:
+                pass
+        total -= sz
 
 
 def import_step_with_colors(path, progress=None):
@@ -1304,9 +1584,88 @@ def import_step_with_colors(path, progress=None):
     hit = _STEP_CACHE.get(key)
     if hit is not None:
         return list(hit)
+    disk = load_step_disk_cache(key)
+    if disk is not None:
+        remember_step(key, disk[0], disk[1])
+        return list(disk[0])
     out = _import_step_with_colors(path, progress)
     remember_step(key, out)
+    store_step_disk_cache(key, result=out)
     return list(out)
+
+
+# ------------------------------------------------------------- imports kept as exact geometry (not STEP)
+# An import feature stores its parts as a BREP (OpenCascade's own exact format) plus names and colours, so opening
+# a file doesn't translate the STEP again. Older files that hold the STEP itself still open, and are converted
+# when saved.
+
+def pack_import(items):
+    """(base64 BREP of all the solids, [{name, color, faces}]) for an import result."""
+    import base64
+    raw = shape_to_brep(compound([sol for sol, *_ in items]), triangles=False)
+    meta = [{"name": nm, "color": list(c) if c else None,
+             "faces": {str(k): list(v) for k, v in (fc or {}).items()}} for _s, nm, c, fc in items]
+    return base64.b64encode(raw).decode(), meta
+
+
+def saved_import_key(brep_b64: str) -> str:
+    """Cache key of a saved import's geometry (worked out once per string)."""
+    import hashlib
+    hit = _SAVED_KEYS.get(id(brep_b64))
+    if hit is None or hit[0] is not brep_b64:
+        if len(_SAVED_KEYS) > 32:
+            _SAVED_KEYS.clear()
+        hit = (brep_b64, "b" + hashlib.sha1(brep_b64.encode()).hexdigest())
+        _SAVED_KEYS[id(brep_b64)] = hit
+    return hit[1]
+
+
+_SAVED_KEYS: dict = {}
+
+
+def unpack_import(brep_b64: str, meta):
+    """The parts of a saved import: [(solid, name, colour, face colours)], read straight from the BREP (no STEP
+    translation). Remembered, and found in the disk cache with display meshes if read before."""
+    import base64
+    from OCP.TopoDS import TopoDS_Iterator
+    key = saved_import_key(brep_b64)
+    hit = _STEP_CACHE.get(key)
+    if hit is not None:
+        return list(hit)
+    disk = load_step_disk_cache(key)
+    if disk is not None and len(disk[0]) == len(meta):
+        remember_step(key, disk[0], disk[1])
+        return list(disk[0])
+    shp = shape_from_brep(base64.b64decode(brep_b64))
+    sols = []
+    it = TopoDS_Iterator(shp)
+    while it.More():
+        sols.append(it.Value())
+        it.Next()
+    if len(sols) != len(meta):
+        raise KernelError("The imported geometry saved in this file is damaged")
+    out = [(sol, m.get("name"), tuple(m["color"]) if m.get("color") else None,
+            {int(k): tuple(v) for k, v in (m.get("faces") or {}).items()}) for sol, m in zip(sols, meta)]
+    remember_step(key, out)
+    return list(out)
+
+
+def adopt_import(step_key, brep_b64):
+    """A STEP just converted to saved geometry: let the saved form use the parts (and display meshes) already
+    read for the STEP, here and in the disk cache, so nothing is read or meshed twice."""
+    import os
+    key = saved_import_key(brep_b64)
+    res = _STEP_CACHE.get(step_key)
+    if res is not None:
+        _STEP_CACHE[key] = res
+        if step_key in _STEP_MESHES:
+            _STEP_MESHES[key] = _STEP_MESHES[step_key]
+    d = step_disk_cache_dir()
+    if d and os.path.exists(os.path.join(d, step_key + ".brep")):
+        store_step_disk_cache(key, src_prefix=os.path.join(d, step_key))
+    elif res is not None:
+        store_step_disk_cache(key, result=res)
+    return key
 
 
 def _import_step_with_colors(path, progress=None):
@@ -1536,21 +1895,47 @@ def make_wire(edge_list):
     return mk.Wire()
 
 
-def _pipe_shell(path_wire, wire):
+SWEEP_CONTROLS = [("none", "Normal to the path"), ("keep", "Keep profile orientation"),
+                  ("lock_direction", "Lock to a direction"), ("lock_faces", "Lock to faces"),
+                  ("guide", "Follow a guide curve")]
+
+
+def _pipe_shell(path_wire, wire, control=None, solid=True):
+    """Sweep one wire — or several (a loft along a path) — along a path. control: how the profile turns as it
+    goes — {"mode": none | keep | lock_direction | lock_faces | guide, "dir": direction, "support": faces,
+    "guide": wire}."""
     from OCP.BRepOffsetAPI import BRepOffsetAPI_MakePipeShell
     from OCP.BRepBuilderAPI import BRepBuilderAPI_RightCorner
+    from OCP.BRepFill import BRepFill_TypeOfContact
     mk = BRepOffsetAPI_MakePipeShell(path_wire)
-    mk.SetMode(False)                       # corrected Frenet: keeps the profile upright along the path
+    c = control or {}
+    mode = c.get("mode", "none")
+    if mode == "keep":
+        mk.SetMode(gp_Ax2())                # fixed frame: the profile slides along without turning
+    elif mode == "lock_direction":
+        mk.SetMode(_dir(c["dir"]))          # keeps a constant angle to the direction
+    elif mode == "lock_faces":
+        if not mk.SetMode(c["support"]):
+            raise KernelError("Couldn't lock the profile to those faces — the path should lie on them")
+    elif mode == "guide":
+        mk.SetMode(c["guide"], True, BRepFill_TypeOfContact.BRepFill_NoContact)
+    else:
+        mk.SetMode(False)                   # corrected Frenet: keeps the profile upright along the path
     mk.SetTransitionMode(BRepBuilderAPI_RightCorner)   # clean mitred joins at sharp corners
-    mk.Add(wire, False, False)
-    mk.Build()
+    for w in (wire if isinstance(wire, (list, tuple)) else [wire]):
+        mk.Add(w, False, mode not in ("lock_faces",) and isinstance(wire, (list, tuple)))
+    try:
+        mk.Build()
+    except Exception:
+        raise KernelError("Sweep failed — the path may be too tight for the profile") from None
     if not mk.IsDone():
         raise KernelError("Sweep failed — the path may be too tight for the profile")
-    mk.MakeSolid()
+    if solid:
+        mk.MakeSolid()
     return mk.Shape()
 
 
-def sweep(profile_faces, path_wire):
+def sweep(profile_faces, path_wire, control=None):
     from OCP.BRepTools import BRepTools
     from OCP.TopAbs import TopAbs_WIRE
     if not profile_faces:
@@ -1559,12 +1944,12 @@ def sweep(profile_faces, path_wire):
     for f in profile_faces:
         outer = BRepTools.OuterWire_s(f)
         try:
-            body = _pipe_shell(path_wire, outer)
+            body = _pipe_shell(path_wire, outer, control)
             exp = TopExp_Explorer(f, TopAbs_WIRE)
             while exp.More():                 # holes in the profile become tunnels
                 w = TopoDS.Wire(exp.Current()) if hasattr(TopoDS, "Wire") else exp.Current()
                 if not w.IsSame(outer):
-                    body = cut(body, _pipe_shell(path_wire, w))
+                    body = cut(body, _pipe_shell(path_wire, w, control))
                 exp.Next()
         except KernelError:
             raise
@@ -1577,6 +1962,29 @@ def sweep(profile_faces, path_wire):
     if volume(res) < 0:
         res = res.Reversed()
     return res
+
+
+def loft_wires(wires, solid=True, ruled=False, path=None):
+    """Loft through wires in order: a solid (closed wires) or a surface; along `path` if given."""
+    if len(wires) < 2:
+        raise KernelError("Select at least two profiles, in order")
+    if path is not None:
+        try:
+            return _pipe_shell(path, list(wires), None, solid=solid)
+        except KernelError:
+            raise KernelError("Loft along that path failed — the profiles should sit on the path, in order") \
+                from None
+    from OCP.BRepOffsetAPI import BRepOffsetAPI_ThruSections
+    mk = BRepOffsetAPI_ThruSections(bool(solid), bool(ruled), 1e-6)
+    for w in wires:
+        mk.AddWire(_caster("Wire")(w))
+    try:
+        mk.Build()
+    except Exception as exc:
+        raise KernelError("Loft failed — try profiles with similar shapes") from exc
+    if not mk.IsDone():
+        raise KernelError("Loft failed — try profiles with similar shapes")
+    return mk.Shape()
 
 
 def loft(profile_faces, ruled=False):
@@ -1968,7 +2376,24 @@ def _local_cylinder(r, z0, z1):
     return BRepPrimAPI_MakeCylinder(gp_Ax2(gp_Pnt(0, 0, z0), gp_Dir(0, 0, 1)), float(r), float(z1 - z0)).Shape()
 
 
+_ROD_CACHE: dict = {}     # same rod (radii, pitch, ends, hand) -> its solid; holes in a part are usually alike
+
+
 def _threaded_rod(rmin, rmaj, pitch, a, b, left=False):
+    """An ISO threaded rod about +Z (see _build_threaded_rod). Building one is the slow part of a Thread
+    feature, so identical rods (four tapped holes of one size, or the same thread on the next rebuild)
+    are built once and reused. The result is only ever copied/transformed, never changed."""
+    key = tuple(round(float(x), 9) for x in (rmin, rmaj, pitch, a, b)) + (bool(left),)
+    hit = _ROD_CACHE.get(key)
+    if hit is None:
+        hit = _build_threaded_rod(rmin, rmaj, pitch, a, b, left)
+        if len(_ROD_CACHE) > 64:
+            _ROD_CACHE.pop(next(iter(_ROD_CACHE)))
+        _ROD_CACHE[key] = hit
+    return hit
+
+
+def _build_threaded_rod(rmin, rmaj, pitch, a, b, left=False):
     """An ISO threaded rod about +Z from z=a to z=b (core at rmin, crests at rmaj).
     The tooth's base sits a little inside the core (flanks extended at the ISO 30° angle) — with the
     exact-helix tooth that joins reliably and about 3× faster than a base lying exactly on the core."""
@@ -1999,6 +2424,30 @@ def threaded_plugs(origin, axis, major, pitch, z0, z1, core_r=None, extend=(True
     a = z0 - (2 * P if extend[0] else 0.0)
     b = z1 + (2 * P if extend[1] else 0.0)
     return [BRepBuilderAPI_Transform(_threaded_rod(rmin, rmaj, P, a, b, left), _frame(origin, axis), True).Shape()]
+
+
+def cut_internal_threads(shape, jobs):
+    """Tap several threads at once: jobs are cut_internal_thread argument tuples (origin, axis, major,
+    pitch, z0, z1, kw). All the plugs go in one cut, much quicker than one cut per hole on an ever more
+    detailed part. Falls back to one at a time if the plugs touch or the combined cut fails."""
+    plugs = []
+    for origin, axis, major, pitch, z0, z1, kw in jobs:
+        plugs += threaded_plugs(origin, axis, major, pitch, z0, z1, **kw)
+    boxes = [bbox(pl) for pl in plugs]
+    apart = all(np.any(boxes[i][1] < boxes[j][0] - 1e-6) or np.any(boxes[j][1] < boxes[i][0] - 1e-6)
+                for i in range(len(boxes)) for j in range(i + 1, len(boxes)))
+    if len(plugs) > 1 and apart:
+        n0 = len(faces(shape))
+        try:
+            out = cut(shape, compound(plugs), check=True)
+            # each thread adds faces; if any plug missed the material, redo one by one for the right message
+            if len(faces(out)) >= n0 + len(jobs):
+                return out
+        except KernelError:
+            pass
+    for origin, axis, major, pitch, z0, z1, kw in jobs:
+        shape = cut_internal_thread(shape, origin, axis, major, pitch, z0, z1, **kw)
+    return shape
 
 
 def cut_internal_thread(shape, origin, axis, major, pitch, z0, z1, **kw):
@@ -2105,14 +2554,19 @@ def located(shape, M):
     return shape.Moved(TopLoc_Location(trsf_from_matrix(M)))
 
 
-def shape_to_brep(shape) -> bytes:
-    """Serialise a shape (OpenCascade's native BREP text), zlib-compressed."""
+def shape_to_brep(shape, triangles=True) -> bytes:
+    """Serialise a shape (OpenCascade's native BREP text), zlib-compressed. triangles=False leaves out any
+    display mesh the shape carries (exact geometry only: smaller)."""
     import os, tempfile, zlib
     from OCP.BRepTools import BRepTools
     fd, path = tempfile.mkstemp(suffix=".brep")
     os.close(fd)
     try:
-        BRepTools.Write_s(shape, path)
+        if triangles:
+            BRepTools.Write_s(shape, path)
+        else:
+            from OCP.TopTools import TopTools_FormatVersion
+            BRepTools.Write_s(shape, path, False, False, TopTools_FormatVersion.TopTools_FormatVersion_VERSION_1)
         with open(path, "rb") as fh:
             return zlib.compress(fh.read(), 6)
     finally:
@@ -2183,13 +2637,18 @@ def export_step_named(items, path, assembly_name="Assembly"):
         export_step([located(s, M) for s, M, _n, _c in items], path)
 
 
-def save_step_result(result, prefix):
+def save_step_result(result, prefix, meshes=None):
     """Write an import result as prefix.brep (all solids) + prefix.json (names, colours) — used to pass a STEP
-    file read in a background process back to the app quickly."""
+    file read in a background process back to the app quickly. meshes (tessellate() of each solid, made in the
+    background too) go in prefix.mesh.npz."""
     import json as _json
     comp = compound([sol for sol, *_ in result])
     from OCP.BRepTools import BRepTools
+    if meshes:
+        BRepTools.Clean_s(comp)          # the meshes travel separately; keep the .brep small and quick to read
     BRepTools.Write_s(comp, prefix + ".brep")
+    if meshes:
+        save_meshes(meshes, prefix + ".mesh.npz")
     meta = [{"name": nm, "color": list(c) if c else None, "faces": {str(k): list(v) for k, v in (fc or {}).items()}}
             for _s, nm, c, fc in result]
     with open(prefix + ".json", "w") as fh:
@@ -2213,6 +2672,45 @@ def load_step_result(prefix):
         raise KernelError("Background STEP read returned mismatched data")
     return [(sol, m["name"], tuple(m["color"]) if m["color"] else None,
              {int(k): tuple(v) for k, v in m["faces"].items()}) for sol, m in zip(sols, meta)]
+
+
+def save_meshes(meshes, path):
+    arrs = {"n": np.array([len(meshes)])}
+    for i, m in enumerate(meshes):
+        ep = [np.asarray(e, np.float32).reshape(-1, 3) for e in m.edge_polys]
+        arrs[f"{i}v"], arrs[f"{i}n"], arrs[f"{i}t"], arrs[f"{i}tf"] = m.verts, m.normals, m.tris, m.tri_face
+        arrs[f"{i}fr"] = np.asarray(m.face_ranges, np.int64).reshape(-1, 2)
+        arrs[f"{i}e"] = np.vstack(ep) if ep else np.zeros((0, 3), np.float32)
+        arrs[f"{i}eo"] = np.cumsum([0] + [len(e) for e in ep])
+        arrs[f"{i}x"] = np.asarray(m.vertices, np.float32).reshape(-1, 3)
+        arrs[f"{i}fe"] = np.array([k for fe in m.face_edges for k in fe], np.int64)
+        arrs[f"{i}feo"] = np.cumsum([0] + [len(fe) for fe in m.face_edges])
+    np.savez(path, **arrs)
+
+
+def load_step_meshes(prefix, result):
+    """Meshes saved by the background reader for `result` (from load_step_result), or None. A mesh is only
+    used if it matches its solid's face and edge counts."""
+    import os as _os
+    path = prefix + ".mesh.npz"
+    if not _os.path.exists(path):
+        return None
+    try:
+        z = np.load(path)
+        if int(z["n"][0]) != len(result):
+            return None
+        out = []
+        for i, (sol, *_r) in enumerate(result):
+            eo, feo = z[f"{i}eo"], z[f"{i}feo"]
+            e, fe = z[f"{i}e"], z[f"{i}fe"].tolist()
+            m = Mesh(z[f"{i}v"], z[f"{i}n"], z[f"{i}t"], z[f"{i}tf"], [tuple(r) for r in z[f"{i}fr"].tolist()],
+                     [e[eo[k]:eo[k + 1]] for k in range(len(eo) - 1)], z[f"{i}x"],
+                     [fe[feo[k]:feo[k + 1]] for k in range(len(feo) - 1)])
+            ok = len(m.face_ranges) == len(faces(sol)) and len(m.edge_polys) == len(edges(sol))
+            out.append(m if ok else None)
+        return out
+    except Exception:
+        return None
 
 
 def face_edge_indices(shape, face_indices):
