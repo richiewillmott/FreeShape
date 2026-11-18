@@ -1719,7 +1719,7 @@ class AssemblyController:
         m.addAction("Zoom to fit", lambda: self.vp.fit())
         vm = m.addMenu("Views")
         for name in ("Front", "Back", "Left", "Right", "Top", "Bottom", "Isometric"):
-            vm.addAction(name, lambda n=name: self.vp.set_standard_view(n))
+            vm.addAction(name, lambda _=False, n=name: self.vp.set_standard_view(n))
         if any(i.get("hidden") for i in self.doc.instances):
             m.addAction("Show all", self.show_all)
         m.exec(gpos)

@@ -244,7 +244,11 @@ class FeatureList(_EyeMixin, QListWidget):
             prev_folder = fo
             if not (name_hit or folder_hit):
                 continue
-            it = QListWidgetItem(icon(f["type"]), f["name"])
+            text = f["name"]
+            if f["type"] == "measure_value":
+                from ..measure_value import label as _mv_label
+                text = _mv_label(f, doc.state)
+            it = QListWidgetItem(icon(f["type"]), text)
             it.setData(ROLE_KIND, "feature")
             it.setData(ROLE_ID, f["id"])
             it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsDragEnabled)

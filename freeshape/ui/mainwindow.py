@@ -12,7 +12,7 @@ from PySide6.QtGui import QAction, QKeySequence, QShortcut, QColor
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QToolButton, QLabel, QFrame, QSplitter, QMenu,
     QStackedWidget, QFileDialog, QMessageBox, QInputDialog, QColorDialog, QTabBar, QSizePolicy, QApplication, QDialog,
-    QComboBox,
+    QComboBox, QPushButton,
 )
 
 from .. import kernel as K
@@ -86,6 +86,7 @@ class MainWindow(QMainWindow):
         self.set_nav_style(str(self.settings.value("nav_style", "onshape")), save=False)
         self.set_zoom_speed(str(self.settings.value("zoom_speed", "normal")), save=False)
         self.set_shiny(str(self.settings.value("shiny", "true")).lower() != "false", save=False)
+        self._load_display_settings()
         self._add_tab(self._new_document())
         self._autosave_timer = QTimer(self)
         self._autosave_timer.timeout.connect(self.autosave)
@@ -96,7 +97,7 @@ class MainWindow(QMainWindow):
             self.open_any(path)
         elif not os.environ.get("FREESHAPE_NO_HOME"):
             self.show_home()
-        QTimer.singleShot(50, lambda: self.viewport.set_standard_view("Isometric", animate=False))
+        QTimer.singleShot(50, self._fresh_view)
 
     # ================================================================== UI construction
     def _build_ui(self):
@@ -137,6 +138,7 @@ class MainWindow(QMainWindow):
         cl.setContentsMargins(0, 0, 0, 0)
         cl.setSpacing(0)
         self.viewport = Viewport()
+        self.viewport.cube_menu_hook = self._fill_cube_menu
         self.view_stack = QStackedWidget()       # the 3D view, or the drawing sheet
         self.view_stack.addWidget(self.viewport)
         self.view_stack.addWidget(self.dwg.canvas)
@@ -195,9 +197,7 @@ class MainWindow(QMainWindow):
         self.setAcceptDrops(True)
         self.setCentralWidget(central)
 
-        self.measure = QLabel(self.viewport)
-        self.measure.setStyleSheet("background: rgba(255,255,255,235); border: 1px solid %s; border-radius: 5px;"
-                                   "padding: 6px 10px; color: %s;" % (theme.BORDER, theme.TEXT))
+        self.measure = _MeasurePanel(self.viewport, lambda: self.start_feature("measure_value"))
         self.measure.hide()
         self.status = self.statusBar()
         self.status.showMessage("Ready")
@@ -284,7 +284,16 @@ class MainWindow(QMainWindow):
         view_btn.setPopupMode(QToolButton.InstantPopup)
         vm = QMenu(view_btn)
         for i, name in enumerate(("Front", "Back", "Left", "Right", "Top", "Bottom", "Isometric"), 1):
-            self._add_action(vm, name, lambda n=name: self.viewport.set_standard_view(n), f"Shift+{i}")
+            self._add_action(vm, name, lambda _=False, n=name: self.viewport.set_standard_view(n), f"Shift+{i}")
+        for name in ("Dimetric", "Trimetric"):
+            self._add_action(vm, name, lambda _=False, n=name: self.viewport.set_standard_view(n))
+        vm.addSeparator()
+        self.act_prev_view = self._add_action(vm, "Previous view", lambda: self.viewport.previous_view(), "Alt+Left")
+        self._add_action(vm, "Zoom to window", lambda: self.viewport.start_zoom_window(), "Shift+Z")
+        self._add_action(vm, "Named views…", self.named_views_dialog)
+        dm = vm.addMenu("Display")
+        dm.aboutToShow.connect(lambda: self._fill_display_menu(dm))
+        vm.aboutToShow.connect(lambda: self.act_prev_view.setEnabled(self.viewport.has_previous_view()))
         vm.addSeparator()
         self.act_section = self._add_action(vm, "Section view", self.toggle_section, "Ctrl+Shift+X")
         self.act_section.setCheckable(True)
@@ -351,7 +360,7 @@ class MainWindow(QMainWindow):
         selm = QMenu(self.sel_btn)
         self.sel_actions = {}
         for key, label, kinds, on in (
-                ("vertex", "Vertices", ("vertex",), False), ("edge", "Edges", ("edge",), True),
+                ("vertex", "Vertices", ("vertex", "sketch_point"), True), ("edge", "Edges", ("edge",), True),
                 ("face", "Faces", ("face",), True), ("part", "Solids (whole parts)", ("part",), False),
                 ("sketch", "Sketches", ("sketch_line", "region"), True), ("plane", "Planes", ("plane",), True)):
             a = QAction(label, self)
@@ -405,6 +414,23 @@ class MainWindow(QMainWindow):
             C("draft", "Draft", "Angle side faces so a part releases from a mould.", lambda: F_("draft"), "taper"),
             C("shell", "Shell", "Hollow a part, leaving walls of a thickness; chosen faces are left open.",
               lambda: F_("shell"), "hollow"),
+            C("thicken", "Thicken", "Turn surfaces or faces into solids of a thickness (one side, the other, both "
+              "or two thicknesses).", lambda: F_("thicken"), "surface solid wall skin"),
+            C("enclose", "Enclose", "A solid from the space that surfaces, faces and planes close off between them.",
+              lambda: F_("enclose"), "surface solid close fill volume"),
+            C("rib", "Rib", "A wall of a thickness from sketch lines, grown out until it meets the part.",
+              lambda: F_("rib"), "gusset stiffener web"),
+            C("delete_part", "Delete part", "Remove parts from the model from this point on.",
+              lambda: F_("delete_part"), "remove body"),
+            C("helix", "Helix", "A helix curve around an axis, a circle or a cylinder — sweep a profile along it "
+              "for springs.", lambda: F_("helix"), "spiral spring coil thread curve"),
+            C("compound", "Compound", "Several solids as one part, sharing the faces where they touch (glue "
+              "faces, as in SALOME) — a conformal assembly for meshing.", lambda: F_("compound"),
+              "glue faces partition salome conformal shared mesh fea"),
+            C("explode_part", "Explode", "Split a part into its solids (a compound back apart), or into its faces "
+              "(surfaces) or edges (curves).", lambda: F_("explode_part"), "split separate solids faces edges salome"),
+            C("bounding_box", "Bounding box", "A box part around parts, with optional clearance (stock size, "
+              "packaging).", lambda: F_("bounding_box"), "stock envelope size"),
             C("hole", "Hole", "Custom holes or ISO clearance, tapped, counterbore and countersink holes at sketch "
               "points.", lambda: F_("hole"), "drill tap counterbore countersink screw"),
             C("thread", "Thread", "Model real ISO metric threads on holes and shafts.", lambda: F_("thread"),
@@ -440,6 +466,8 @@ class MainWindow(QMainWindow):
             C("move", "Move", "Move, rotate or copy parts by exact amounts.", lambda: F_("move"), "translate"),
             C("variable", "Variable", "Define #name values to use in any dimension.", lambda: F_("variable"),
               "parameter"),
+            C("measure_value", "Measure value", "A #variable measured from the model (distance, area, volume…) "
+              "that updates when the model changes.", lambda: F_("measure_value"), "measure variable distance area volume"),
             C("derived", "Derived", "Bring parts from another Part Studio, kept linked.", lambda: F_("derived"),
               "link reference copy other studio"),
             C("configs", "Configurations", "Sizes or versions of this Part Studio from a table of variable values.",
@@ -459,6 +487,24 @@ class MainWindow(QMainWindow):
         for i, name in enumerate(("Front", "Back", "Left", "Right", "Top", "Bottom"), 1):
             cmds.append(C("iso", f"{name} view", f"Look at the model from the {name.lower()} (Shift+{i}).",
                           lambda n=name: self.viewport.set_standard_view(n), "", "View"))
+        for name in ("Dimetric", "Trimetric"):
+            cmds.append(C("iso", f"{name} view", f"Look at the model from the {name.lower()} corner.",
+                          lambda n=name: self.viewport.set_standard_view(n), "", "View"))
+        cmds += [
+            C("iso", "Previous view", "Go back to the view before (Alt+Left).", lambda: self.viewport.previous_view(),
+              "back undo view", "View"),
+            C("fit", "Zoom to window", "Drag a box around the area to fill the view with (Shift+Z).",
+              lambda: self.viewport.start_zoom_window(), "zoom box area", "View"),
+            C("iso", "Named views", "Save the view under a name, or go back to a saved one.",
+              self.named_views_dialog, "saved views camera", "View"),
+            C("iso", "Perspective view", "Switch between perspective and parallel projection.",
+              lambda: self.set_display("perspective", not self.viewport.cam.perspective), "projection", "View"),
+            C("iso", "Graphics preferences", "Translucency, mesh quality and other display settings.",
+              self.graphics_preferences, "display settings render", "View"),
+        ]
+        for key, label in RENDER_MODES:
+            cmds.append(C("iso", label, f"Draw the parts {label.lower()}.",
+                          lambda k=key: self.set_display("render_mode", k), "render display mode", "View"))
         return cmds
 
     def open_command_search(self):
@@ -471,7 +517,7 @@ class MainWindow(QMainWindow):
             self._palette = CommandPalette(self.viewport, self._palette_commands)
         self._palette.open()
 
-    SELECT_DEFAULTS = {"vertex": False, "edge": True, "face": True, "part": False, "sketch": True, "plane": True}
+    SELECT_DEFAULTS = {"vertex": True, "edge": True, "face": True, "part": False, "sketch": True, "plane": True}
 
     def _selection_filter_changed(self, _checked=None):
         kinds = set()
@@ -528,6 +574,8 @@ class MainWindow(QMainWindow):
         self.btn_redo = self._tb(h, "redo", "Redo (Ctrl+Y)", self.redo)
         h.addWidget(_sep())
         self._tb(h, "variable", "Variable — define #name values to use in any dimension", lambda: self.start_feature("variable"))
+        self._tb(h, "measure_value", "Measure value — a #variable measured from the model that follows its changes",
+                 lambda: self.start_feature("measure_value"))
         self._tb(h, "configs", "Configurations — sizes / versions of this part from a table of variable values",
                  self.edit_configs)
         self._tb(h, "derived", "Derived — bring parts from another Part Studio, kept linked",
@@ -553,8 +601,11 @@ class MainWindow(QMainWindow):
         h.addWidget(_sep())
         for name, tip in (("extrude", "Extrude (Shift+E)"), ("revolve", "Revolve (Shift+W)"),
                           ("sweep", "Sweep — a profile along a path"), ("loft", "Loft — blend between profiles"),
+                          ("thicken", "Thicken — surfaces or faces into solids"),
+                          ("enclose", "Enclose — a solid from the space surfaces and planes close off"),
                           ("fillet", "Fillet (Shift+F)"), ("chamfer", "Chamfer"), ("draft", "Draft — angle side faces"),
-                          ("shell", "Shell"), ("hole", "Hole — custom or ISO clearance / tapped"),
+                          ("shell", "Shell"), ("rib", "Rib — a wall from sketch lines out to the part"),
+                          ("hole", "Hole — custom or ISO clearance / tapped"),
                           ("thread", "Thread — real ISO threads on holes and shafts"),
                           ("delete_face", "Delete face — remove fillets, chamfers, bosses and holes from "
                                           "imported parts (heal, cap or leave open)"),
@@ -580,10 +631,16 @@ class MainWindow(QMainWindow):
                  self.nest_for_cutting)
         h.addWidget(_sep())
         self._tb(h, "plane", "Plane", lambda: self.start_feature("plane"))
+        self._tb(h, "helix", "Helix — a helix curve (a path for springs and threads)",
+                 lambda: self.start_feature("helix"))
         h.addWidget(_sep())
         for name, tip in (("mirror", "Mirror"), ("linear_pattern", "Linear pattern"),
                           ("circular_pattern", "Circular pattern"), ("boolean", "Boolean"),
-                          ("split", "Split parts with planes, faces or sketch curves"), ("move", "Move / rotate / copy parts")):
+                          ("split", "Split parts with planes, faces or sketch curves"), ("move", "Move / rotate / copy parts"),
+                          ("delete_part", "Delete part — remove parts from here on"),
+                          ("compound", "Compound — solids as one part that share the faces where they touch "
+                                       "(glue faces)"),
+                          ("explode_part", "Explode — a part into its solids (a compound back apart), faces or edges")):
             self._tb(h, name, tip, lambda _=False, n=name: self.start_feature(n))
         h.addWidget(_sep())
         self._tb(h, "import", "Import STEP (opens in a new tab)", lambda: self.import_step())
@@ -1127,7 +1184,7 @@ class MainWindow(QMainWindow):
         self.sketch_waiting_for_plane = False
         self.tool_stack.setCurrentIndex(1)
         self._sketch_tool_changed("select")
-        if animate:
+        if animate and self.orient_on_sketch:
             vp.normal_to(plane)
         self._sketch_changed(True)
         vp.setFocus()
@@ -1330,6 +1387,203 @@ class MainWindow(QMainWindow):
                 except K.KernelError:
                     pass
                 return
+
+    # ------------------------------------------------------------------ display options (view cube menu)
+    DISPLAY_DEFAULTS = {"render_mode": "shaded_edges", "hidden_edges": "removed", "tangent_edges": "visible",
+                        "highlight_boundary": False, "high_quality": False, "perspective": False,
+                        "orient_on_sketch": True, "translucency": 0.3}
+
+    def _load_display_settings(self):
+        self.orient_on_sketch = True
+        for k, dflt in self.DISPLAY_DEFAULTS.items():
+            v = self.settings.value("display/" + k, dflt)
+            if isinstance(dflt, bool):
+                v = str(v).lower() in ("true", "1")
+            elif isinstance(dflt, float):
+                try:
+                    v = float(v)
+                except (TypeError, ValueError):
+                    v = dflt
+            else:
+                v = str(v)
+            self.set_display(k, v, save=False)
+
+    def set_display(self, key, value, save=True):
+        """Change a display option (render mode, hidden / tangent edges, perspective …) and remember it."""
+        vp = self.viewport
+        if key == "perspective":
+            vp.set_perspective(value)
+        elif key == "orient_on_sketch":
+            self.orient_on_sketch = bool(value)
+        elif key == "translucency":
+            vp.translucency = float(min(max(value, 0.05), 0.95))
+            vp.update()
+        else:
+            old = getattr(vp, key)
+            setattr(vp, key, value)
+            if old != value:
+                if key == "high_quality":
+                    vp.refresh_display(remesh=True)
+                elif key in ("tangent_edges", "highlight_boundary"):
+                    vp.refresh_display()
+                else:
+                    vp.update()
+        if save:
+            self.settings.setValue("display/" + key, value)
+
+    def _fill_cube_menu(self, m):
+        """The view cube's menu, as Onshape's: views, preferences, named / previous views, zoom, projection,
+        render mode, hidden and tangent edges, quality, boundary edges and the section view."""
+        vp = self.viewport
+        for name in ("Isometric", "Dimetric", "Trimetric"):
+            m.addAction(name, lambda _=False, n=name: vp.set_standard_view(n))
+        m.addSeparator()
+        m.addAction("Graphics preferences…", self.graphics_preferences)
+        m.addSeparator()
+        m.addAction("Named views…", self.named_views_dialog)
+        a = m.addAction("Previous view", lambda: vp.previous_view())
+        a.setEnabled(vp.has_previous_view())
+        m.addSeparator()
+        m.addAction("Zoom to fit", lambda: vp.fit())
+        m.addAction("Zoom to window", lambda: vp.start_zoom_window())
+        m.addSeparator()
+        self._fill_display_menu(m, clear=False)
+        if not self.is_asm and not self.is_dwg:
+            m.addSeparator()
+            m.addAction(icon("section"), "Section view…", self.toggle_section)
+
+    def _fill_display_menu(self, m, clear=True):
+        """Projection, sketch orientation, render mode, hidden / tangent edges, quality and boundary edges."""
+        vp = self.viewport
+        if clear:
+            m.clear()
+
+        def check(menu, text, on, slot):
+            a = menu.addAction(text)
+            a.setCheckable(True)
+            a.setChecked(bool(on))
+            a.triggered.connect(lambda _=False: slot())
+            return a
+        check(m, "Perspective view", vp.cam.perspective,
+              lambda: self.set_display("perspective", not vp.cam.perspective))
+        check(m, "Orient normal to sketch on edit", self.orient_on_sketch,
+              lambda: self.set_display("orient_on_sketch", not self.orient_on_sketch))
+        m.addSeparator()
+        rm = m.addMenu(dict(RENDER_MODES)[vp.render_mode])
+        for key, label in RENDER_MODES:
+            check(rm, label, vp.render_mode == key, lambda k=key: self.set_display("render_mode", k))
+        if vp.render_mode != "translucent":          # (see-through already shows every edge)
+            hm = m.addMenu(dict(HIDDEN_EDGES)[vp.hidden_edges])
+            for key, label in HIDDEN_EDGES:
+                check(hm, label, vp.hidden_edges == key, lambda k=key: self.set_display("hidden_edges", k))
+        tm = m.addMenu(dict(TANGENT_EDGES)[vp.tangent_edges])
+        for key, label in TANGENT_EDGES:
+            check(tm, label, vp.tangent_edges == key, lambda k=key: self.set_display("tangent_edges", k))
+        check(m, "View in high quality", vp.high_quality,
+              lambda: self.set_display("high_quality", not vp.high_quality))
+        check(m, "Highlight boundary edges", vp.highlight_boundary,
+              lambda: self.set_display("highlight_boundary", not vp.highlight_boundary))
+
+    def named_views_dialog(self):
+        """Save the current view under a name, go back to a saved one, or delete one. Saved in the file."""
+        doc = self.doc
+        if self.is_dwg or doc is None:
+            return
+        if not hasattr(doc, "named_views"):
+            doc.named_views = {}
+        vp = self.viewport
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Named views")
+        lay = QVBoxLayout(dlg)
+        from PySide6.QtWidgets import QListWidget
+        lst = QListWidget()
+        lay.addWidget(lst)
+
+        def fill():
+            lst.clear()
+            for name in doc.named_views:
+                lst.addItem(name)
+        fill()
+
+        def go(item=None):
+            item = item or lst.currentItem()
+            if item is None:
+                return
+            v = doc.named_views.get(item.text())
+            if v:
+                self.set_display("perspective", bool(v.get("perspective", False)))
+                vp.animate_to((np.array(v["target"], float), np.array(v["R"], float), float(v["scale"])))
+
+        def add():
+            name, ok = QInputDialog.getText(dlg, "Named views", "Name for the current view:",
+                                            text=f"View {len(doc.named_views) + 1}")
+            name = name.strip()
+            if not ok or not name:
+                return
+            t, R, sc = vp.cam.state()
+            doc.named_views[name] = {"target": [float(x) for x in t], "R": [[float(x) for x in r] for r in R],
+                                     "scale": float(sc), "perspective": bool(vp.cam.perspective)}
+            doc.dirty = True
+            fill()
+
+        def delete():
+            item = lst.currentItem()
+            if item is not None and item.text() in doc.named_views:
+                del doc.named_views[item.text()]
+                doc.dirty = True
+                fill()
+        lst.itemDoubleClicked.connect(go)
+        row = QHBoxLayout()
+        for text, fn in (("Save current view…", add), ("Go to", go), ("Delete", delete)):
+            b = QPushButton(text)
+            b.clicked.connect(lambda _=False, f=fn: f())
+            row.addWidget(b)
+        close = QPushButton("Close")
+        close.clicked.connect(dlg.accept)
+        row.addWidget(close)
+        lay.addLayout(row)
+        dlg.resize(380, 300)
+        dlg.exec()
+
+    def graphics_preferences(self):
+        """Display settings in one place: render mode, edges, translucency, quality, projection, shine."""
+        vp = self.viewport
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Graphics preferences")
+        from PySide6.QtWidgets import QCheckBox, QFormLayout, QSlider
+        form = QFormLayout(dlg)
+
+        def combo(options, current, key):
+            cb = QComboBox()
+            for k, label in options:
+                cb.addItem(label, k)
+            cb.setCurrentIndex(max(0, cb.findData(current)))
+            cb.currentIndexChanged.connect(lambda _i: self.set_display(key, cb.currentData()))
+            return cb
+        form.addRow("Render mode", combo(RENDER_MODES, vp.render_mode, "render_mode"))
+        form.addRow("Hidden edges", combo(HIDDEN_EDGES, vp.hidden_edges, "hidden_edges"))
+        form.addRow("Tangent edges", combo(TANGENT_EDGES, vp.tangent_edges, "tangent_edges"))
+        sl = QSlider(Qt.Horizontal)
+        sl.setRange(5, 95)
+        sl.setValue(int(round(vp.translucency * 100)))
+        sl.valueChanged.connect(lambda v: self.set_display("translucency", v / 100.0))
+        form.addRow("Translucent opacity", sl)
+        for label, key, cur in (("View in high quality", "high_quality", vp.high_quality),
+                                ("Highlight boundary edges", "highlight_boundary", vp.highlight_boundary),
+                                ("Perspective view", "perspective", vp.cam.perspective),
+                                ("Orient normal to sketch on edit", "orient_on_sketch", self.orient_on_sketch)):
+            c = QCheckBox(label)
+            c.setChecked(bool(cur))
+            c.toggled.connect(lambda on, k=key: self.set_display(k, bool(on)))
+            form.addRow("", c)
+        sh = QCheckBox("Shiny surfaces")
+        sh.setChecked(vp.shiny)
+        sh.toggled.connect(lambda on: self.set_shiny(on))
+        form.addRow("", sh)
+        close = QPushButton("Close")
+        close.clicked.connect(dlg.accept)
+        form.addRow("", close)
+        dlg.exec()
 
     def set_shiny(self, on, save=True):
         self.viewport.shiny = bool(on)
@@ -1987,7 +2241,7 @@ class MainWindow(QMainWindow):
             if pl is not None:
                 h = self.viewport.plane_half() * 0.6
                 polys.append(np.array([pl.to_world(u, v) for u, v in ((-h, -h), (h, -h), (h, h), (-h, h), (-h, -h))]))
-        elif f["type"] != "variable":
+        elif f["type"] not in ("variable", "measure_value"):
             before = doc.state_before(idx)
             after = doc.state_before(idx + 1)
             new = F.feature_new_faces(before, after)
@@ -2149,6 +2403,9 @@ class MainWindow(QMainWindow):
         m.addAction("Isolate", lambda: self._isolate(pid))
         m.addSeparator()
         m.addAction("Mass properties", lambda: self._mass_props(pid))
+        m.addAction("Shape info…", lambda: self._shape_info(pid))
+        if F.is_compound_part(self.doc.state.parts.get(pid)):
+            m.addAction(icon("explode_part", 16), "Explode into solids", lambda: self._explode_part(pid))
         m.addAction(icon("drawing", 16), "Create drawing…", lambda: self.new_drawing(
             {"kind": "studio", "uid": self.doc.uid, "part": pid}))
         if pid in getattr(self.doc.state, "sheet", {}):
@@ -2229,6 +2486,21 @@ class MainWindow(QMainWindow):
     def _toggle_planes(self):
         self._show_state(self.doc.state)
 
+    def _explode_part(self, pid):
+        """Right-click ▸ Explode into solids: open Explode with this part picked."""
+        self.viewport.set_selection([Pick("part", (pid,))])
+        self.start_feature("explode_part")
+
+    def _shape_info(self, pid):
+        """How the part is built — vertices, edges, wires, faces, shells, solids (shared ones counted once) — as
+        SALOME's 'What is'. Shows whether the solids of a compound share their touching faces."""
+        p = self.doc.state.parts[pid]
+        n = K.topology_counts(p.shape)
+        kind = "Compound of solids" if n["SOLID"] > 1 else "Solid" if n["SOLID"] else \
+            "Surface" if n["FACE"] else "Curve"
+        rows = "".join(f"<tr><td>{k}</td><td align=right>&nbsp;&nbsp;<b>{v}</b></td></tr>" for k, v in n.items())
+        QMessageBox.information(self, "Shape info", f"<b>{p.name}</b> — {kind}<br><br><table>{rows}</table>")
+
     def _mass_props(self, pid):
         p = self.doc.state.parts[pid]
         self._mass_props_shape(p.name, p.shape)
@@ -2296,6 +2568,7 @@ class MainWindow(QMainWindow):
                     m.addAction("Isolate part", lambda: self._isolate(pid))
                     m.addAction("Select part", lambda: self.viewport.set_selection([Pick("part", (pid,))]))
                     m.addAction("Mass properties", lambda: self._mass_props(pid))
+                    m.addAction("Shape info…", lambda: self._shape_info(pid))
             if pk.kind in ("region", "sketch_line"):
                 fid = pk.key[0]
                 m.addAction("Edit sketch", lambda: self.edit_feature(fid))
@@ -2311,7 +2584,7 @@ class MainWindow(QMainWindow):
         m.addAction("Zoom to fit", lambda: self.viewport.fit())
         vm = m.addMenu("Views")
         for name in ("Front", "Back", "Left", "Right", "Top", "Bottom", "Isometric"):
-            vm.addAction(name, lambda n=name: self.viewport.set_standard_view(n))
+            vm.addAction(name, lambda _=False, n=name: self.viewport.set_standard_view(n))
         if self.doc.hidden_parts:
             m.addAction("Show all parts", self._show_all_parts)
         if len(self.doc.state.parts) > 1:
@@ -2329,8 +2602,8 @@ class MainWindow(QMainWindow):
             self.viewport.measure_line = None
             self.viewport.update()
         if text:
-            self.measure.setText(text)
-            self.measure.adjustSize()
+            head = None if self.is_asm else self._measure_headline(sel)
+            self.measure.set_measure(head, text)
             self.measure.move(self.viewport.width() - self.measure.width() - 14,
                               self.viewport.height() - self.measure.height() - 14)
             self.measure.show()
@@ -2338,10 +2611,46 @@ class MainWindow(QMainWindow):
         else:
             self.measure.hide()
 
+    def _measure_headline(self, sel):
+        """(label, value) for the corner bar — the measurement its (x) button turns into a variable — or None."""
+        from .. import measure_value as MV
+        from .dialogs import pick_to_item
+        want = {"vertex", "edge", "face", "part", "region", "sketch_line"}
+        items = []
+        try:
+            for pk in sel:
+                it = pick_to_item(self.viewport, pk, want)
+                if it is None:
+                    return None
+                items.append(it)
+            h = MV.headline(self.doc.state, items)
+        except Exception:
+            return None
+        return (h[0], h[1]) if h else None
+
     def _sub(self, pk):
+        if pk.kind in ("sketch_point", "sketch_line"):
+            for fid, sr, _ in self.viewport.sketches:
+                if fid != pk.key[0]:
+                    continue
+                if pk.kind == "sketch_point":
+                    from ..measure_value import _vertex
+                    return _vertex(sr.plane.to_world(*sr.sketch.points[pk.key[1]])) \
+                        if pk.key[1] in sr.sketch.points else None
+                from types import SimpleNamespace
+                try:
+                    return F.resolve_sketch_curve(SimpleNamespace(sketches={fid: sr}),
+                                                  {"sketch": fid, "entity": pk.key[1]})[1]
+                except K.KernelError:
+                    return None
+            return None
         shape = self.viewport.part_shapes.get(pk.key[0])
         if shape is None:
             return None
+        if pk.kind == "vertex":
+            from ..measure_value import _vertex
+            pts = K.vertex_points(shape)
+            return _vertex(pts[pk.key[1]]) if pk.key[1] < len(pts) else None
         if pk.kind == "face":
             return K.faces(shape)[pk.key[1]]
         if pk.kind == "edge":
@@ -2354,7 +2663,13 @@ class MainWindow(QMainWindow):
         from .. import measure as MEAS
         items, names = [], []
         for pk in sel:
-            if pk.kind in ("face", "edge", "part"):
+            if pk.kind in ("sketch_point", "sketch_line"):
+                shp = self._sub(pk)
+                if shp is not None:
+                    from OCP.TopAbs import TopAbs_VERTEX
+                    items.append(("vertex" if shp.ShapeType() == TopAbs_VERTEX else "edge", shp))
+                    names.append(None)
+            elif pk.kind in ("face", "edge", "part", "vertex"):
                 items.append((pk.kind, self._sub(pk)))
                 p = self.doc.state.parts.get(pk.key[0])
                 if self.is_asm and pk.kind == "part":
@@ -2606,12 +2921,18 @@ class MainWindow(QMainWindow):
     def _is_pristine(self, doc):
         return doc is not None and not self._has_content(doc) and not doc.path and not doc.dirty
 
+    def _fresh_view(self):
+        """The first view of a document: isometric, fitted, with nothing for Previous view to go back to."""
+        self.viewport.set_standard_view("Isometric", animate=False)
+        self.viewport.reset_view_history()
+
     def _switch_tab(self, i):
         if i < 0:
             return
         doc = self.docs.get(self.tabs.tabData(i))
         if doc is None or doc is self.doc:
             return
+        self.viewport.reset_view_history()            # Previous view stays within one document
         if getattr(self, "history_panel", None) is not None:
             self.history_panel.close_panel()
         self._leave_modes()
@@ -2652,7 +2973,7 @@ class MainWindow(QMainWindow):
             self.viewport.cam.set_state(saved)
             self.viewport.update()
         else:
-            QTimer.singleShot(0, lambda: self.viewport.set_standard_view("Isometric", animate=False))
+            QTimer.singleShot(0, self._fresh_view)
 
     def close_tab(self, i):
         if i < 0:
@@ -2746,7 +3067,7 @@ class MainWindow(QMainWindow):
         a.name = f"Assembly {self._asm_counter}"
         a.resolver = self._resolve_source
         self._add_tab(a)
-        QTimer.singleShot(0, lambda: self.viewport.set_standard_view("Isometric", animate=False))
+        QTimer.singleShot(0, self._fresh_view)
         if self.studio_docs() and any(d.state.parts for d in self.studio_docs()):
             QTimer.singleShot(50, self.asm.toggle_insert)
 
@@ -3058,7 +3379,7 @@ class MainWindow(QMainWindow):
             self._views.pop(old_key, None)
         else:
             self._add_tab(doc)
-        QTimer.singleShot(60, lambda: self.viewport.set_standard_view("Isometric", animate=False))
+        QTimer.singleShot(60, self._fresh_view)
 
     def save(self):
         if not self.doc.path:
@@ -3154,7 +3475,7 @@ class MainWindow(QMainWindow):
             prog.close()
         if doc.errors.get(f["id"]):
             QMessageBox.warning(self, APP_NAME, doc.errors[f["id"]])
-        QTimer.singleShot(80, lambda: self.viewport.set_standard_view("Isometric", animate=False))
+        QTimer.singleShot(80, self._fresh_view)
         n = len(doc.state.parts)
         self.status.showMessage(f"Imported {fname} — {n} part{'s' if n != 1 else ''}", 5000)
         if not doc.errors.get(f["id"]):
@@ -3252,7 +3573,8 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Keyboard shortcuts", (
             "<b>Navigation</b><br>Right-drag: rotate · Middle-drag or Ctrl+right-drag: pan · Wheel: zoom<br>"
             "Arrow keys: turn the view 15° per tap · F: zoom to fit · "
-            "Shift+1…7: Front, Back, Left, Right, Top, Bottom, Isometric · N: normal to sketch<br><br>"
+            "Shift+1…7: Front, Back, Left, Right, Top, Bottom, Isometric · N: normal to sketch<br>"
+            "Alt+Left: previous view · Shift+Z: zoom to window (drag a box; Esc cancels)<br><br>"
             "<b>Selecting</b><br>Space: deselect all · Drag a box: left-to-right selects what is fully inside, "
             "right-to-left also what it touches · Shift / Ctrl: add<br><br>"
             "<b>Features</b><br>Alt+C or Ctrl+Space: search tools · "
@@ -3282,6 +3604,9 @@ class MainWindow(QMainWindow):
         e.accept()
 
     def keyPressEvent(self, e):
+        if self.viewport.zoom_window_mode and e.key() == Qt.Key_Escape:
+            self.viewport._end_zoom_window()
+            return
         # assembly keys (plain shortcuts would steal the same letters from the sketcher)
         if self.is_asm and self.mode == "idle":
             k, mods = e.key(), e.modifiers()
@@ -3308,6 +3633,75 @@ class MainWindow(QMainWindow):
         if self.measure.isVisible():
             self._selection_changed()
 
+
+RENDER_MODES = [("shaded_edges", "Shaded with edges"), ("shaded", "Shaded without edges"), ("unshaded", "Unshaded"),
+                ("translucent", "Translucent")]
+HIDDEN_EDGES = [("removed", "Hidden edges removed"), ("visible", "Hidden edges visible")]
+TANGENT_EDGES = [("visible", "Tangent edges visible"), ("hidden", "Tangent edges hidden"),
+                 ("phantom", "Tangent edges as phantom lines")]
+
+
+class _MeasurePanel(QFrame):
+    """The measure bar in the bottom-right corner of the graphics area, as in Onshape: the main measurement
+    ("Min dist: 107.521 mm") and an (x) button that turns it into a Measure value feature — a #variable driven by
+    the picked vertices, edges, faces, parts or sketch entities, re-measured on every rebuild. Clicking the value
+    shows every measurement of the selection (angle, ΔX·ΔY·ΔZ, centre to centre …)."""
+
+    def __init__(self, parent, on_create):
+        super().__init__(parent)
+        self.setObjectName("measurePanel")
+        self.setStyleSheet(
+            "#measurePanel { background: rgba(255,255,255,235); border: 1px solid %s; border-radius: 5px; }"
+            " QLabel { color: %s; }"
+            " QToolButton#measureVar { border: 1px solid transparent; border-radius: 4px; padding: 0 4px;"
+            "   font-style: italic; font-weight: 600; color: %s; }"
+            " QToolButton#measureVar:hover { border-color: %s; background: rgba(0,0,0,18); }"
+            % (theme.BORDER, theme.TEXT, theme.TEXT, theme.BORDER))
+        v = QVBoxLayout(self)
+        v.setContentsMargins(10, 4, 6, 4)
+        v.setSpacing(3)
+        self.label = QLabel()                # every measurement of the selection (shown on demand)
+        v.addWidget(self.label)
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        self.value = QLabel()
+        self.value.setCursor(Qt.PointingHandCursor)
+        self.value.setToolTip("Click to show all the measurements of the selection")
+        self.value.mousePressEvent = lambda _e: self._toggle()
+        row.addWidget(self.value)
+        self.create = QToolButton()
+        self.create.setObjectName("measureVar")
+        self.create.setText("(x)")
+        self.create.setToolTip("Create a variable from this measurement — a Measure value feature, driven by the "
+                               "selection, that updates when the model changes")
+        self.create.setCursor(Qt.PointingHandCursor)
+        self.create.clicked.connect(on_create)
+        row.addWidget(self.create)
+        v.addLayout(row)
+        self.expanded = False
+        self._has_head = False
+
+    def _toggle(self):
+        self.expanded = not self.expanded
+        self.label.setVisible(self.expanded or not self._has_head)
+        self.adjustSize()
+        p = self.parentWidget()
+        if p is not None:
+            self.move(p.width() - self.width() - 14, p.height() - self.height() - 14)
+
+    def set_measure(self, head, details_html):
+        """head = (label, value text) of the main measurement, or None (then only the details are shown)."""
+        self._has_head = head is not None
+        self.label.setText(details_html)
+        self.label.setVisible(self.expanded or not self._has_head)
+        self.value.setVisible(self._has_head)
+        self.create.setVisible(self._has_head)
+        if head:
+            self.value.setText(f"<span style='color:#6a737d'>{head[0]}:</span> <b>{head[1]}</b>")
+        self.adjustSize()
+
+    def setText(self, text):
+        self.set_measure(None, text)
 
 class _FakeKey:
     """Lets window shortcuts hand a key to the drawing tools."""

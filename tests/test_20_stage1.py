@@ -236,3 +236,39 @@ def test_horizontal_replaces_vertical_and_turns_the_line():
         assert abs(np.linalg.norm(sk.P(e["p2"]) - sk.P(e["p1"])) - 20) < 1e-6      # turned, not squashed
     S._apply_constraint("horizontal", [l1])
     assert sum(k["type"] == "horizontal" for k in sk.constraints) == 2           # no duplicate
+
+
+def test_second_end_symmetric_mirrors_first_end():
+    """Second end 'Symmetric': the other side mirrors the first, whatever its type (here up to a vertex)."""
+    A = math.pi * 25
+    doc, slab = _slab_doc()
+    sh = doc.state.parts[slab].shape
+    top = max(K.vertex_points(sh), key=lambda q: q[2])
+    sid, sr = _sketch(doc, _circ(20, 20, 5))
+    e = _extrude(doc, sid, sr, end="up_to_vertex", up_to={"kind": "vertex", "ref": F.make_vertex_ref(slab, top, sh)},
+                 second=True, end2="symmetric", op="new")
+    assert not doc.errors
+    pid = next(p for p in doc.state.parts if p.startswith(e["id"]))
+    lo, hi = K.bbox(doc.state.parts[pid].shape)
+    assert abs(_vol(doc.state.parts[pid].shape) - A * 70) < 1e-3 and abs(lo[2] + 35) < 1e-6 and abs(hi[2] - 35) < 1e-6
+    # a blind first end with a draft: both halves taper the same way
+    doc = Document()
+    sid, sr = _sketch(doc, _rect(0, 0, 20, 20))
+    _extrude(doc, sid, sr, depth=5, second=True, end2="symmetric", draft=True, draft_angle=5.0, op="new")
+    one = Document()
+    sid1, sr1 = _sketch(one, _rect(0, 0, 20, 20))
+    _extrude(one, sid1, sr1, depth=5, draft=True, draft_angle=5.0, op="new")
+    v = [_vol(next(iter(d.state.parts.values())).shape) for d in (doc, one)]
+    assert abs(v[0] - 2 * v[1]) < 1e-6
+
+
+def test_revolve_up_to_mirrored():
+    doc = Document()
+    sid, sr = _sketch(doc, _rect(10, 0, 20, 10), {"kind": "std", "name": "Front"})
+    r = doc.make_feature("revolve")
+    r["params"].update(regions=[F.region_ref(sr, sid, x) for x in sr.regions], axis={"kind": "std", "name": "Z"},
+                       end="up_to_face", up_to={"kind": "plane", "ref": {"kind": "std", "name": "Right"}},
+                       mirror_end=True, op="new")
+    doc.add_feature(r)
+    assert not doc.errors
+    assert abs(_vol(next(iter(doc.state.parts.values())).shape) - math.pi * (400 - 100) * 10 / 2) < 1e-2

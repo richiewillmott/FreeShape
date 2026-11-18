@@ -26,7 +26,7 @@ FEATURE_LABELS = {
     "sketch": "Sketch", "extrude": "Extrude", "revolve": "Revolve", "fillet": "Fillet",
     "chamfer": "Chamfer", "shell": "Shell", "plane": "Plane", "mirror": "Mirror",
     "linear_pattern": "Linear pattern", "circular_pattern": "Circular pattern",
-    "boolean": "Boolean", "import": "Import", "hole": "Hole", "variable": "Variable", "derived": "Derived",
+    "boolean": "Boolean", "import": "Import", "hole": "Hole", "variable": "Variable", "measure_value": "Measure value", "derived": "Derived",
     "sweep": "Sweep", "loft": "Loft", "draft": "Draft", "split": "Split", "move": "Move", "thread": "Thread",
     "sm_base": "Sheet metal", "sm_flange": "Flange", "sm_hem": "Hem", "sm_jog": "Jog", "sm_tab": "Tab",
     "sm_convert": "Convert to sheet metal", "delete_face": "Delete face", "move_face": "Move face", "offset_surface": "Offset surface",
@@ -162,10 +162,11 @@ class ModelState:
     vars: dict = field(default_factory=dict)        # variable name -> value (mm / degrees / plain)
     sheet: dict = field(default_factory=dict)       # part id -> sheetmetal.SheetModel (sheet metal parts)
     history: dict = field(default_factory=dict)     # feature id -> (state before it, state after it)
+    measured: dict = field(default_factory=dict)    # Measure value feature id -> its value
 
     def copy(self):
         return ModelState(dict(self.parts), dict(self.sketches), dict(self.planes), self.part_counter,
-                          dict(self.vars), dict(self.sheet), dict(self.history))
+                          dict(self.vars), dict(self.sheet), dict(self.history), dict(self.measured))
 
     def new_part(self, shape, fid, color=DEFAULT_COLOR):
         self.part_counter += 1
@@ -270,9 +271,49 @@ def make_vertex_ref(part_id, pos, part_shape=None):
     return ref
 
 
+def sketch_point_ref(sr, fid, point_id) -> dict:
+    """A vertex reference to a point of a sketch (a line end, a circle centre, a sketch point). It follows the
+    sketch point by its id; "c" is where it was when picked."""
+    return {"kind": "sketch_point", "sketch": fid, "point": point_id,
+            "c": [float(x) for x in sr.plane.to_world(*sr.sketch.points[point_id])]}
+
+
+def resolve_sketch_curve(state: ModelState, ref):
+    """("edge", TopoDS_Edge or compound) for one curve of a sketch, or ("vertex", TopoDS_Vertex) for a sketch
+    point entity. ref = {"sketch": fid, "entity": eid}."""
+    sr = state.sketches.get(ref.get("sketch"))
+    if sr is None or ref.get("entity") not in sr.sketch.entities:
+        raise K.KernelError("A measured sketch curve no longer exists")
+    e = sr.sketch.entities[ref["entity"]]
+    if e["type"] == "point":
+        from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
+        from OCP.gp import gp_Pnt
+        p = sr.plane.to_world(*sr.sketch.points[e["p"]])
+        return "vertex", BRepBuilderAPI_MakeVertex(gp_Pnt(*[float(x) for x in p])).Vertex()
+    tmp = Sketch.from_dict(sr.sketch.to_dict())
+    tmp.entities = {ref["entity"]: dict(e, construction=False)}
+    edges = K.make_sketch_edges(sr.plane, tmp.curves())
+    if not edges:
+        raise K.KernelError("Couldn't make an edge from this sketch curve")
+    if len(edges) == 1:
+        return "edge", edges[0]
+    from OCP.BRep import BRep_Builder
+    from OCP.TopoDS import TopoDS_Compound
+    comp, b = TopoDS_Compound(), BRep_Builder()
+    b.MakeCompound(comp)
+    for x in edges:
+        b.Add(comp, x)
+    return "edge", comp
+
+
 def resolve_point(state: ModelState, ref) -> np.ndarray:
     """The position of the model vertex best matching a stored vertex reference."""
-    parts = [state.parts[ref["part"]]] if ref.get("part") in state.parts else list(state.parts.values())
+    if ref.get("kind") == "sketch_point":
+        sr = state.sketches.get(ref.get("sketch"))
+        if sr is None or ref.get("point") not in sr.sketch.points:
+            raise K.KernelError("Missing vertex reference: the sketch point is gone")
+        return np.asarray(sr.plane.to_world(*sr.sketch.points[ref["point"]]), float)
+    parts =[state.parts[ref["part"]]] if ref.get("part") in state.parts else list(state.parts.values())
     if not parts:
         raise K.KernelError("Missing vertex reference: no parts")
     lo, hi = np.full(3, 1e18), np.full(3, -1e18)
@@ -541,9 +582,23 @@ def resolve_axis(state: ModelState, ref):
 
 # --------------------------------------------------------------------------- applying a body to the part set
 
+def is_compound_part(part) -> bool:
+    """A compound of solids (from the Compound feature): one part made of several solids that share their
+    touching faces. Every other part is a single solid."""
+    return part is not None and len(K.solids(part.shape)) > 1
+
+
 def set_part_shape(state: ModelState, part: Part, shape):
-    """Store a new shape for a part; disjoint solids become separate parts (like Onshape)."""
+    """Store a new shape for a part; disjoint solids become separate parts (like Onshape) — except a compound,
+    which stays one part and is glued again so its solids keep sharing their touching faces."""
     pieces = K.solids(shape)
+    if is_compound_part(state.parts.get(part.id)) and len(pieces) > 1:
+        try:
+            glued = K.glue_solids(pieces)
+        except K.KernelError:
+            glued = K.make_compound(pieces)
+        state.parts[part.id] = Part(part.id, part.name, glued, part.color)
+        return
     if len(pieces) <= 1:
         state.parts[part.id] = Part(part.id, part.name, pieces[0] if pieces else shape, part.color)
         return
@@ -560,7 +615,11 @@ def apply_body(state: ModelState, body, op: str, fid: str, scope=None):
     sols = K.solids(body)
     if not sols:
         raise K.KernelError("Feature produced no solid")
-    targets = [state.parts[p] for p in (scope or state.parts) if p in state.parts]
+    # curves (helixes) aren't material: never merge into them
+    targets = [state.parts[p] for p in (scope or state.parts) if p in state.parts and K.faces(state.parts[p].shape)]
+    if op == "add":
+        # a compound keeps its separate solids: Add would fuse them into one, so new material isn't merged into it
+        targets = [p for p in targets if not is_compound_part(p)]
     if op == "new" or (op == "add" and not targets):
         for s in sols:
             state.new_part(s, fid)
@@ -614,7 +673,7 @@ NUMERIC_KEYS = {"depth", "depth2", "angle", "radius", "distance", "thickness", "
 
 
 # numeric params of plugin features: feature type -> set of keys (filled in by freeshape.plugins)
-EXTRA_NUMERIC: dict = {}
+EXTRA_NUMERIC: dict = {"measure_value": {"round_to", "ray_offset", "ray_index", "density"}, "compound": {"tolerance"}}
 
 
 def prepare(f, state):
@@ -645,6 +704,11 @@ def run_variable(state, f):
         bad = [n for n in var_names(p.get("expr", "")) if n not in state.vars]
         raise K.KernelError(f"Unknown variable #{bad[0]}" if bad else "Enter a value or expression")
     state.vars[name] = val
+
+
+def run_measure_value(state, f):
+    from . import measure_value as MV
+    MV.run(state, f)
 
 
 def run_sketch(state, f):
@@ -727,7 +791,19 @@ def run_extrude(state, f):
             body = BO.taper(body, _profile_origin(state, p, profs), n, direction, angle)
         return body
 
+    mirror_end = second and end2 == "symmetric"
+
+    def mirror_plane():
+        nn = np.asarray(n, float) / np.linalg.norm(n)
+        x = np.cross(nn, [0, 0, 1] if abs(nn[2]) < 0.9 else [1, 0, 0])
+        return K.Plane(_profile_origin(state, p, profs), x / np.linalg.norm(x), nn)
+
     def make(direction):
+        if mirror_end:
+            # second end "Symmetric": whatever the first end is (up to a vertex, a draft…), the other side is its
+            # mirror image over the sketch plane — like extruding one way then Mirror → Add
+            body = one_side(direction, end, depth, p.get("up_to"), p.get("offset", 0.0), a1)
+            return K.combine([body, K.mirror(body, mirror_plane())])
         side1 = ("blind" if symmetric else end, depth / 2 if symmetric else depth, p.get("up_to"),
                  p.get("offset", 0.0), a1)
         if symmetric:
@@ -859,6 +935,13 @@ def run_revolve(state, f):
     end = p.get("end", "full")
     if end in UP_TO:
         body = K.combine([_sweep_up_to(state, p, prof, "revolve", (a, d)) for prof in profs])
+        if p.get("mirror_end"):
+            # symmetric: the same revolve mirrored over the sketch plane (the plane of the profile and axis)
+            nn = BO.profile_normal(state, p, profs)
+            nn = np.asarray(nn, float) / np.linalg.norm(nn)
+            x = np.cross(nn, [0, 0, 1] if abs(nn[2]) < 0.9 else [1, 0, 0])
+            pl = K.Plane(_profile_origin(state, p, profs), x / np.linalg.norm(x), nn)
+            body = K.combine([body, K.mirror(body, pl)])
         BO.apply(state, body, p, f["id"])
         return
     angle = 360.0 if end == "full" else float(p.get("angle", 180))
@@ -1502,6 +1585,8 @@ def _path_wire(state, refs):
                 else:
                     chain, _closed = sketch_ops._chain(sk, r["entity"], splines=True)
                     ids = {k for k, _ in chain}
+                    if r.get("only"):                     # just these curves of the chain (picked one by one)
+                        ids &= set(r["only"])
                 tmp = Sketch.from_dict(sk.to_dict())
                 tmp.entities = {k: dict(v, construction=False) for k, v in tmp.entities.items() if k in ids}
                 curves = tmp.curves()
@@ -1509,7 +1594,20 @@ def _path_wire(state, refs):
         elif r.get("kind") == "edge":
             _, e = resolve(state, r["edge"], "edge")
             edges.append(e)
+        elif r.get("kind") == "outline":
+            # the boundary of a region / flat face (its outer loop here; body_options takes the holes too)
+            from OCP.BRepTools import BRepTools
+            if len(refs) == 1:
+                return BRepTools.OuterWire_s(outline_face(state, r))
+            edges += K.edges(BRepTools.OuterWire_s(outline_face(state, r)))
     return K.make_wire(edges)
+
+
+def outline_face(state, ref):
+    """The region or face an 'outline' curve ref is the boundary of."""
+    if ref.get("of") == "region":
+        return resolve_regions(state, [ref["ref"]])[0]
+    return resolve(state, ref["ref"], "face")[1]
 
 
 def run_sweep(state, f):
@@ -1808,7 +1906,7 @@ RUNNERS = {
     "sketch": run_sketch, "extrude": run_extrude, "revolve": run_revolve, "fillet": run_fillet,
     "chamfer": run_chamfer, "shell": run_shell, "plane": run_plane, "mirror": run_mirror,
     "linear_pattern": run_linear_pattern, "circular_pattern": run_circular_pattern,
-    "boolean": run_boolean, "import": run_import, "hole": run_hole, "variable": run_variable,
+    "boolean": run_boolean, "import": run_import, "hole": run_hole, "variable": run_variable, "measure_value": run_measure_value,
     "derived": run_derived,
     "sweep": run_sweep, "loft": run_loft, "draft": run_draft, "split": run_split, "move": run_move,
     "thread": run_thread, "sm_base": run_sm_base, "sm_flange": run_sm_flange,
@@ -1817,9 +1915,26 @@ RUNNERS = {
 }
 
 
+def _more_features():
+    from . import more_features as MF
+    for k, fn in MF.RUNNERS.items():
+        RUNNERS.setdefault(k, fn)
+        FEATURE_LABELS.setdefault(k, MF.LABELS[k])
+
+
+_more_features()
+
+
+def _MF_DEFAULTS():
+    import copy as _copy
+    from . import more_features as MF
+    return _copy.deepcopy(MF.DEFAULTS)
+
+
 def default_params(ftype: str, state: ModelState | None = None) -> dict:
     has_parts = bool(state and state.parts)
     op = "add" if has_parts else "new"
+    from . import measure_value as _MV
     if ftype.startswith("plugin:"):
         from . import plugins
         return plugins.default_params(ftype, has_parts)
@@ -1838,6 +1953,7 @@ def default_params(ftype: str, state: ModelState | None = None) -> dict:
         "delete_face": {"faces": [], "mode": "heal"},
         "move_face": {"faces": [], "distance": 2.0, "flip": False},
         "offset_surface": {"faces": [], "distance": 2.0, "flip": False},
+        **{k: dict(v, **({"op": op} if k == "thicken" else {})) for k, v in _MF_DEFAULTS().items()},
         "plane": {"type": "auto", "refs": [], "offset": 20.0, "angle": 45.0, "flip": False},
         "mirror": {"parts": [], "plane": {"kind": "std", "name": "Right"}, "op": "add"},
         "linear_pattern": {"parts": [], "direction": {"kind": "std", "name": "X"}, "count": 3,
@@ -1849,6 +1965,7 @@ def default_params(ftype: str, state: ModelState | None = None) -> dict:
         "boolean": {"op": "union", "tools": [], "targets": [], "keep_tools": False},
         "import": {"data": "", "filename": ""},
         "variable": {"name": "", "expr": "10"},
+        "measure_value": dict(_MV.DEFAULTS, entities=[]),
         "derived": {"uid": "", "path": "", "studio_name": "", "parts": ["*"], "config": None},
         "thread": {"faces": [], "size": "auto", "major": 6.0, "pitch": 1.0, "length_mode": "full", "length": 10.0,
                    "left_hand": False, "clearance": 0.0},

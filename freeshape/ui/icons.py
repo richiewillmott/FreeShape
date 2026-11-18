@@ -392,6 +392,77 @@ def draw(name: str, p: QPainter):
         for i in range(-10, 12, 4):
             p.drawLine(QPointF(i, -4), QPointF(i, -1 if i % 8 else 1))
         p.resetTransform()
+    elif name == "thicken":
+        p.setPen(_pen(INK, 1.3))
+        p.setBrush(FACE)
+        p.drawPolygon(QPolygonF([QPointF(3, 20), QPointF(13, 14), QPointF(29, 14), QPointF(19, 20)]))
+        p.setBrush(FACE_DARK)
+        p.drawPolygon(QPolygonF([QPointF(3, 20), QPointF(19, 20), QPointF(19, 26), QPointF(3, 26)]))
+        p.drawPolygon(QPolygonF([QPointF(19, 20), QPointF(29, 14), QPointF(29, 20), QPointF(19, 26)]))
+        p.setPen(_pen(BLUE, 1.8))
+        p.drawLine(QPointF(16, 4), QPointF(16, 12))
+        p.drawLine(QPointF(13, 7), QPointF(16, 4))
+        p.drawLine(QPointF(19, 7), QPointF(16, 4))
+    elif name == "enclose":
+        p.setPen(_pen(BLUE, 1.8))
+        p.drawLine(QPointF(3, 8), QPointF(29, 8))
+        p.drawLine(QPointF(3, 25), QPointF(29, 25))
+        p.setPen(_pen(INK, 1.3))
+        p.setBrush(FACE)
+        p.drawEllipse(QRectF(8, 8, 16, 17))
+    elif name == "rib":
+        p.setPen(_pen(INK, 1.3))
+        p.setBrush(FACE_DARK)
+        p.drawPolygon(QPolygonF([QPointF(4, 4), QPointF(9, 4), QPointF(9, 23), QPointF(28, 23), QPointF(28, 28),
+                                 QPointF(4, 28)]))
+        p.setBrush(BLUE_FILL)
+        p.drawPolygon(QPolygonF([QPointF(9, 10), QPointF(22, 23), QPointF(9, 23)]))
+    elif name == "delete_part":
+        _box(p, 5, 12, 16, 13, 6)
+        p.setPen(_pen(RED, 2.6))
+        p.drawLine(QPointF(17, 4), QPointF(28, 15))
+        p.drawLine(QPointF(28, 4), QPointF(17, 15))
+    elif name == "helix":
+        p.setPen(_pen(BLUE, 1.8))
+        for i in range(4):
+            y = 5 + i * 6
+            p.drawArc(QRectF(6, y, 20, 7), 0, 180 * 16)
+            p.drawArc(QRectF(6, y + 3, 20, 7), 180 * 16, 180 * 16)
+    elif name == "compound":
+        # two blocks side by side sharing one face (drawn heavier)
+        p.setPen(_pen(INK, 1.2))
+        p.setBrush(FACE)
+        p.drawRect(QRectF(3, 9, 13, 16))
+        p.setBrush(QColor("#f5d77a"))
+        p.drawRect(QRectF(16, 9, 13, 16))
+        p.setPen(_pen(BLUE, 2.6))
+        p.drawLine(QPointF(16, 8), QPointF(16, 26))
+    elif name == "explode_part":
+        # two blocks pulled apart, with arrows
+        p.setPen(_pen(INK, 1.2))
+        p.setBrush(FACE)
+        p.drawRect(QRectF(2, 10, 11, 14))
+        p.setBrush(QColor("#f5d77a"))
+        p.drawRect(QRectF(19, 10, 11, 14))
+        p.setPen(_pen(BLUE, 1.6))
+        p.drawLine(QPointF(14, 17), QPointF(18, 17))
+        for x, d in ((14, 1), (18, -1)):
+            p.drawLine(QPointF(x, 17), QPointF(x + 2.5 * d, 14.5))
+            p.drawLine(QPointF(x, 17), QPointF(x + 2.5 * d, 19.5))
+    elif name == "bounding_box":
+        p.setPen(_pen(INK, 1.0, Qt.DashLine))
+        p.setBrush(Qt.NoBrush)
+        p.drawRect(QRectF(3, 6, 23, 21))
+        p.setPen(_pen(INK, 1.3))
+        p.setBrush(FACE)
+        p.drawEllipse(QRectF(8, 10, 13, 13))
+    elif name == "measure_value":
+        p.setPen(_pen(INK, 1.2))
+        p.setBrush(QColor("#f5d77a"))
+        p.drawRect(QRectF(3, 20, 26, 8))
+        for i in range(6, 28, 4):
+            p.drawLine(QPointF(i, 20), QPointF(i, 23 if i % 8 else 25))
+        _text(p, "#", BLUE, 14, True, QRectF(4, 1, 24, 18))
     # ----- sketch tools
     elif name == "line":
         p.setPen(_pen(INK, 2))

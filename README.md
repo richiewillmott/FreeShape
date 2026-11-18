@@ -30,9 +30,10 @@ real parts.
 ## What it does
 
 - **Part Studios** — sketches with constraints and dimensions; solid, surface and thin extrude, revolve, sweep
-  and loft; fillet, chamfer, shell, draft, holes (ISO clearance / tapped / counterbore / countersink), real
-  modelled ISO threads, patterns and mirror (of parts, features or faces), booleans, split (with planes, curved
-  faces or sketch curves), variables; rollback bar; **folders** in the feature list; STEP import with colours;
+  and loft; thicken, enclose, rib, helix; fillet, chamfer, shell, draft, holes (ISO clearance / tapped /
+  counterbore / countersink), real modelled ISO threads, patterns and mirror (of parts, features or faces),
+  booleans, split (with planes, curved faces or sketch curves), delete part, bounding box, variables and
+  **measured variables** that follow the model; rollback bar; **folders** in the feature list; STEP import with colours;
   export to STEP, STL and **BREP**.
 - **Assemblies** — insert parts (linked to their Part Studios), fastened / revolute / slider / cylindrical /
   planar / ball mates, gear / rack and pinion / screw relations, drag parts through their mates, an Onshape-style
@@ -60,6 +61,35 @@ real parts.
 | Part Studio | Assemblies | Drawings | Sheet metal (folded and flat) |
 |---|---|---|---|
 | ![](docs/screenshot.png) | ![](docs/images/assembly.png) | ![](docs/images/drawing.png) | ![](docs/images/sheet_metal.png) |
+
+## What's new in 2.2
+
+- **New features from Onshape's menu** — **Thicken** (surfaces or faces into solids: one side, the other, both
+  equally or two thicknesses), **Enclose** (a solid from the space surfaces, faces and planes close off),
+  **Rib** (a wall from sketch lines, grown out to the part — gussets in a couple of clicks), **Helix** (around
+  an axis, a circle or a cylinder; sweep a circle along it for a spring), **Delete part** and **Bounding box**.
+- **Compound** (as in SALOME) — solids as one part that **share the faces where they touch** (glue faces), so
+  they mesh conformally; *Right-click ▸ Shape info…* shows the vertex / edge / wire / face / shell / solid counts.
+  Export as BREP to keep the shared faces. **Explode** splits it back into its solids (or any part into its faces
+  or edges).
+- **Measure value** — a `#variable` measured from the model, with the options of the Onshape *Measure value*
+  FeatureScript: distance (minimum, maximum, infinite propagation or centre distance, or just its X / Y / Z part),
+  ray distance, angle (flip), diameter, perimeter, area, volume, count of matching faces / edges, a vertex's
+  coordinate (global, local to a plane or along a direction), centroid, bounding-box size, inertia; optionally
+  rounded. It's measured again on every rebuild, so whatever uses it follows the
+  model; the feature list shows its value. Select things and press **(x)** on the measure bar (bottom right) to
+  make one ready filled in: two vertices or edges — of parts, surfaces or sketches — → minimum distance, a face
+  or a surface body → area, a solid → volume, an edge or sketch curve → length (a round one → diameter).
+- **Smarter selection** — edges or sketch lines picked before opening Extrude, Revolve or Sweep make a
+  **surface** from exactly those edges. Switching **Solid → Thin / Surface** keeps your selection, turning the
+  faces and regions into their outlines (and switching back gives the faces back).
+- **Solid / Surface / Thin are buttons** now, like New / Add / Remove / Intersect.
+- **Surfaces: New or Add** — *Add* sews the new surface into the surfaces it meets.
+- **Non-conformal surfaces** — curves that branch or cross (a +, a T, two crossing lines) extrude, revolve or
+  sweep in one go into one surface per arm (a + gives four), where Onshape gives an error; *Thin* makes them one
+  solid wall.
+- **Symmetric second end** — Extrude's second end can mirror the first end over the sketch plane, whatever
+  its type (up to a vertex, with a draft …); Revolve's *Up to* ends can be mirrored both ways too.
 
 ## What's new in 2.1
 
@@ -156,17 +186,18 @@ The **⌂ Home** button at the top goes back to it (and back to your work again)
 
 **Navigation** — right-drag to rotate (around the point under the cursor, or the centre of the model when you
 start over empty space — a small blue marker shows the centre of rotation; View → *Rotate around* can make it
-always the model centre or always the origin), middle-drag or Ctrl+right-drag to pan, wheel to zoom at the cursor. The arrow keys turn the view 15° at a time. The view cube works like Onshape's: click a face, edge or corner for that view, the arrows turn the view 90°, the curved arrows roll it, and ▾ lists the named views. `F` zooms to fit,
-`Shift+1…7` = Front, Back, Left, Right, Top, Bottom, Isometric.
+always the model centre or always the origin), middle-drag or Ctrl+right-drag to pan, wheel to zoom at the cursor. The arrow keys turn the view 15° at a time. The view cube works like Onshape's: click a face, edge or corner for that view, the arrows turn the view 90°, the curved arrows roll it, and ▾ opens the view options (see *View options* below). `F` zooms to fit,
+`Shift+1…7` = Front, Back, Left, Right, Top, Bottom, Isometric. `Alt+Left` = previous view, `Shift+Z` = zoom to window.
 
-**Selecting** — hover pre-highlights faces, edges, sketch regions and planes; click to add to the
+**Selecting** — hover pre-highlights vertices, faces, edges, sketch regions and planes; click to add to the
 selection, click empty space (or press `Space`) to clear. Drag a box on empty space to box-select (left-to-right:
 only what is fully inside; right-to-left: also what it touches), and use the **Select** menu in the top bar to
-choose what can be picked (vertices, edges, faces, solids, sketches, planes). `Ctrl+Space` opens **Search tools**. With one or two things selected, the bottom-right shows area,
-length, radius or the minimum distance between them.
+choose what can be picked (vertices and sketch points, edges, faces, solids, sketches, planes — all but solids are
+on by default). `Ctrl+Space` opens **Search tools**. With one or two things selected, the bottom-right shows the
+main measurement (area, length, diameter or the minimum distance between them) and **(x)** to make it a variable.
 
 **Sketching** — select a plane or flat face (or not — the dialog will ask) and press **Sketch** (`Shift+S`).
-The view turns to face the sketch plane.
+The view turns to face the sketch plane (unless *Orient normal to sketch on edit* is off in the view options).
 
 | Tool | Key | Notes |
 |---|---|---|
@@ -218,6 +249,24 @@ Things selected before opening a feature are pre-filled. Extrude and Plane show 
   **variable radius**.
 - **Chamfer** — equal distance, **two distances** or **distance and angle**, with *Flip sides*.
 - **Shell** — pick faces to remove, inward or outward.
+- **Thicken** — turn surfaces or faces into solids: along the normal, the other way, both ways equally or two
+  thicknesses. Neighbouring flat faces are joined into one wall with filled corners.
+- **Enclose** — pick surfaces, faces and planes (they may cross each other) and get the solid they close off;
+  the surfaces are used up unless *Keep the surfaces* is ticked.
+- **Rib** — sketch a line across a corner and Rib grows a wall of a thickness from it until it meets the part,
+  parallel to the sketch plane or along its normal.
+- **Helix** — around an axis, a circle edge or a cylinder, sized by turns and pitch, height and turns, or
+  height and pitch; start angle and left / right hand. It's a curve part you can sweep a profile along (springs).
+- **Delete part** — remove parts from this point in the history on. **Bounding box** — a box part around parts
+  (or everything), with clearance, e.g. for stock size or packaging.
+- **Compound** — pick solid parts (or none for all of them); they become one part whose solids share the faces
+  where they touch, as SALOME's *Glue faces*: faces that only partly touch are split so the touching patch is
+  shared, and *Glue tolerance* joins faces that are nearly touching. Untick *Glue faces* for a plain compound.
+  *Right-click a part ▸ Shape info…* counts its vertices, edges, wires, faces, shells and solids. BREP export keeps
+  the shared faces; STEP stores each solid with its own.
+- **Explode** — a part into its solids (a compound back into separate parts), its faces (as surface parts) or its
+  edges (as curve parts); tick *Keep the original part* to leave it as well. Right-click a compound ▸ *Explode
+  into solids* starts it with that part picked.
 - **Hole** — at the points and circle centres of a sketch (click the sketch, or pick it in the dialog);
   "Size of the sketch circles" makes each hole the size you drew it, or use ISO clearance (close / normal / loose fit), ISO tapped (M2–M12, sized to the
   tap drill), or a custom size; simple, counterbored or countersunk; through, blind with a drill point, **up to
@@ -260,8 +309,18 @@ made highlighted on the model (its faces, or a sketch's curves), like Onshape.
 **Parts list** — right-click for rename, colour, hide/isolate, mass properties and per-part export. Select several
 parts (here or in the 3D view) and right-click to hide, isolate, export or **Auto colour** them all at once.
 
-**Measure** — select anything and its size shows bottom-right: face area, edge length and radius, part volume,
-mass and centre of mass. Select two things for the minimum distance, the X/Y/Z offsets, and the angle between them.
+**Measure** — select anything and its main measurement shows in the bottom-right corner, as in Onshape
+(`Min dist: 107.521 mm`, `Area: …`, `Volume: …`); click it for everything else — the X/Y/Z offsets, the angle,
+centre to centre, radius, mass and centre of mass. Vertices of parts and sketch points (line ends, centres) can be
+picked straight away. The **(x)** button next to the value adds a **Measure value** feature for exactly that
+measurement and those picks: a `#variable` that is re-measured whenever the model changes (sketch edits included),
+so dimensions and features using it follow along.
+
+**View options** — the menu under the view cube has Onshape's options: isometric, dimetric and trimetric
+views, previous view (Alt+Left), zoom to window (Shift+Z), named views saved in the file, perspective view,
+orient normal to sketch on edit, and how parts are drawn — shaded with or without edges, unshaded or translucent;
+hidden edges removed or dashed; tangent edges shown, hidden or as phantom lines; high quality; highlighted
+boundary edges of surfaces. *Graphics preferences…* gathers them in one window.
 
 **Section view** — the section button (or Ctrl+Shift+X) slices the model so you can see inside. Pick the Top / Front /
 Right plane, or select a face first to cut exactly there; drag the slider or type an offset, and tick *Flip* for the
@@ -392,7 +451,8 @@ This is a capable hobby/prototyping tool, not a replacement for Onshape:
 
 - **No FeatureScript** (Python plugins cover some of the same ground — see [PLUGINS.md](PLUGINS.md)).
 - Some feature options are still missing — conic fillets, loft guide curves and start / end tangency, and
-  parting-line draft; sweep takes one guide curve. [FEATURE_PARITY.md](FEATURE_PARITY.md) has the full list.
+  parting-line draft; sweep takes one guide curve; Rib takes straight lines that already reach the part; and
+  there's no Fill, Extend surface, Replace face or Wrap yet. [FEATURE_PARITY.md](FEATURE_PARITY.md) has the full list.
 - Assemblies are one level deep (no sub-assemblies yet), and there are no mate limits.
 - Sheet metal has no rolled / conical sheet, and cuts that cross a bend are left out of the flat pattern.
 - Drawings have no broken views, angle dimensions, hole tables, GD&T or multiple sheets yet.

@@ -334,6 +334,7 @@ class AssemblyDoc:
         self.mates: list[dict] = []
         # exploded view: steps that slide instances apart (display only; mates and positions are untouched)
         self.explode: dict = {"steps": [], "amount": 1.0}
+        self.named_views: dict = {}               # name -> camera (View ▸ Named views)
         # relations between mates (gear, rack and pinion, screw) and patterns of instances
         self.relations: list[dict] = []
         self.patterns: list[dict] = []
@@ -1498,6 +1499,7 @@ class AssemblyDoc:
         return json.dumps({"format": FILE_FORMAT, "version": FILE_VERSION, "name": self.name, "uid": self.uid,
                            "instances": insts, "mates": self.mates, "explode": self.explode,
                            "relations": self.relations, "patterns": self.patterns,
+                           "named_views": self.named_views,
                            "blobs": {k: v for k, v in self.blobs.items() if k in used}}, indent=1)
 
     def save(self, path=None):
@@ -1523,6 +1525,7 @@ class AssemblyDoc:
         a.explode = d.get("explode", {"steps": [], "amount": 1.0})
         a.relations = d.get("relations", [])
         a.patterns = d.get("patterns", [])
+        a.named_views = d.get("named_views", {})
         a.blobs = d.get("blobs", {})
         a.path = path
         base = os.path.dirname(os.path.abspath(path))

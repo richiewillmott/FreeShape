@@ -203,3 +203,121 @@ def test_revolve_surface_up_to_a_plane():
                  end="up_to_face", up_to={"kind": "plane", "ref": {"kind": "std", "name": "Right"}})
     area = sum(K.face_info(x)["area"] for x in K.faces(parts[0].shape))
     assert abs(area - 2 * math.pi * 10 * 20 / 4) < 1e-3 or abs(area - 2 * math.pi * 10 * 20 * 3 / 4) < 1e-3
+
+
+def _second_sketch(doc, build):
+    s = Sketch()
+    ids = build(s)
+    s.solve()
+    sk = doc.make_feature("sketch")
+    sk["params"]["sketch"] = s.to_dict()
+    doc.add_feature(sk)
+    return sk["id"], ids
+
+
+@pytest.mark.parametrize("op,count", [("new", 2), ("add", 1)])
+def test_surface_new_and_add(op, count):
+    """A surface made with Add is sewn into the surface it meets; New keeps it separate."""
+    doc, sid, ids = _doc(_ell)
+    _add(doc, "extrude", creation="surface", curves=[_chain(sid, ids[0])], depth=5.0)
+    sid2, ids2 = _second_sketch(doc, lambda s: [s.add_line(s.add_point(20, 10), s.add_point(0, 10))])
+    parts = _add(doc, "extrude", creation="surface", surface_op=op, curves=[_chain(sid2, ids2[0])], depth=5.0)
+    assert len(parts) == count
+    assert abs(sum(K.face_info(x)["area"] for pt in parts for x in K.faces(pt.shape)) - 250) < 1e-6
+
+
+def test_surface_add_old_files_stay_new():
+    # 2.1 saved surfaces with op "add", which meant a new surface; they must not start sewing together
+    doc, sid, ids = _doc(_ell)
+    _add(doc, "extrude", creation="surface", curves=[_chain(sid, ids[0])], depth=5.0, op="add")
+    sid2, ids2 = _second_sketch(doc, lambda s: [s.add_line(s.add_point(20, 10), s.add_point(0, 10))])
+    assert len(_add(doc, "extrude", creation="surface", curves=[_chain(sid2, ids2[0])], depth=5.0, op="add")) == 2
+
+
+def test_thin_from_region_outline():
+    # Solid -> Thin in the dialog turns the region into its outline in the curves box
+    from freeshape import body_options as BO
+    doc, sid, _ = _doc(_rect)
+    parts = _add(doc, "extrude", creation="thin", curves=[BO.outline_ref("region", _region(doc, sid))],
+                 thickness=1.0, depth=5.0)
+    assert abs(K.volume(parts[0].shape) - (21 * 11 - 19 * 9) * 5) < 1e-6
+
+
+# --------------------------------------------------------------------------- non-conformal curve networks
+def _net(build):
+    doc = Document()
+    s = Sketch()
+    ids = build(s)
+    s.solve()
+    f = doc.make_feature("sketch")
+    f["params"]["sketch"] = s.to_dict()
+    doc.add_feature(f)
+    return doc, f["id"], ids
+
+
+def _plus(s):
+    c = s.add_point(0, 0)
+    return [s.add_line(c, s.add_point(x, y)) for x, y in ((10, 0), (-10, 0), (0, 10), (0, -10))]
+
+
+def _crossing(s):
+    return [s.add_line(s.add_point(-10, 0), s.add_point(10, 0)), s.add_line(s.add_point(0, -10), s.add_point(0, 10))]
+
+
+def _tee(s):
+    c = s.add_point(0, 0)
+    return [s.add_line(s.add_point(-10, 0), c), s.add_line(c, s.add_point(10, 0)), s.add_line(c, s.add_point(0, 10))]
+
+
+def _surface(doc, curves, **kw):
+    e = doc.make_feature("extrude")
+    e["params"].update(creation="surface", curves=curves, depth=10, op="new", **kw)
+    doc.add_feature(e)
+    assert not doc.errors, doc.errors
+    parts = list(doc.state.parts.values())
+    assert all(not K.solids(p.shape) for p in parts)
+    return parts
+
+
+@pytest.mark.parametrize("build, how, n", [
+    (_plus, "chain", 4),          # one click on a + takes all of it: 4 surfaces, one per arm
+    (_plus, "each", 4),
+    (_plus, "only", 4),           # preselected lines (one item listing them all)
+    (_crossing, "each", 4),       # two lines that cross are split where they cross
+    (_tee, "chain", 3),
+])
+def test_branching_and_crossing_curves_make_one_surface_per_arm(build, how, n):
+    doc, fid, ids = _net(build)
+    if how == "chain":
+        curves = [{"kind": "sketch_chain", "sketch": fid, "entity": ids[0]}]
+    elif how == "only":
+        curves = [{"kind": "sketch_chain", "sketch": fid, "entity": ids[0], "only": ids}]
+    else:
+        curves = [{"kind": "sketch_chain", "sketch": fid, "entity": i} for i in ids]
+    parts = _surface(doc, curves)
+    assert len(parts) == n
+    assert sum(K.face_info(f)["area"] for p in parts for f in K.faces(p.shape)) == pytest.approx(10 * 10 * n)
+
+
+def test_branching_thin_wall_is_one_solid():
+    doc, fid, ids = _net(_plus)
+    e = doc.make_feature("extrude")
+    e["params"].update(creation="thin", thickness=2, thin_side="mid", depth=10, op="new",
+                       curves=[{"kind": "sketch_chain", "sketch": fid, "entity": ids[0]}])
+    doc.add_feature(e)
+    assert not doc.errors, doc.errors
+    (part,) = doc.state.parts.values()
+    assert K.volume(part.shape) == pytest.approx((2 * 20 * 2 - 2 * 2) * 10)     # a + shaped wall, 10 tall
+
+
+def test_an_arm_can_be_added_onto():
+    doc, fid, ids = _net(_plus)
+    _surface(doc, [{"kind": "sketch_chain", "sketch": fid, "entity": ids[0]}])
+    s = Sketch()
+    ln = s.add_line(s.add_point(10, 0), s.add_point(20, 0))
+    s.solve()
+    f = doc.make_feature("sketch")
+    f["params"]["sketch"] = s.to_dict()
+    doc.add_feature(f)
+    parts = _surface(doc, [{"kind": "sketch_chain", "sketch": f["id"], "entity": ln}], surface_op="add")
+    assert sorted(len(K.faces(p.shape)) for p in parts) == [1, 1, 1, 2]

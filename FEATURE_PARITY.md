@@ -4,7 +4,7 @@ Generated from `freeshape/parity.py` — edit that file, then run `python -m fre
 
 Following [issue #27](https://github.com/richiewillmott/FreeShape/issues/27): features are finished option by option, and any option more than one feature has is built **once** as a shared tool (below) and reused, so it behaves the same everywhere. Options not built yet are listed too.
 
-**Overall: 95%** of the listed options (partial counts half).
+**Overall: 93%** of the listed options (partial counts half).
 
 ✅ done · 🟡 partial · ⬜ to do
 
@@ -14,8 +14,8 @@ Following [issue #27](https://github.com/richiewillmott/FreeShape/issues/27): fe
 |---|---|
 | [Extrude](#extrude) | 100% |
 | [Revolve](#revolve) | 100% |
-| [Sweep](#sweep) | 95% |
-| [Loft](#loft) | 80% |
+| [Sweep](#sweep) | 96% |
+| [Loft](#loft) | 82% |
 | [Fillet](#fillet) | 70% |
 | [Chamfer](#chamfer) | 100% |
 | [Shell](#shell) | 100% |
@@ -24,12 +24,17 @@ Following [issue #27](https://github.com/richiewillmott/FreeShape/issues/27): fe
 | [Linear pattern](#linear-pattern) | 100% |
 | [Circular pattern](#circular-pattern) | 100% |
 | [Mirror](#mirror) | 100% |
+| [Thicken](#thicken) | 92% |
+| [Enclose](#enclose) | 100% |
+| [Rib](#rib) | 64% |
+| [Helix](#helix) | 83% |
+| [Delete part](#delete-part) | 100% |
 | [Boolean](#boolean) | 100% |
 | [Split](#split) | 100% |
 
 ### Extrude
 
-100% · shared tools used: Blind / symmetric ends, Creation type, Draft / taper, Merge scope, Merge with the model, Opposite direction, Profile picking, Second end, Thin wall, Through all, Up to next / face / part / vertex
+100% · shared tools used: Blind / symmetric ends, Creation type, Draft / taper, Merge scope, Merge with the model, Opposite direction, Profile picking, Second end, Smart selection, Surface New / Add, Symmetric second end, Thin wall, Through all, Up to next / face / part / vertex
 
 - ✅ Solid *(shared: Creation type)*
 - ✅ Surface *(shared: Creation type)* — from sketch curves, edges or region outlines
@@ -37,6 +42,8 @@ Following [issue #27](https://github.com/richiewillmott/FreeShape/issues/27): fe
 - ✅ Thin — two different thicknesses *(shared: Thin wall)*
 - ✅ Faces and sketch regions *(shared: Profile picking)*
 - ✅ Sketch curves and edges *(shared: Profile picking)* — for Surface and Thin
+- ✅ Edges picked first make a surface; Solid ⇄ Thin / Surface keeps the selection *(shared: Smart selection)*
+- ✅ Surface: New / Add *(shared: Surface New / Add)*
 - ✅ Blind *(shared: Blind / symmetric ends)*
 - ✅ Symmetric *(shared: Blind / symmetric ends)*
 - ✅ Through all *(shared: Through all)*
@@ -46,37 +53,43 @@ Following [issue #27](https://github.com/richiewillmott/FreeShape/issues/27): fe
 - ✅ Draft *(shared: Draft / taper)* — Blind, Symmetric and Through all
 - ✅ Second end position *(shared: Second end)* — Blind, Through all or any Up to
 - ✅ Second end draft *(shared: Draft / taper)* — its own angle
+- ✅ Second end: Symmetric (mirror of the first end, any type) *(shared: Symmetric second end)*
 - ✅ New / Add / Remove / Intersect *(shared: Merge with the model)*
 - ✅ Merge scope *(shared: Merge scope)*
 
 ### Revolve
 
-100% · shared tools used: Axis / direction picking, Creation type, Merge scope, Merge with the model, Opposite direction, Profile picking, Thin wall, Two directions, Up to next / face / part / vertex
+100% · shared tools used: Axis / direction picking, Creation type, Merge scope, Merge with the model, Opposite direction, Profile picking, Smart selection, Surface New / Add, Symmetric second end, Thin wall, Two directions, Up to next / face / part / vertex
 
 - ✅ Solid *(shared: Creation type)*
 - ✅ Surface *(shared: Creation type)*
 - ✅ Thin *(shared: Thin wall)*
 - ✅ Faces and sketch regions *(shared: Profile picking)*
 - ✅ Sketch curves and edges *(shared: Profile picking)* — for Surface and Thin
+- ✅ Edges picked first make a surface; Solid ⇄ Thin / Surface keeps the selection *(shared: Smart selection)*
+- ✅ Surface: New / Add *(shared: Surface New / Add)*
 - ✅ Revolve axis *(shared: Axis / direction picking)*
 - ✅ Full
 - ✅ One direction
 - ✅ Symmetric
 - ✅ Two directions (second angle) *(shared: Two directions)*
 - ✅ Up to next / face / part / vertex *(shared: Up to next / face / part / vertex)* — Solid, Thin and Surface
+- ✅ Up to … mirrored both ways (symmetric) *(shared: Symmetric second end)*
 - ✅ Opposite direction *(shared: Opposite direction)*
 - ✅ New / Add / Remove / Intersect *(shared: Merge with the model)*
 - ✅ Merge scope *(shared: Merge scope)*
 
 ### Sweep
 
-95% · shared tools used: Creation type, Guide curves, Merge scope, Merge with the model, Profile control, Profile picking, Thin wall
+96% · shared tools used: Creation type, Guide curves, Merge scope, Merge with the model, Profile control, Profile picking, Smart selection, Surface New / Add, Thin wall
 
 - ✅ Solid *(shared: Creation type)*
 - ✅ Surface *(shared: Creation type)*
 - ✅ Thin *(shared: Thin wall)*
 - ✅ Faces and sketch regions *(shared: Profile picking)*
 - ✅ Sketch curves and edges *(shared: Profile picking)* — for Surface and Thin
+- ✅ Edges picked first make a surface; Solid ⇄ Thin / Surface keeps the selection *(shared: Smart selection)*
+- ✅ Surface: New / Add *(shared: Surface New / Add)*
 - ✅ Path
 - ✅ Profile control *(shared: Profile control)* — normal to path, keep orientation, lock to a direction or to faces
 - 🟡 Guide curves *(shared: Guide curves)* — one guide curve
@@ -85,12 +98,13 @@ Following [issue #27](https://github.com/richiewillmott/FreeShape/issues/27): fe
 
 ### Loft
 
-80% · shared tools used: Creation type, Guide curves, Loft along a path, Merge scope, Merge with the model, Profile picking, Start / end tangency, Thin wall
+82% · shared tools used: Creation type, Guide curves, Loft along a path, Merge scope, Merge with the model, Profile picking, Start / end tangency, Surface New / Add, Thin wall
 
 - ✅ Solid *(shared: Creation type)*
 - ✅ Surface *(shared: Creation type)*
 - ✅ Thin *(shared: Thin wall)*
 - ✅ Profiles in order *(shared: Profile picking)* — regions, faces and sketch curves
+- ✅ Surface: New / Add *(shared: Surface New / Add)*
 - ✅ Ruled (straight) sides
 - ⬜ Guide curves *(shared: Guide curves)* — OpenCascade's loft has no guide curves — needs a different surfacing approach
 - ⬜ Start / end conditions *(shared: Start / end tangency)* — OpenCascade's loft has no tangency control
@@ -182,6 +196,55 @@ Following [issue #27](https://github.com/richiewillmott/FreeShape/issues/27): fe
 - ✅ New / Add / Remove / Intersect *(shared: Merge with the model)*
 - ✅ Merge scope *(shared: Merge scope)*
 
+### Thicken
+
+92% · shared tools used: Merge scope, Merge with the model, Thicken
+
+- ✅ Surfaces and faces
+- ✅ One side / other side / symmetric *(shared: Thicken)*
+- ✅ Two thicknesses *(shared: Thicken)*
+- 🟡 Neighbouring faces joined, outside corners filled *(shared: Thicken)* — flat faces; curved faces are joined but their corners aren't filled
+- ✅ New / Add / Remove / Intersect *(shared: Merge with the model)*
+- ✅ Merge scope *(shared: Merge scope)*
+
+### Enclose
+
+100% · shared tools used: Merge scope, Merge with the model
+
+- ✅ Surfaces, faces and planes — they may cross each other; the closed-off space is kept
+- ✅ Keep tools
+- ✅ New / Add / Remove / Intersect *(shared: Merge with the model)*
+- ✅ Merge scope *(shared: Merge scope)*
+
+### Rib
+
+64% · shared tools used: Draft / taper, Opposite direction
+
+- 🟡 Sketch lines — straight lines; arcs and splines not yet
+- ✅ Thickness
+- ✅ Parallel / normal to the sketch plane
+- ✅ Opposite direction *(shared: Opposite direction)*
+- ✅ Parts to grow out to
+- ⬜ Extend profiles up to part — the lines must reach the part already
+- ⬜ Draft *(shared: Draft / taper)*
+
+### Helix
+
+83% · shared tools used: Axis / direction picking, Opposite direction
+
+- ✅ Around an axis, circle edge or cylinder *(shared: Axis / direction picking)*
+- ✅ Turns and pitch / height and turns / height and pitch
+- ✅ Start angle
+- ✅ Clockwise / anticlockwise
+- ✅ Opposite direction *(shared: Opposite direction)*
+- ⬜ Around a cone
+
+### Delete part
+
+100% · shared tools used: none
+
+- ✅ Parts
+
 ### Boolean
 
 100% · shared tools used: none
@@ -235,6 +298,8 @@ Each is built once and used by every feature listed under it. A tool marked *to 
   - ✅ Linear pattern: New / Add / Remove / Intersect
   - ✅ Circular pattern: New / Add / Remove / Intersect
   - ✅ Mirror: New / Add / Remove / Intersect
+  - ✅ Thicken: New / Add / Remove / Intersect
+  - ✅ Enclose: New / Add / Remove / Intersect
 - **Merge scope** — Choose which parts Add / Remove / Intersect act on. `freeshape.ui.dialogs:_scope_field`
   - ✅ Extrude: Merge scope
   - ✅ Revolve: Merge scope
@@ -243,6 +308,8 @@ Each is built once and used by every feature listed under it. A tool marked *to 
   - ✅ Linear pattern: Merge scope
   - ✅ Circular pattern: Merge scope
   - ✅ Mirror: Merge scope
+  - ✅ Thicken: Merge scope
+  - ✅ Enclose: Merge scope
 - **Blind / symmetric ends** — A set distance, one way or both ways equally. `freeshape.kernel:extrude`
   - ✅ Extrude: Blind
   - ✅ Extrude: Symmetric
@@ -259,15 +326,19 @@ Each is built once and used by every feature listed under it. A tool marked *to 
 - **Opposite direction** — Reverse the direction. `freeshape.features:run_extrude`
   - ✅ Extrude: Opposite direction
   - ✅ Revolve: Opposite direction
+  - ✅ Rib: Opposite direction
+  - ✅ Helix: Opposite direction
 - **Draft / taper** — Lean faces by an angle about a neutral plane. `freeshape.body_options:taper`
   - ✅ Extrude: Draft
   - ✅ Extrude: Second end draft
   - ✅ Draft: Neutral plane
   - ✅ Draft: Pull direction / flip
+  - ⬜ Rib: Draft
 - **Axis / direction picking** — Sketch line, edge or world axis as an axis or direction. `freeshape.features:resolve_axis`
   - ✅ Revolve: Revolve axis
   - ✅ Linear pattern: Direction
   - ✅ Circular pattern: Axis
+  - ✅ Helix: Around an axis, circle edge or cylinder
 - **Tangent chains** — Pick one edge or face, get the smooth chain it belongs to (OpenCascade carries fillets, chamfers and drafts along it). `freeshape.kernel:fillet`
   - ✅ Fillet: Tangent propagation
   - ✅ Chamfer: Tangent propagation
@@ -286,5 +357,21 @@ Each is built once and used by every feature listed under it. A tool marked *to 
   - ⬜ Loft: Start / end conditions
 - **Loft along a path** — Sections placed along a path curve. `freeshape.kernel:loft_wires`
   - ✅ Loft: Path
+- **Surface New / Add** — A new surface body, or sewn into the surfaces it meets. `freeshape.body_options:_sew_into_surfaces`
+  - ✅ Extrude: Surface: New / Add
+  - ✅ Revolve: Surface: New / Add
+  - ✅ Sweep: Surface: New / Add
+  - ✅ Loft: Surface: New / Add
+- **Smart selection** — Edges picked first make a surface; switching Solid ⇄ Thin / Surface turns the faces into their outlines and back. `freeshape.ui.dialogs:FeatureDialog`
+  - ✅ Extrude: Edges picked first make a surface; Solid ⇄ Thin / Surface keeps the selection
+  - ✅ Revolve: Edges picked first make a surface; Solid ⇄ Thin / Surface keeps the selection
+  - ✅ Sweep: Edges picked first make a surface; Solid ⇄ Thin / Surface keeps the selection
+- **Symmetric second end** — The other side is the first end mirrored over the sketch plane, whatever its end type. `freeshape.features:run_extrude`
+  - ✅ Extrude: Second end: Symmetric (mirror of the first end, any type)
+  - ✅ Revolve: Up to … mirrored both ways (symmetric)
+- **Thicken** — A solid from a face or surface: one side, the other, centred or two thicknesses. `freeshape.more_features:thicken_shape`
+  - ✅ Thicken: One side / other side / symmetric
+  - ✅ Thicken: Two thicknesses
+  - 🟡 Thicken: Neighbouring faces joined, outside corners filled
 - **Profile control** — How a swept profile turns along the path (keep orientation, lock to a direction or faces, follow a guide). `freeshape.kernel:_pipe_shell`
   - ✅ Sweep: Profile control

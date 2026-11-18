@@ -97,6 +97,10 @@ def _seg_dist(px, py, A, B):
     return np.hypot(cx - px, cy - py), t
 
 
+BOUNDARY_COLOR = (0.93, 0.42, 0.08)      # Highlight boundary edges: the open edges of surfaces
+HIDDEN_EDGE_COLOR = (0.55, 0.58, 0.63)   # Hidden edges visible: dashed, lighter
+
+
 class Viewport(QOpenGLWidget):
     selectionChanged = Signal()
     hoverChanged = Signal(object)
@@ -182,7 +186,21 @@ class Viewport(QOpenGLWidget):
         self._zoom_timer = QTimer(self)
         self._zoom_timer.timeout.connect(self._step_zoom)
         self._segs = None
+        self._spts = None
         self.show_planes = True
+        # display options (the view cube menu, as in Onshape)
+        self.render_mode = "shaded_edges"    # shaded_edges | shaded | unshaded | translucent
+        self.hidden_edges = "removed"        # removed | visible (dashed, through the model)
+        self.tangent_edges = "visible"       # visible | hidden | phantom (dashed)
+        self.highlight_boundary = False      # open edges of surfaces in a colour of their own
+        self.high_quality = False            # finer meshes
+        self.translucency = 0.3              # how opaque Translucent parts are
+        self.cube_menu_hook = None           # callable(QMenu) that fills the view cube's menu
+        self._parts_full = []
+        self._view_history = []              # camera states for Previous view
+        self._restoring_view = False
+        self._last_wheel_push = 0.0
+        self.zoom_window_mode = False        # the next left-drag frames the area to zoom to
         from .viewcube import ViewCube
         self.cube = ViewCube()
         self.status_text = ""
@@ -190,11 +208,14 @@ class Viewport(QOpenGLWidget):
     # ================================================================== scene
     def mesh_for(self, shape, kind="part"):
         # The cache keeps a reference to the shape so its memory (and hash) can't be reused by a new shape.
-        key = (kind, hash(shape))
+        key = (kind, hash(shape), self.high_quality)
         hit = self._mesh_cache.get(key)
         if hit is not None and hit[0].IsSame(shape) and hit[0].IsEqual(shape):
             return hit[1]
-        m = K.tessellate(shape)
+        if self.high_quality:
+            m = K.tessellate(shape, K.default_deflection(shape) / 5, 0.08)
+        else:
+            m = K.tessellate(shape)
         if len(self._mesh_cache) > 600:
             self._mesh_cache.clear()
         self._mesh_cache[key] = (shape, m)
@@ -224,6 +245,8 @@ class Viewport(QOpenGLWidget):
         """parts: [(pid, shape, color, face_colors, transform, local_shape)] (the last three optional);
         planes: [(key, Plane, label)]; sketches: [(fid, SketchResult)]."""
         parts = [tuple(x) + (None,) * (6 - len(x)) for x in parts]
+        self._parts_full = parts
+        self._scene_args = (planes, sketches)
         cb = self.progress_cb if len(parts) > 15 else None
         built = []
         for i, (pid, shape, color, _fc, M, local) in enumerate(parts):
@@ -241,6 +264,7 @@ class Viewport(QOpenGLWidget):
         self.planes = planes
         self.sketches = [(fid, sr, [self.mesh_for(f, "region") for f in sr.regions]) for fid, sr in sketches]
         self._segs = None
+        self._spts = None
         valid = []
         for p in self.selection:
             if self._pick_exists(p):
@@ -259,6 +283,8 @@ class Viewport(QOpenGLWidget):
             return any(fid == p.key[0] and p.key[1] < len(sr.regions) for fid, sr, _ in self.sketches)
         if p.kind == "sketch_line":
             return any(fid == p.key[0] and p.key[1] in sr.sketch.entities for fid, sr, _ in self.sketches)
+        if p.kind == "sketch_point":
+            return any(fid == p.key[0] and p.key[1] in sr.sketch.points for fid, sr, _ in self.sketches)
         if p.kind == "plane":
             return any(k == p.key for k, *_ in self.planes)
         return True
@@ -269,6 +295,9 @@ class Viewport(QOpenGLWidget):
             if len(m.verts):
                 lo = np.minimum(lo, m.verts.min(0))
                 hi = np.maximum(hi, m.verts.max(0))
+            elif len(m.edge_polys):           # a curve-only part (a helix)
+                pts = np.vstack([np.asarray(e, float) for e in m.edge_polys if len(e)])
+                lo, hi = np.minimum(lo, pts.min(0)), np.maximum(hi, pts.max(0))
         for _, sr, meshes in self.sketches:
             for m in meshes:
                 if len(m.verts):
@@ -301,8 +330,76 @@ class Viewport(QOpenGLWidget):
         return PLANE_HALF
 
     # ================================================================== view control
+    def remember_view(self):
+        """Keep the current view for Previous view (called before the view is changed)."""
+        if self._restoring_view:
+            return
+        st = self.cam.state()
+        h = self._view_history
+        if h and np.allclose(h[-1][0], st[0]) and np.allclose(h[-1][1], st[1]) and abs(h[-1][2] - st[2]) < 1e-12:
+            return
+        h.append(st)
+        del h[:-30]
+
+    def reset_view_history(self):
+        self._view_history = []
+
+    def has_previous_view(self):
+        return bool(self._view_history)
+
+    def previous_view(self):
+        """Go back to the view before the last change of view (as Onshape's Previous view)."""
+        h = self._view_history
+        cur = self.cam.state()
+        while h:
+            st = h.pop()
+            if not (np.allclose(st[0], cur[0]) and np.allclose(st[1], cur[1]) and abs(st[2] - cur[2]) < 1e-12):
+                self._restoring_view = True
+                try:
+                    self.animate_to(st)
+                finally:
+                    self._restoring_view = False
+                return True
+        return False
+
+    def set_perspective(self, on):
+        self.cam.perspective = bool(on)
+        self.update()
+
+    def start_zoom_window(self):
+        """Zoom to window: the next left-drag draws the area to fill the view with (Esc or right-click cancels)."""
+        self.zoom_window_mode = True
+        self.setCursor(Qt.CrossCursor)
+        self.status_text = "Drag a box around the area to zoom to"
+        self.update()
+
+    def _end_zoom_window(self):
+        self.zoom_window_mode = False
+        self._box = None
+        self._box_start = None
+        self.setCursor(Qt.ArrowCursor)
+        self.status_text = ""
+        self.update()
+
+    def zoom_to_rect(self, x0, y0, x1, y1, animate=True):
+        """Fill the view with the screen rectangle (x0, y0)–(x1, y1); a click (tiny box) zooms in 2× there."""
+        c = self.cam
+        cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+        w, h = abs(x1 - x0), abs(y1 - y0)
+        f = 0.5 if max(w, h) < 6 else max(w / max(c.w, 1), h / max(c.h, 1))
+        target = c.target + c.R[0] * (cx - c.w / 2) * c.scale + c.R[1] * (c.h / 2 - cy) * c.scale
+        st = (target, c.R.copy(), max(c.scale * f, 1e-5))
+        if animate:
+            self.animate_to(st)
+        else:
+            self.remember_view()
+            self._anim = None
+            c.set_state(st)
+            self.update()
+
     def animate_to(self, state, duration=0.35, pivot=None):
         """Animate the camera to `state`. With a pivot, that point stays put on screen while the view turns."""
+        self.remember_view()
         keep = None
         if pivot is not None:
             pivot = np.asarray(pivot, float)
@@ -351,6 +448,8 @@ class Viewport(QOpenGLWidget):
         if animate:
             self.animate_to(st)
         else:
+            self.remember_view()
+            self._anim = None                       # a jump replaces any view change still under way
             self.cam.set_state(st)
             self.update()
 
@@ -416,6 +515,8 @@ class Viewport(QOpenGLWidget):
         if animate:
             self.animate_to((target, self.cam.R.copy(), scale))
         else:
+            self.remember_view()
+            self._anim = None
             self.cam.target, self.cam.scale = target, scale
             self.update()
 
@@ -486,7 +587,13 @@ class Viewport(QOpenGLWidget):
         hw, hh = c.w * c.scale / 2, c.h * c.scale / 2
         GL.glMatrixMode(GL.GL_PROJECTION)
         GL.glLoadIdentity()
-        GL.glOrtho(-hw, hw, -hh, hh, -c.depth / 2, c.depth / 2)
+        if c.perspective:
+            D = c.eye_distance()
+            near = D * 0.02
+            GL.glFrustum(-hw * near / D, hw * near / D, -hh * near / D, hh * near / D, near, D + c.depth / 2)
+            GL.glTranslated(0, 0, -D)          # the eye sits D in front of the target
+        else:
+            GL.glOrtho(-hw, hw, -hh, hh, -c.depth / 2, c.depth / 2)
         GL.glMatrixMode(GL.GL_MODELVIEW)
         GL.glLoadIdentity()
         # lights in eye space
@@ -569,13 +676,16 @@ class Viewport(QOpenGLWidget):
     def _build_batch(self, parts_full):
         """Concatenate every part's mesh into single vertex / normal / colour / index arrays (colours,
         including per-face STEP colours, baked in) plus one array of edge line segments."""
-        V, N, C, T, E = [], [], [], [], []
+        V, N, C, T = [], [], [], []
+        E = {"E": [], "Et": [], "Eb": []}            # sharp, tangent and boundary edge segments
+        need_cls = self.tangent_edges != "visible" or self.highlight_boundary
+        shapes = {x[0]: (x[5] if x[5] is not None else x[1]) for x in (parts_full or [])}
         ranges = {}
         nv = nt = 0
         fcols = self.face_colors
         for pid, m, color in self.parts:
-            if len(m.verts) == 0:
-                continue
+            if len(m.verts) == 0 and not len(m.edge_polys):
+                continue                      # (a part that is only curves — a helix — still draws its edges)
             col = np.empty((len(m.verts), 3), np.float32)
             col[:] = color[:3]
             fc = fcols.get(pid)
@@ -592,28 +702,62 @@ class Viewport(QOpenGLWidget):
             ranges[pid] = (nt, m, color)
             nv += len(m.verts)
             nt += len(m.tris)
-            segs = getattr(m, "_edge_segs", None)
-            if segs is None:              # a part's edge lines only change with its mesh: build them once
-                parts_e = []
-                for poly in m.edge_polys:
-                    poly = np.asarray(poly, np.float32)
-                    if len(poly) >= 2:
-                        seg = np.empty((2 * (len(poly) - 1), 3), np.float32)
-                        seg[0::2] = poly[:-1]
-                        seg[1::2] = poly[1:]
-                        parts_e.append(seg)
-                segs = np.vstack(parts_e) if parts_e else np.zeros((0, 3), np.float32)
-                try:
-                    m._edge_segs = segs
-                except Exception:
-                    pass
-            if len(segs):
-                E.append(segs)
+            segs = self._edge_groups(m, shapes.get(pid) if need_cls else None)
+            for k, a in segs.items():
+                if len(a):
+                    E[k].append(a)
         cat = lambda a, shape: np.ascontiguousarray(np.vstack(a), np.float32) if a else np.zeros(shape, np.float32)
         self._batch = {"V": cat(V, (0, 3)), "N": cat(N, (0, 3)), "C": cat(C, (0, 3)),
                        "T": np.ascontiguousarray(np.vstack(T), np.uint32) if T else np.zeros((0, 3), np.uint32),
-                       "E": cat(E, (0, 3)), "ranges": ranges, "ntri": nt, "nedge": sum(len(e) for e in E)}
+                       "E": cat(E["E"], (0, 3)), "Et": cat(E["Et"], (0, 3)), "Eb": cat(E["Eb"], (0, 3)),
+                       "ranges": ranges, "ntri": nt, "nedge": sum(len(e) for e in E["E"]),
+                       "nEt": sum(len(e) for e in E["Et"]), "nEb": sum(len(e) for e in E["Eb"])}
         self._batch_version += 1
+
+    @staticmethod
+    def _edge_groups(m, shape=None):
+        """A part's edge lines as GL line segments: {"E": sharp, "Et": tangent, "Eb": boundary}. Without the
+        shape everything is in "E". Built once per mesh (and per grouping)."""
+        key = "_edge_groups_cls" if shape is not None else "_edge_groups_all"
+        hit = getattr(m, key, None)
+        if hit is not None:
+            return hit
+        cls = None
+        if shape is not None:
+            try:
+                cls = K.edge_classes(shape)
+                if len(cls) != len(m.edge_polys):
+                    cls = None
+            except Exception:
+                cls = None
+        out = {"E": [], "Et": [], "Eb": []}
+        for i, poly in enumerate(m.edge_polys):
+            poly = np.asarray(poly, np.float32)
+            if len(poly) < 2:
+                continue
+            seg = np.empty((2 * (len(poly) - 1), 3), np.float32)
+            seg[0::2] = poly[:-1]
+            seg[1::2] = poly[1:]
+            c = cls[i] if cls else "sharp"
+            out["Et" if c == "tangent" else "Eb" if c == "boundary" else "E"].append(seg)
+        out = {k: (np.vstack(v) if v else np.zeros((0, 3), np.float32)) for k, v in out.items()}
+        try:
+            setattr(m, key, out)
+        except Exception:
+            pass
+        return out
+
+    def refresh_display(self, remesh=False):
+        """Rebuild what the display options change: the edge groups, or (high quality) the meshes too."""
+        if remesh:
+            self._mesh_cache.clear()
+            self._placed_cache.clear()
+            if self._parts_full:
+                planes, sketches = getattr(self, "_scene_args", (self.planes, []))
+                self.set_scene(self._parts_full, planes, sketches)
+        elif self._parts_full:
+            self._build_batch(self._parts_full)
+        self.update()
 
     def _upload_batch(self):
         """Put the batch in GPU buffers (once per scene change). Falls back to plain arrays if buffers fail."""
@@ -631,7 +775,8 @@ class Viewport(QOpenGLWidget):
         try:
             b = self._batch
             for key, target in (("V", GL.GL_ARRAY_BUFFER), ("N", GL.GL_ARRAY_BUFFER), ("C", GL.GL_ARRAY_BUFFER),
-                                ("E", GL.GL_ARRAY_BUFFER), ("T", GL.GL_ELEMENT_ARRAY_BUFFER)):
+                                ("E", GL.GL_ARRAY_BUFFER), ("Et", GL.GL_ARRAY_BUFFER), ("Eb", GL.GL_ARRAY_BUFFER),
+                                ("T", GL.GL_ELEMENT_ARRAY_BUFFER)):
                 buf = int(GL.glGenBuffers(1))
                 GL.glBindBuffer(target, buf)
                 GL.glBufferData(target, b[key].nbytes, b[key] if b[key].size else None, GL.GL_STATIC_DRAW)
@@ -680,19 +825,61 @@ class Viewport(QOpenGLWidget):
         GL.glDisableClientState(GL.GL_NORMAL_ARRAY)
         GL.glDisableClientState(GL.GL_VERTEX_ARRAY)
 
-    def _draw_edge_batch(self):
+    def _draw_edge_batch(self, key="E"):
         self._upload_batch()
         b = self._batch
+        n = b["nedge"] if key == "E" else b.get("n" + key, 0)
+        if not n:
+            return
         GL.glEnableClientState(GL.GL_VERTEX_ARRAY)
-        if self._vbos:
-            GL.glBindBuffer(GL.GL_ARRAY_BUFFER, self._vbos["E"])
+        if self._vbos and key in self._vbos:
+            GL.glBindBuffer(GL.GL_ARRAY_BUFFER, self._vbos[key])
             GL.glVertexPointer(3, GL.GL_FLOAT, 0, None)
-            GL.glDrawArrays(GL.GL_LINES, 0, b["nedge"])
+            GL.glDrawArrays(GL.GL_LINES, 0, n)
             GL.glBindBuffer(GL.GL_ARRAY_BUFFER, 0)
         else:
-            GL.glVertexPointer(3, GL.GL_FLOAT, 0, b["E"])
-            GL.glDrawArrays(GL.GL_LINES, 0, b["nedge"])
+            GL.glVertexPointer(3, GL.GL_FLOAT, 0, b[key])
+            GL.glDrawArrays(GL.GL_LINES, 0, n)
         GL.glDisableClientState(GL.GL_VERTEX_ARRAY)
+
+    def _draw_model_edges(self):
+        """Part edges as the display options say: sharp edges; tangent edges shown, hidden or dashed; open
+        (boundary) edges in their own colour; and with Hidden edges visible, the ones behind faces dashed."""
+        mode = self.render_mode
+        tangent = self.tangent_edges
+        if mode != "shaded":
+            GL.glColor3f(*theme.EDGE)
+            self._draw_edge_batch("E")
+            if tangent == "visible":
+                self._draw_edge_batch("Et")
+            elif tangent == "phantom":
+                GL.glEnable(GL.GL_LINE_STIPPLE)
+                GL.glLineStipple(2, 0x0F0F)
+                self._draw_edge_batch("Et")
+                GL.glDisable(GL.GL_LINE_STIPPLE)
+            if not self.highlight_boundary:
+                self._draw_edge_batch("Eb")
+        if self.highlight_boundary:
+            GL.glLineWidth(3.0)
+            GL.glColor3f(*BOUNDARY_COLOR)
+            self._draw_edge_batch("Eb")
+            GL.glLineWidth(1.4)
+        if self.hidden_edges == "visible" and mode in ("shaded_edges", "unshaded"):
+            # the edges behind faces: only where something nearer is already drawn
+            GL.glDepthFunc(GL.GL_GREATER)
+            GL.glDepthMask(GL.GL_FALSE)
+            GL.glEnable(GL.GL_LINE_STIPPLE)
+            GL.glLineStipple(2, 0x3333)
+            GL.glLineWidth(1.0)
+            GL.glColor3f(*HIDDEN_EDGE_COLOR)
+            self._draw_edge_batch("E")
+            if tangent != "hidden":
+                self._draw_edge_batch("Et")
+            self._draw_edge_batch("Eb")
+            GL.glDisable(GL.GL_LINE_STIPPLE)
+            GL.glDepthMask(GL.GL_TRUE)
+            GL.glDepthFunc(GL.GL_LEQUAL)
+            GL.glLineWidth(1.4)
 
     def _draw_mesh(self, m, tris=None):
         if len(m.verts) == 0:
@@ -769,9 +956,26 @@ class Viewport(QOpenGLWidget):
         GL.glPolygonOffset(1.0, 1.0)
         b = self._batch
         if b is not None and b["ntri"]:
-            self._use_shiny(True)
+            mode = self.render_mode
+            self._use_shiny(mode != "unshaded")
             self._bind_batch(colors=True)
-            GL.glDrawElements(GL.GL_TRIANGLES, b["ntri"] * 3, GL.GL_UNSIGNED_INT, self._idx_ptr(0))
+            if mode == "unshaded":
+                # no shading: the faces only hide the edges behind them (they fill the depth buffer)
+                GL.glColorMask(GL.GL_FALSE, GL.GL_FALSE, GL.GL_FALSE, GL.GL_FALSE)
+                GL.glDrawElements(GL.GL_TRIANGLES, b["ntri"] * 3, GL.GL_UNSIGNED_INT, self._idx_ptr(0))
+                GL.glColorMask(GL.GL_TRUE, GL.GL_TRUE, GL.GL_TRUE, GL.GL_TRUE)
+            elif mode == "translucent":
+                # see-through: no depth written, so every edge shows; one constant opacity for all parts
+                GL.glDepthMask(GL.GL_FALSE)
+                GL.glBlendColor(0, 0, 0, float(self.translucency))
+                GL.glBlendFuncSeparate(GL.GL_CONSTANT_ALPHA, GL.GL_ONE_MINUS_CONSTANT_ALPHA, GL.GL_ONE,
+                                       GL.GL_ONE_MINUS_SRC_ALPHA)
+                GL.glDrawElements(GL.GL_TRIANGLES, b["ntri"] * 3, GL.GL_UNSIGNED_INT, self._idx_ptr(0))
+                GL.glBlendFuncSeparate(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA, GL.GL_ONE,
+                                       GL.GL_ONE_MINUS_SRC_ALPHA)
+                GL.glDepthMask(GL.GL_TRUE)
+            else:
+                GL.glDrawElements(GL.GL_TRIANGLES, b["ntri"] * 3, GL.GL_UNSIGNED_INT, self._idx_ptr(0))
             GL.glDisableClientState(GL.GL_COLOR_ARRAY)
             # selected / hovered parts and faces drawn again on top in their highlight colour
             GL.glPolygonOffset(0.5, 0.5)
@@ -806,8 +1010,8 @@ class Viewport(QOpenGLWidget):
         # ---- edges (one draw call), then highlighted ones
         GL.glLineWidth(1.4)
         GL.glColor3f(*theme.EDGE)
-        if b is not None and b["nedge"]:
-            self._draw_edge_batch()
+        if b is not None:
+            self._draw_model_edges()
         hl = [pk for pk in list(self.selection) + ([self.hover] if self.hover is not None else []) if pk.kind == "edge"]
         if hl:
             meshes = {pid: m for pid, m, _ in self.parts}
@@ -850,6 +1054,21 @@ class Viewport(QOpenGLWidget):
                     continue
                 GL.glColor3f(*col)
                 GL.glVertex3f(*[float(c) for c in m.vertices[pk.key[1]]])
+            GL.glEnd()
+            GL.glDepthRange(0, 1)
+
+        hs = [pk for pk in list(self.selection) + ([self.hover] if self.hover is not None else [])
+              if pk.kind == "sketch_point"]
+        if hs:
+            pos = dict(zip(self._sketch_points()[1], self._sketch_points()[0]))
+            GL.glPointSize(9.0)
+            GL.glDepthRange(0, 0.99999)
+            GL.glBegin(GL.GL_POINTS)
+            for pk in hs:
+                col = self._sel_color(pk)
+                if col and pk.key in pos:
+                    GL.glColor3f(*col)
+                    GL.glVertex3f(*[float(c) for c in pos[pk.key]])
             GL.glEnd()
             GL.glDepthRange(0, 1)
 
@@ -1094,10 +1313,13 @@ class Viewport(QOpenGLWidget):
         if key == "menu":
             from PySide6.QtWidgets import QMenu
             m = QMenu(self)
-            for name in ("Isometric", "Front", "Back", "Left", "Right", "Top", "Bottom"):
-                m.addAction(name, lambda n=name: self.set_standard_view(n))
-            m.addSeparator()
-            m.addAction("Zoom to fit", lambda: self.fit())
+            if self.cube_menu_hook is not None:
+                self.cube_menu_hook(m)
+            else:
+                for name in ("Isometric", "Front", "Back", "Left", "Right", "Top", "Bottom"):
+                    m.addAction(name, lambda _=False, n=name: self.set_standard_view(n))
+                m.addSeparator()
+                m.addAction("Zoom to fit", lambda: self.fit())
             r = self.cube.menu_rect(self.width())
             m.exec(self.mapToGlobal(QPoint(int(r.left()), int(r.bottom()) + 2)))
             return
@@ -1171,6 +1393,7 @@ class Viewport(QOpenGLWidget):
         self.section = plane
         self._section_cache_key = None
         self._segs = None
+        self._spts = None
         self.update()
 
     def _section_cap_meshes(self):
@@ -1285,7 +1508,7 @@ class Viewport(QOpenGLWidget):
         p.drawText(QPointF(x0 + px + 8, y0 + 4), label)
 
     # ================================================================== picking
-    DEFAULT_KINDS = ("face", "edge", "region", "plane", "sketch_line")
+    DEFAULT_KINDS = ("vertex", "sketch_point", "face", "edge", "region", "plane", "sketch_line")
 
     def _allowed(self, kind):
         if self.select_filter is not None:          # a feature dialog asked for specific kinds
@@ -1370,6 +1593,28 @@ class Viewport(QOpenGLWidget):
                 self._segs = (np.zeros((0, 3)), np.zeros((0, 3)), [])
         return self._segs
 
+    def _sketch_points(self):
+        """World positions of the points of the shown sketches (line ends, centres, sketch points):
+        (ndarray N×3, [(fid, point id)])."""
+        if getattr(self, "_spts", None) is None:
+            P, owner = [], []
+            for fid, sr, _ in self.sketches:
+                if self.sketcher and self.sketcher.fid == fid:
+                    continue
+                sk = sr.sketch
+                helpers = sk.helper_ids()
+                ids = []
+                for eid, e in sk.entities.items():
+                    if eid in helpers or e["type"] == "text":
+                        continue
+                    ids += [e[k] for k in ("p1", "p2", "c", "p") if k in e]
+                for ptid in dict.fromkeys(ids):
+                    if ptid in sk.points:
+                        P.append(sr.plane.to_world(*sk.points[ptid]))
+                        owner.append((fid, ptid))
+            self._spts = (np.array(P, float).reshape(-1, 3), owner)
+        return self._spts
+
     def pick(self, x, y, kinds=None) -> Pick | None:
         allowed = (lambda k: k in kinds) if kinds is not None else self._allowed
         o, d = self.cam.ray(x, y)
@@ -1386,12 +1631,12 @@ class Viewport(QOpenGLWidget):
                 if t < best_face[0]:
                     best_face = (t, Pick("part", (pid,)) if part_ok and not allowed("face")
                                  else Pick("face", (pid, int(m.tri_face[ti]))))
-        face_z = self.cam.view_z_of_t(best_face[0]) if np.isfinite(best_face[0]) else -np.inf
+        face_z = self.cam.view_z_of_t(best_face[0], d) if np.isfinite(best_face[0]) else -np.inf
         tol_z = self.cam.scale * 3 + 1e-6
 
-        # vertices: the nearest corner within a few pixels of the cursor, on the visible side of the model
+        # vertices: the nearest corner (or sketch point) within a few pixels of the cursor, on the visible side
+        best_v = (9.0, None)
         if allowed("vertex"):
-            best_v = (9.0, None)
             for pid, m in self._ray_parts(o, d, self.cam.scale * 10):
                 V = getattr(m, "vertices", None)
                 if V is None or len(V) == 0:
@@ -1404,8 +1649,16 @@ class Viewport(QOpenGLWidget):
                     if S[i, 2] >= face_z - tol_z * 4:
                         best_v = (float(dv[i]), Pick("vertex", (pid, int(i))))
                         break
-            if best_v[1] is not None:
-                return best_v[1]
+        if allowed("sketch_point"):
+            P, owner = self._sketch_points()
+            if len(P):
+                S = self.cam.to_screen(P)
+                dv = np.hypot(S[:, 0] - x, S[:, 1] - y)
+                i = int(np.argmin(dv))
+                if dv[i] < best_v[0]:
+                    best_v = (float(dv[i]), Pick("sketch_point", owner[i]))
+        if best_v[1] is not None:
+            return best_v[1]
 
         # edges & sketch lines (screen-space proximity)
         want_edge = allowed("edge")
@@ -1443,7 +1696,7 @@ class Viewport(QOpenGLWidget):
                     tt, _ = _ray_tris(o, d, m.verts, m.tris)
                     if tt < best[0]:
                         best = (tt, Pick("region", (fid, ri)))
-            if best[1] is not None and self.cam.view_z_of_t(best[0]) >= face_z - tol_z * 4:
+            if best[1] is not None and self.cam.view_z_of_t(best[0], d) >= face_z - tol_z * 4:
                 return best[1]
 
         # planes win when they're in front of, or level with, the nearest face
@@ -1537,6 +1790,11 @@ class Viewport(QOpenGLWidget):
                             out.append(Pick("face", (pid, fi)))
                 elif boxsel.mesh_part_selected(S, m.tris, rect, crossing, inside_v):
                     out.append(Pick("part", (pid,)))
+        if want("sketch_point"):
+            P, owner = self._sketch_points()
+            if len(P):
+                for i in np.nonzero(boxsel.points_in_rect(self.cam.to_screen(P)[:, :2], rect))[0]:
+                    out.append(Pick("sketch_point", owner[int(i)]))
         want_sl, want_reg = want("sketch_line"), want("region") and not self.hidden_sketch_regions
         for fid, sr, meshes in self.sketches:
             if want_sl:
@@ -1586,6 +1844,16 @@ class Viewport(QOpenGLWidget):
     def mousePressEvent(self, e):
         self._anim = None
         pos = e.position()
+        if self.zoom_window_mode:
+            if e.button() == Qt.LeftButton:
+                self._press = (pos.x(), pos.y(), e.button())
+                self._last = (pos.x(), pos.y())
+                self._moved = False
+                self._nav = None
+                self._box_start, self._box = (pos.x(), pos.y()), None
+            else:
+                self._end_zoom_window()
+            return
         action = navstyles.drag_action(self.nav_style, e.buttons(), e.modifiers())
         if self.sketcher and e.buttons() == Qt.LeftButton:
             action = None                                  # in a sketch the left button draws and selects
@@ -1602,6 +1870,8 @@ class Viewport(QOpenGLWidget):
         self._moved = False
         self._pivot = None
         self._nav = action
+        if action is not None:
+            self.remember_view()
         if action == "orbit":
             self._pivot = self.orbit_pivot(pos.x(), pos.y())
         if e.button() == Qt.LeftButton and action is not None:
@@ -1686,6 +1956,12 @@ class Viewport(QOpenGLWidget):
                     if v != m["value"]:
                         m["value"] = v
                         m["on_drag"](v)
+                self._last = (x, y)
+                self.update()
+                return
+            if self.zoom_window_mode and self._box_start is not None:
+                if self._moved:
+                    self._box = (self._box_start[0], self._box_start[1], x, y)
                 self._last = (x, y)
                 self.update()
                 return
@@ -1818,6 +2094,12 @@ class Viewport(QOpenGLWidget):
 
     def mouseReleaseEvent(self, e):
         pos = e.position()
+        if self.zoom_window_mode and self._box_start is not None and e.button() == Qt.LeftButton:
+            x0, y0 = self._box_start
+            self._press = self._last = None
+            self._end_zoom_window()
+            self.zoom_to_rect(x0, y0, pos.x(), pos.y())
+            return
         press = self._press
         self._press = None
         self._last = None
@@ -1897,6 +2179,9 @@ class Viewport(QOpenGLWidget):
         delta = e.angleDelta().y()
         if delta == 0:
             return
+        if time.time() - self._last_wheel_push > 0.8:          # one Previous-view step per burst of scrolling
+            self.remember_view()
+        self._last_wheel_push = time.time()
         pos = e.position()
         # one wheel notch is 120; high-resolution wheels and touchpads send many small steps, so the zoom
         # follows the amount scrolled, never more than one notch per event, times the zoom speed setting
@@ -1938,6 +2223,9 @@ class Viewport(QOpenGLWidget):
         self.rotate_view_about(M @ Rb, M @ Ru, pivot, duration=0.15)
 
     def keyPressEvent(self, e):
+        if self.zoom_window_mode and e.key() == Qt.Key_Escape:
+            self._end_zoom_window()
+            return
         if self.sketcher and self.sketcher.key_press(self, e):
             self.update()
             return

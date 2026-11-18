@@ -61,6 +61,11 @@ def _min_dist(a, b):
 
 def _single(kind, shape, name=None):
     rows = []
+    if kind == "vertex":
+        from OCP.BRep import BRep_Tool
+        q = BRep_Tool.Pnt_s(shape)
+        return {"title": "Vertex", "rows": [("Position", f"({fmt(q.X(), 3)}, {fmt(q.Y(), 3)}, {fmt(q.Z(), 3)})")],
+                "line": None}
     g = _geom(kind, shape)
     if kind in ("face", "region"):
         info = K.face_info(shape)
@@ -94,6 +99,10 @@ def _single(kind, shape, name=None):
              ("Mass", f"PLA {fmt(v * PLA, 1)} g · Al {fmt(v * ALU, 1)} g · steel {fmt(v * STEEL, 1)} g")]
     c = mp["centroid"]
     rows.append(("Centre of mass", f"({fmt(c[0], 2)}, {fmt(c[1], 2)}, {fmt(c[2], 2)})"))
+    n = K.topology_counts(shape)
+    if n["SOLID"] > 1:
+        rows.append(("Compound", f"{n['SOLID']} solids · {n['FACE']} faces · {n['EDGE']} edges · "
+                                 f"{n['VERTEX']} vertices"))
     return {"title": name or "Part", "rows": rows, "line": None}
 
 

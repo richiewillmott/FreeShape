@@ -56,6 +56,7 @@ class Document:
         # configurations: named rows that set variables (by name) and suppress features (by id), like Onshape's
         # configuration table: {"rows": [{"name", "vars": {name: expr}, "suppress": [fid]}], "active": index}
         self.configs: dict = {"rows": [], "active": 0}
+        self.named_views: dict = {}               # name -> {"target", "R", "scale", "perspective"} (View ▸ Named views)
         self.derived_fallback: dict = {}          # derived feature id -> saved copy of its parts (from the file)
         self.plugin_fallback: dict = {}           # plugin feature id -> saved copy of what it made (from the file)
         self.versions: list = []                  # version history (see history.py), oldest first
@@ -618,6 +619,7 @@ class Document:
                            "overrides": self.part_overrides, "hidden": sorted(self.hidden_parts),
                            "hidden_features": sorted(self.hidden_features), "folders": self.folders,
                            "configs": self.configs, "versions": self.versions,
+                           "named_views": self.named_views,
                            "version_blobs": self.version_blobs}, indent=1)
 
     def save(self, path=None, version=True):
@@ -688,6 +690,7 @@ class Document:
         doc.hidden_features = set(d.get("hidden_features", []))
         doc.folders = d.get("folders", {})
         doc.configs = d.get("configs", {"rows": [], "active": 0})
+        doc.named_views = d.get("named_views", {})
         doc.derived_fallback = d.get("derived_copies", {})
         doc.plugin_fallback = d.get("plugin_copies", {})
         doc.versions = d.get("versions", [])

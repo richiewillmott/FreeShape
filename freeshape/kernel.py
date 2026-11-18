@@ -1398,6 +1398,100 @@ def face_edge_lists(shape) -> list:
     return out
 
 
+def make_compound(shapes):
+    c, b = TopoDS_Compound(), BRep_Builder()
+    b.MakeCompound(c)
+    for x in shapes:
+        b.Add(c, x)
+    return c
+
+
+def glue_solids(shapes, tolerance: float = 0.0):
+    """A compound of the solids whose touching faces are shared, as SALOME's Glue faces / Partition: where two
+    solids touch, the faces (and their edges and vertices) are merged into one, so the solids are joined
+    conformally but stay separate solids. Faces that only partly touch are split so the touching patch is
+    shared; solids that overlap are split where they cross. `tolerance` glues faces that are this close
+    (OpenCascade's fuzzy value)."""
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_BuilderAlgo
+    args = TopTools_ListOfShape()
+    for x in shapes:
+        args.Append(x)
+    g = BRepAlgoAPI_BuilderAlgo()
+    g.SetArguments(args)
+    if tolerance > 0:
+        g.SetFuzzyValue(float(tolerance))
+    g.SetRunParallel(True)
+    g.Build()
+    if not g.IsDone() or (hasattr(g, "HasErrors") and g.HasErrors()):
+        raise KernelError("Couldn't glue these solids")
+    out = g.Shape()
+    if not solids(out):
+        raise KernelError("Gluing gave no solids")
+    return out
+
+
+TOPOLOGY_KINDS = ("VERTEX", "EDGE", "WIRE", "FACE", "SHELL", "SOLID")
+
+
+def topology_counts(shape) -> dict:
+    """How many distinct vertices, edges, wires, faces, shells and solids a shape has (shared ones once), as
+    SALOME's 'What is'."""
+    from OCP.TopAbs import TopAbs_SHELL, TopAbs_WIRE
+    kinds = {"VERTEX": TopAbs_VERTEX, "EDGE": TopAbs_EDGE, "WIRE": TopAbs_WIRE, "FACE": TopAbs_FACE,
+             "SHELL": TopAbs_SHELL, "SOLID": TopAbs_SOLID}
+    out = {}
+    for name in TOPOLOGY_KINDS:
+        m = TopTools_IndexedMapOfShape()
+        TopExp.MapShapes_s(shape, kinds[name], m)
+        out[name] = m.Extent()
+    return out
+
+
+def edge_classes(shape, ang_tol: float = 1e-3) -> list:
+    """For each edge (in edges() order): 'sharp', 'tangent' (the faces either side meet smoothly — a fillet's
+    edges, say) or 'boundary' (an open edge with a face on one side only: the rim of a surface). Edges on no
+    face (curve parts) are 'sharp'."""
+    from OCP.BRepLib import BRepLib
+    from OCP.GeomAbs import GeomAbs_C0
+    try:
+        from OCP.TopTools import TopTools_IndexedDataMapOfShapeListOfShape
+    except ImportError:  # OCP >= 8
+        from OCP.OCP.collections import (
+            IndexedDataMap_TopoDS_Shape_List_TopoDS_Shape_TopTools_ShapeMapHasher as
+            TopTools_IndexedDataMapOfShapeListOfShape)
+    try:
+        BRepLib.EncodeRegularity_s(shape, ang_tol)          # records smooth joins on the edges (fast, C++)
+    except Exception:
+        pass
+    emap = TopTools_IndexedDataMapOfShapeListOfShape()
+    TopExp.MapShapesAndAncestors_s(shape, TopAbs_EDGE, TopAbs_FACE, emap)
+    m = TopTools_IndexedMapOfShape()
+    TopExp.MapShapes_s(shape, TopAbs_EDGE, m)
+    out = []
+    for i in range(1, m.Extent() + 1):
+        e = _as_edge(m.FindKey(i))
+        j = emap.FindIndex(e)
+        fs = []
+        if j > 0:
+            seen = []
+            for f in emap.FindFromIndex(j):
+                if not any(f.IsSame(g) for g in seen):
+                    seen.append(f)
+            fs = [_as_face(f) for f in seen]
+        if len(fs) == 1:
+            out.append("sharp" if BRep_Tool.IsClosed_s(e, fs[0]) else "boundary")
+        elif len(fs) == 2:
+            try:
+                smooth = BRep_Tool.HasContinuity_s(e, fs[0], fs[1]) and \
+                    BRep_Tool.Continuity_s(e, fs[0], fs[1]) != GeomAbs_C0
+            except Exception:
+                smooth = False
+            out.append("tangent" if smooth else "sharp")
+        else:
+            out.append("sharp")
+    return out
+
+
 def seam_edge_indices(shape) -> set:
     m = TopTools_IndexedMapOfShape()
     TopExp.MapShapes_s(shape, TopAbs_EDGE, m)

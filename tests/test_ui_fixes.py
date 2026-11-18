@@ -134,3 +134,32 @@ def test_eye_stays_inside_a_narrow_list():
     row = QRect(0, 0, 500, 24)                            # a long name makes the row wider than the list
     assert eye_rect(row, 199).right() <= 199
     assert eye_rect(row).right() > 400                    # unchanged without a visible edge
+
+
+def test_view_menu_and_shift_number_turn_the_view():
+    """View ▸ Front … Isometric (Shift+1 … Shift+7) used to do nothing: Qt passed `checked` (False) into the
+    lambda's view-name argument."""
+    import time
+    from freeshape.ui.camera import STANDARD_VIEWS
+    from PySide6.QtGui import QAction
+    doc, _ = _cross_doc()
+    app, w = _window(doc)
+    end = time.time() + 0.3                         # let the window's start-up view settle first
+    while time.time() < end:
+        app.processEvents()
+        time.sleep(0.01)
+    acts = {a.text(): a for a in w.findChildren(QAction) if a.text() in STANDARD_VIEWS}
+    assert len(acts) == 9                            # … and Dimetric, Trimetric (no shortcut)
+    names = ("Front", "Back", "Left", "Right", "Top", "Bottom", "Isometric", "Dimetric", "Trimetric")
+    for i, name in enumerate(names, 1):
+        a = acts[name]
+        assert a.shortcut().toString() == (f"Shift+{i}" if i <= 7 else "")
+        w.viewport.set_standard_view("Isometric" if name != "Isometric" else "Top", animate=False)
+        a.trigger()
+        back = np.asarray(STANDARD_VIEWS[name][0], float)
+        for _ in range(200):                      # the view turns with a short animation
+            app.processEvents()
+            if np.allclose(w.viewport.cam.R[2], back / np.linalg.norm(back), atol=1e-6):
+                break
+            time.sleep(0.01)
+        assert np.allclose(w.viewport.cam.R[2], back / np.linalg.norm(back), atol=1e-6), name

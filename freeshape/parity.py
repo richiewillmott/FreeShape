@@ -50,6 +50,14 @@ SHARED = {
     "end_conditions_tangency": ("Start / end tangency", "Make a loft or sweep start/end normal or tangent to "
                                 "a face", None),
     "loft_path": ("Loft along a path", "Sections placed along a path curve", "freeshape.kernel:loft_wires"),
+    "surface_merge": ("Surface New / Add", "A new surface body, or sewn into the surfaces it meets",
+                      "freeshape.body_options:_sew_into_surfaces"),
+    "smart_selection": ("Smart selection", "Edges picked first make a surface; switching Solid ⇄ Thin / Surface "
+                        "turns the faces into their outlines and back", "freeshape.ui.dialogs:FeatureDialog"),
+    "mirror_end": ("Symmetric second end", "The other side is the first end mirrored over the sketch plane, "
+                   "whatever its end type", "freeshape.features:run_extrude"),
+    "thicken": ("Thicken", "A solid from a face or surface: one side, the other, centred or two thicknesses",
+                "freeshape.more_features:thicken_shape"),
     "profile_control": ("Profile control", "How a swept profile turns along the path (keep orientation, lock "
                         "to a direction or faces, follow a guide)", "freeshape.kernel:_pipe_shell"),
 }
@@ -64,6 +72,8 @@ FEATURES = {
         ("Thin — two different thicknesses", "thin", DONE, ""),
         ("Faces and sketch regions", "profiles", DONE, ""),
         ("Sketch curves and edges", "profiles", DONE, "for Surface and Thin"),
+        ("Edges picked first make a surface; Solid ⇄ Thin / Surface keeps the selection", "smart_selection", DONE, ""),
+        ("Surface: New / Add", "surface_merge", DONE, ""),
         ("Blind", "end_blind", DONE, ""),
         ("Symmetric", "end_blind", DONE, ""),
         ("Through all", "end_through", DONE, ""),
@@ -73,6 +83,7 @@ FEATURES = {
         ("Draft", "draft", DONE, "Blind, Symmetric and Through all"),
         ("Second end position", "second_end", DONE, "Blind, Through all or any Up to"),
         ("Second end draft", "draft", DONE, "its own angle"),
+        ("Second end: Symmetric (mirror of the first end, any type)", "mirror_end", DONE, ""),
         ("New / Add / Remove / Intersect", "merge", DONE, ""),
         ("Merge scope", "merge_scope", DONE, ""),
     ]),
@@ -82,12 +93,15 @@ FEATURES = {
         ("Thin", "thin", DONE, ""),
         ("Faces and sketch regions", "profiles", DONE, ""),
         ("Sketch curves and edges", "profiles", DONE, "for Surface and Thin"),
+        ("Edges picked first make a surface; Solid ⇄ Thin / Surface keeps the selection", "smart_selection", DONE, ""),
+        ("Surface: New / Add", "surface_merge", DONE, ""),
         ("Revolve axis", "axis", DONE, ""),
         ("Full", None, DONE, ""),
         ("One direction", None, DONE, ""),
         ("Symmetric", None, DONE, ""),
         ("Two directions (second angle)", "two_directions", DONE, ""),
         ("Up to next / face / part / vertex", "end_up_to", DONE, "Solid, Thin and Surface"),
+        ("Up to … mirrored both ways (symmetric)", "mirror_end", DONE, ""),
         ("Opposite direction", "flip", DONE, ""),
         ("New / Add / Remove / Intersect", "merge", DONE, ""),
         ("Merge scope", "merge_scope", DONE, ""),
@@ -98,6 +112,8 @@ FEATURES = {
         ("Thin", "thin", DONE, ""),
         ("Faces and sketch regions", "profiles", DONE, ""),
         ("Sketch curves and edges", "profiles", DONE, "for Surface and Thin"),
+        ("Edges picked first make a surface; Solid ⇄ Thin / Surface keeps the selection", "smart_selection", DONE, ""),
+        ("Surface: New / Add", "surface_merge", DONE, ""),
         ("Path", None, DONE, ""),
         ("Profile control", "profile_control", DONE, "normal to path, keep orientation, lock to a direction "
          "or to faces"),
@@ -110,6 +126,7 @@ FEATURES = {
         ("Surface", "creation", DONE, ""),
         ("Thin", "thin", DONE, ""),
         ("Profiles in order", "profiles", DONE, "regions, faces and sketch curves"),
+        ("Surface: New / Add", "surface_merge", DONE, ""),
         ("Ruled (straight) sides", None, DONE, ""),
         ("Guide curves", "guides", TODO, "OpenCascade's loft has no guide curves — needs a different surfacing "
          "approach"),
@@ -178,6 +195,41 @@ FEATURES = {
         ("Mirror plane", None, DONE, ""),
         ("New / Add / Remove / Intersect", "merge", DONE, ""),
         ("Merge scope", "merge_scope", DONE, ""),
+    ]),
+    "thicken": ("Thicken", [
+        ("Surfaces and faces", None, DONE, ""),
+        ("One side / other side / symmetric", "thicken", DONE, ""),
+        ("Two thicknesses", "thicken", DONE, ""),
+        ("Neighbouring faces joined, outside corners filled", "thicken", PARTIAL, "flat faces; curved faces are "
+         "joined but their corners aren't filled"),
+        ("New / Add / Remove / Intersect", "merge", DONE, ""),
+        ("Merge scope", "merge_scope", DONE, ""),
+    ]),
+    "enclose": ("Enclose", [
+        ("Surfaces, faces and planes", None, DONE, "they may cross each other; the closed-off space is kept"),
+        ("Keep tools", None, DONE, ""),
+        ("New / Add / Remove / Intersect", "merge", DONE, ""),
+        ("Merge scope", "merge_scope", DONE, ""),
+    ]),
+    "rib": ("Rib", [
+        ("Sketch lines", None, PARTIAL, "straight lines; arcs and splines not yet"),
+        ("Thickness", None, DONE, ""),
+        ("Parallel / normal to the sketch plane", None, DONE, ""),
+        ("Opposite direction", "flip", DONE, ""),
+        ("Parts to grow out to", None, DONE, ""),
+        ("Extend profiles up to part", None, TODO, "the lines must reach the part already"),
+        ("Draft", "draft", TODO, ""),
+    ]),
+    "helix": ("Helix", [
+        ("Around an axis, circle edge or cylinder", "axis", DONE, ""),
+        ("Turns and pitch / height and turns / height and pitch", None, DONE, ""),
+        ("Start angle", None, DONE, ""),
+        ("Clockwise / anticlockwise", None, DONE, ""),
+        ("Opposite direction", "flip", DONE, ""),
+        ("Around a cone", None, TODO, ""),
+    ]),
+    "delete_part": ("Delete part", [
+        ("Parts", None, DONE, ""),
     ]),
     "boolean": ("Boolean", [
         ("Union / subtract / intersect", None, DONE, ""),

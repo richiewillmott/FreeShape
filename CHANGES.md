@@ -1,5 +1,93 @@
 # FreeShape revisions
 
+## 2.2.0
+
+Whole features from Onshape's Part Studio menu, measured variables, smarter selection, and Onshape's view options.
+
+### New features
+- **Thicken** — surfaces or faces into solids: one side, the other side, both sides equally, or two
+  thicknesses; New / Add / Remove / Intersect with a merge scope. Faces of one part are thickened as walls that
+  join, and outside corners between neighbouring flat faces are filled.
+- **Enclose** — a solid from the space that surfaces, faces and planes close off (they may cross each other).
+  The surfaces are used up unless *Keep the surfaces* is ticked.
+- **Rib** — a wall from straight sketch lines, grown out until it meets the part (parallel to the sketch plane or
+  along its normal, either way) and joined to it.
+- **Helix** — around a world axis, a sketch line or edge, a circle edge or a cylinder; turns and pitch, height and
+  turns, or height and pitch; start angle; left- or right-handed. The helix is a curve part: sweep a profile
+  along it for a spring. (Curve-only parts are drawn and picked in the 3D view, count for zoom to fit, are left
+  out of STL export and are never merged into by Add.)
+- **Delete part** and **Bounding box** (a box part around chosen parts or all of them, with clearance).
+- **Compound** (from SALOME — Onshape has nothing like it) — several solids as **one part whose solids share the
+  faces where they touch** (*Glue faces*): two cubes side by side become 12 vertices, 20 edges, 11 wires, 11 faces,
+  2 shells and 2 solids, instead of 16 / 24 / 12 / 12 / 2 / 2 — the solids stay separate but are joined
+  conformally, for meshing / FEA. Faces that only partly touch are split so the touching patch is shared; an
+  optional tolerance glues faces that are nearly touching; untick *Glue faces* to just gather the solids. A
+  compound stays one part through later features (Add doesn't fuse new material into it; Remove / Intersect keep
+  it glued). **Right-click a part ▸ Shape info…** lists its vertices, edges, wires, faces, shells and solids, like
+  SALOME's *What is*. Export as **BREP** to keep the shared faces — STEP stores each solid with its own faces.
+- **Explode** (as SALOME's) — a part split into its **solids** (a compound back into separate parts), or into its
+  **faces** (surface parts) or **edges** (curve parts); *Keep the original part* leaves it in place. Right-click a
+  compound ▸ **Explode into solids** opens it ready filled in.
+- **Measure value** — a `#variable` measured from the model and re-measured on every rebuild: distance (minimum,
+  maximum or centre to centre; total or X / Y / Z), angle, diameter, radius, length / perimeter, area, volume,
+  count, vertex coordinate, centre of mass, bounding-box size; optional rounding to a multiple. The feature list
+  shows the current value (`#d = 23.749 mm`). Its options follow the *Measure value* FeatureScript for Onshape
+  (Konstantin Sh / CADSharp): **Infinite propagation** distance (lines, circles and faces extended), **Ray distance**
+  (closest hit, n-th hit counted from either end, box intersection, origin offset), **Flip angle** and the angle
+  between curved edges, **Count** of the faces / edges matching the one picked (all the holes the same size),
+  coordinates **Local** to a plane's frame or **Along a direction**, bounding box in a plane's frame, **Inertia**
+  (moment about a frame axis, with density) and **Hide preview** — the measured line is drawn while editing.
+  FreeShape has no mate connectors in a Part Studio, so a plane or an axis stands in for one. Round to, Count and
+  Ray offset take `#variables` too. (Measure value features saved before this keep counting the picked items.)
+- **Measure bar → variable**, as in Onshape: the measure panel in the bottom-right corner is now a compact bar with
+  the main measurement (`Min dist: 107.521 mm`) and an **(x)** button that adds a Measure value feature for exactly
+  that measurement, with the picks filled in: two vertices / edges → minimum distance, a face or a **surface body →
+  area**, a solid → volume, an edge or sketch curve → length (a round one → diameter). The variable is always the
+  value shown. Click the value for every measurement (offsets, angle, centre to centre …).
+- **Vertices are selectable by default** (as in Onshape), and **sketch points** — line ends, circle centres, sketch
+  points — can be picked in the 3D view. Measure value takes sketch points and single sketch curves, and they follow
+  edits of the sketch; sketch points also work wherever a feature asks for a vertex (planes, *Up to vertex*).
+
+### View options (the view cube menu, as in Onshape)
+- The menu under the view cube now has Onshape's options, and **View ▸ Display** has the same display settings:
+  - **Isometric / Dimetric / Trimetric** views.
+  - **Previous view** (Alt+Left) goes back through the last changes of view — turning, panning, zooming, standard
+    views — within the document.
+  - **Zoom to window** (Shift+Z): drag a box around the area to fill the view with (Esc cancels).
+  - **Named views…**: save the current view under a name and go back to it; saved in the file.
+  - **Perspective view**, as well as the parallel view; picking, sketching and measuring work in both.
+  - **Orient normal to sketch on edit** — untick it to keep the view when a sketch is opened.
+  - Render mode: **Shaded with edges**, **Shaded without edges**, **Unshaded** (a line drawing) or **Translucent**.
+  - **Hidden edges removed / visible** (dashed, through the model).
+  - **Tangent edges visible / hidden / as phantom lines** (e.g. the edges of a fillet).
+  - **View in high quality** (finer meshes) and **Highlight boundary edges** (the open edges of surfaces).
+  - **Graphics preferences…** has them all in one window, plus the translucent opacity and shiny surfaces.
+  - **Section view…**.
+  The display settings are remembered between sessions.
+
+### Selection and options
+- **Smarter selection** for Extrude, Revolve and Sweep: edges or sketch lines picked before opening the feature
+  make a **Surface** from exactly those edges (a click in the dialog still takes the whole chain). Switching from
+  **Solid to Thin or Surface** keeps the selection — faces and regions become their outlines in the curves box —
+  and switching back to Solid gives the faces back.
+- **Solid / Surface / Thin** is a row of buttons, like New / Add / Remove / Intersect.
+- **Surfaces: New / Add** — *Add* sews the new surface into the surface bodies it meets. (Surfaces made with
+  2.1 stay New.)
+- **Non-conformal surfaces** (Onshape fails on these) — sketch curves or edges that **branch or cross** make a
+  surface each way instead of an error: a + of four lines gives **four surfaces**, two lines that cross are split
+  where they cross (four surfaces), a T gives three. One click on a curve of a + or T takes all of it. Where three
+  or more sheets meet along an edge they stay separate surface bodies (a sheet can't be non-manifold); runs
+  between junctions are one sheet each, and *Add* still sews onto a matching arm. Works for Extrude, Revolve,
+  Sweep and Loft surfaces; with **Thin**, the walls of a + or T are fused into one solid. (Before, the pick
+  stopped at the junction and only one arm was built.)
+- **Symmetric second end** for Extrude — the other side is the first end mirrored over the sketch plane, whatever
+  its type (up to a vertex, with a draft …). Revolve's *Up to* ends get *Symmetric* too.
+- FEATURE_PARITY.md lists the new features and options (93% of the listed Onshape options).
+
+### Fixes
+- **View ▸ Front … Isometric and Shift+1 … Shift+7** turn the view again (they did nothing), as do the
+  *Views* entries of the right-click menu.
+
 ## 2.1.0
 
 Feature options brought up to Onshape's, built once and shared between features (issue #27), a hexagon sketch

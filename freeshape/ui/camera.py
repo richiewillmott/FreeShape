@@ -1,6 +1,8 @@
 """Orthographic orbit camera with smooth view transitions."""
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 
@@ -75,7 +77,11 @@ STANDARD_VIEWS = {
     "Right": ((1, 0, 0), (0, 0, 1)),
     "Left": ((-1, 0, 0), (0, 0, 1)),
     "Isometric": ((1, -1, 1), (0, 0, 1)),
+    # two axes foreshortened alike (looking down ~20.7°), and all three differently (from front-right, ~25° down)
+    "Dimetric": ((0.6614, -0.6614, 0.3536), (0, 0, 1)),
+    "Trimetric": ((0.4532, -0.7849, 0.4226), (0, 0, 1)),
 }
+PERSPECTIVE_FOV = math.radians(30.0)       # vertical field of view of the perspective camera
 
 
 class Camera:
@@ -86,6 +92,7 @@ class Camera:
         self.w = 800
         self.h = 600
         self.depth = 1e5
+        self.perspective = False     # False: parallel (orthographic) projection, as before
 
     # --------------------------------------------------------------- transforms
     @property
@@ -103,9 +110,20 @@ class Camera:
     def to_view(self, p):
         return (np.asarray(p, float) - self.target) @ self.R.T
 
+    def eye_distance(self):
+        """Perspective: how far the eye is from the target, so that the target plane shows w × h pixels at
+        `scale` world units per pixel — the same framing as the parallel view."""
+        return self.h * self.scale / 2 / math.tan(PERSPECTIVE_FOV / 2)
+
     def to_screen(self, p):
         """World point(s) -> (sx, sy, view_z). Works on (3,) or (n,3)."""
         v = self.to_view(p)
+        if self.perspective:
+            D = self.eye_distance()
+            f = D / np.maximum(D - v[..., 2], D * 1e-3)          # points behind the eye are pushed far off
+            sx = v[..., 0] * f / self.scale + self.w / 2
+            sy = self.h / 2 - v[..., 1] * f / self.scale
+            return np.stack([sx, sy, v[..., 2]], axis=-1)
         sx = v[..., 0] / self.scale + self.w / 2
         sy = self.h / 2 - v[..., 1] / self.scale
         return np.stack([sx, sy, v[..., 2]], axis=-1)
@@ -113,10 +131,18 @@ class Camera:
     def ray(self, sx, sy):
         x = (sx - self.w / 2) * self.scale
         y = (self.h / 2 - sy) * self.scale
+        if self.perspective:
+            eye = self.target + self.R[2] * self.eye_distance()
+            d = self.target + self.R[0] * x + self.R[1] * y - eye
+            return eye, d / np.linalg.norm(d)
         origin = self.target + self.R[0] * x + self.R[1] * y + self.R[2] * self.depth * 0.5
         return origin, -self.R[2]
 
-    def view_z_of_t(self, t):
+    def view_z_of_t(self, t, d=None):
+        """View-space z (towards the eye) of the point at distance t along a ray from ray(); perspective rays
+        need their direction d."""
+        if self.perspective and d is not None:
+            return self.eye_distance() + t * float(np.asarray(d, float) @ self.R[2])
         return self.depth * 0.5 - t
 
     def modelview(self):
