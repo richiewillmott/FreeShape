@@ -24,7 +24,8 @@ Whole features from Onshape's Part Studio menu, measured variables, smarter sele
   optional tolerance glues faces that are nearly touching; untick *Glue faces* to just gather the solids. A
   compound stays one part through later features (Add doesn't fuse new material into it; Remove / Intersect keep
   it glued). **Right-click a part ▸ Shape info…** lists its vertices, edges, wires, faces, shells and solids, like
-  SALOME's *What is*. Export as **BREP** to keep the shared faces — STEP stores each solid with its own faces.
+  SALOME's *What is*. Export as **BREP** to keep the shared faces — FreeShape's STEP export doesn't keep them yet (each solid
+  gets its own faces), though the STEP format can hold them.
 - **Explode** (as SALOME's) — a part split into its **solids** (a compound back into separate parts), or into its
   **faces** (surface parts) or **edges** (curve parts); *Keep the original part* leaves it in place. Right-click a
   compound ▸ **Explode into solids** opens it ready filled in.

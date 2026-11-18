@@ -70,7 +70,7 @@ real parts.
   an axis, a circle or a cylinder; sweep a circle along it for a spring), **Delete part** and **Bounding box**.
 - **Compound** (as in SALOME) — solids as one part that **share the faces where they touch** (glue faces), so
   they mesh conformally; *Right-click ▸ Shape info…* shows the vertex / edge / wire / face / shell / solid counts.
-  Export as BREP to keep the shared faces. **Explode** splits it back into its solids (or any part into its faces
+  Export as BREP to keep the shared faces (STEP export doesn't keep them yet). **Explode** splits it back into its solids (or any part into its faces
   or edges).
 - **Measure value** — a `#variable` measured from the model, with the options of the Onshape *Measure value*
   FeatureScript: distance (minimum, maximum, infinite propagation or centre distance, or just its X / Y / Z part),
@@ -263,7 +263,7 @@ Things selected before opening a feature are pre-filled. Extrude and Plane show 
   where they touch, as SALOME's *Glue faces*: faces that only partly touch are split so the touching patch is
   shared, and *Glue tolerance* joins faces that are nearly touching. Untick *Glue faces* for a plain compound.
   *Right-click a part ▸ Shape info…* counts its vertices, edges, wires, faces, shells and solids. BREP export keeps
-  the shared faces; STEP stores each solid with its own.
+  the shared faces; FreeShape's STEP export doesn't keep them yet (each solid gets its own).
 - **Explode** — a part into its solids (a compound back into separate parts), its faces (as surface parts) or its
   edges (as curve parts); tick *Keep the original part* to leave it as well. Right-click a compound ▸ *Explode
   into solids* starts it with that part picked.

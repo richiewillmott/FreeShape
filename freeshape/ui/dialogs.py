@@ -798,7 +798,7 @@ SCHEMAS = {
         {"t": "info", "key": "_info", "text": lambda p: (
             "One part whose solids share the faces where they touch (a conformal mesh across them). "
             "Right-click the part ▸ Shape info to see the counts. Export as BREP to keep the shared faces "
-            "(STEP stores each solid with its own faces).") if p.get("glue", True) else
+            "(FreeShape's STEP export doesn't keep them yet).") if p.get("glue", True) else
             "One part holding the solids as they are; touching faces are not shared."},
     ],
     "explode_part": [
