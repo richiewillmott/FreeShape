@@ -15,7 +15,7 @@ jobs:
   retry:
     if: >-
       (github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'timed_out')
-      && github.event.workflow_run.run_attempt < 30
+      && github.event.workflow_run.run_attempt < 100
     runs-on: ubuntu-latest
     steps:
       - name: Re-run the Mac job if it was the one that failed
