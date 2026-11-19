@@ -161,13 +161,13 @@ See [CHANGES.md](CHANGES.md) for the full history.
 Get it from the [**latest release**](https://github.com/richiewillmott/FreeShape/releases/latest) — no Python or anything
 else needed:
 
-- **Windows:** `FreeShape-Setup-2.1.0.exe` — run it and follow the installer (it also updates an older version).
+- **Windows:** `FreeShape-Setup-2.2.0.exe` — run it and follow the installer (it also updates an older version).
   Windows SmartScreen may warn the first time because the installer isn't code-signed yet: click
   **More info → Run anyway**.
-- **Mac (Apple Silicon, M1 or newer):** `FreeShape-2.1.0-mac-arm64.dmg` — open it and drag FreeShape into Applications.
+- **Mac (Apple Silicon, M1 or newer):** `FreeShape-2.2.0-mac-arm64.dmg` — open it and drag FreeShape into Applications.
   It isn't signed by Apple yet, so the first time: right-click FreeShape in Applications → **Open** → **Open**.
-- **Linux:** `FreeShape-2.1.0-x86_64.AppImage` — make it executable and run it:
-  `chmod +x FreeShape-2.1.0-x86_64.AppImage && ./FreeShape-2.1.0-x86_64.AppImage`
+- **Linux:** `FreeShape-2.2.0-x86_64.AppImage` — make it executable and run it:
+  `chmod +x FreeShape-2.2.0-x86_64.AppImage && ./FreeShape-2.2.0-x86_64.AppImage`
   (or right-click → Properties → "Allow executing as program", then double-click). If it says FUSE is missing, run
   it with `--appimage-extract-and-run`, or install `libfuse2` (Ubuntu: `sudo apt install libfuse2t64`).
   Using the [AM package manager](https://github.com/ivan-hc/AM)? Install and update it with `am -i freeshape`
