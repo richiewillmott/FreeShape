@@ -26,7 +26,7 @@ FEATURE_LABELS = {
     "sketch": "Sketch", "extrude": "Extrude", "revolve": "Revolve", "fillet": "Fillet",
     "chamfer": "Chamfer", "shell": "Shell", "plane": "Plane", "mirror": "Mirror",
     "linear_pattern": "Linear pattern", "circular_pattern": "Circular pattern",
-    "boolean": "Boolean", "import": "Import", "hole": "Hole", "variable": "Variable", "measure_value": "Measure value", "derived": "Derived",
+    "boolean": "Boolean", "import": "Import", "hole": "Hole", "variable": "Variable", "measure_value": "Variable", "derived": "Derived",
     "sweep": "Sweep", "loft": "Loft", "draft": "Draft", "split": "Split", "move": "Move", "thread": "Thread",
     "sm_base": "Sheet metal", "sm_flange": "Flange", "sm_hem": "Hem", "sm_jog": "Jog", "sm_tab": "Tab",
     "sm_convert": "Convert to sheet metal", "delete_face": "Delete face", "move_face": "Move face", "offset_surface": "Offset surface",
@@ -163,10 +163,12 @@ class ModelState:
     sheet: dict = field(default_factory=dict)       # part id -> sheetmetal.SheetModel (sheet metal parts)
     history: dict = field(default_factory=dict)     # feature id -> (state before it, state after it)
     measured: dict = field(default_factory=dict)    # Measure value feature id -> its value
+    var_kinds: dict = field(default_factory=dict)   # variable name -> length | angle | area | volume | number | any
 
     def copy(self):
         return ModelState(dict(self.parts), dict(self.sketches), dict(self.planes), self.part_counter,
-                          dict(self.vars), dict(self.sheet), dict(self.history), dict(self.measured))
+                          dict(self.vars), dict(self.sheet), dict(self.history), dict(self.measured),
+                          dict(self.var_kinds))
 
     def new_part(self, shape, fid, color=DEFAULT_COLOR):
         self.part_counter += 1
@@ -672,6 +674,22 @@ NUMERIC_KEYS = {"depth", "depth2", "angle", "radius", "distance", "thickness", "
                 "countersink_dia", "k", "relief_scale"}
 
 
+# what each numeric param holds, for unit checking: angles, plain numbers; the rest are lengths
+ANGLE_KEYS = {"angle", "rotate", "draft", "twist", "angle2", "draft2", "start_angle", "pressure_angle"}
+NUMBER_KEYS = {"count", "count2", "k", "relief_scale", "scale_end", "turns", "ray_index", "teeth"}
+ANY_KEYS = {"round_to", "density", "module"}
+
+
+def param_kind(key) -> str:
+    if key in ANGLE_KEYS:
+        return "angle"
+    if key in NUMBER_KEYS:
+        return "number"
+    if key in ANY_KEYS:
+        return "any"
+    return "length"
+
+
 # numeric params of plugin features: feature type -> set of keys (filled in by freeshape.plugins)
 EXTRA_NUMERIC: dict = {"measure_value": {"round_to", "ray_offset", "ray_index", "density"}, "compound": {"tolerance"}}
 
@@ -686,10 +704,15 @@ def prepare(f, state):
     for k in keys:
         v = p2.get(k)
         if isinstance(v, str):
-            val = parse_number(v, angle=(k in ("angle", "rotate", "draft", "twist")), variables=state.vars)
+            want = param_kind(k) if k in NUMERIC_KEYS else "any"      # plugin fields: not checked
+            val = parse_number(v, angle=(want == "angle"), variables=state.vars)
             if val is None:
                 bad = [n for n in var_names(v) if n not in state.vars]
                 raise K.KernelError(f"Unknown variable #{bad[0]}" if bad else f"Can't read '{v}'")
+            from .expr import check_units
+            why = check_units(v, want, state.var_kinds)
+            if why:
+                raise K.KernelError(f"{k.replace('_', ' ').capitalize()} '{v}': {why}")
             p2[k] = int(round(val)) if k == "count" else val
     return dict(f, params=p2)
 
@@ -704,6 +727,7 @@ def run_variable(state, f):
         bad = [n for n in var_names(p.get("expr", "")) if n not in state.vars]
         raise K.KernelError(f"Unknown variable #{bad[0]}" if bad else "Enter a value or expression")
     state.vars[name] = val
+    state.var_kinds[name] = "any"          # (the old Variable feature has no unit: never checked)
 
 
 def run_measure_value(state, f):

@@ -1,4 +1,11 @@
-"""Measure value: a feature that measures the model and stores the result in a #variable.
+"""Variable (formerly Measure value): a #variable that is either a value you type — a length, an angle, a plain
+number or any expression, with a unit — or measured from the model.
+
+Fixed types: fixed_length | fixed_angle | fixed_number | expression, with `expr` (e.g. "25", "1 m", "#a * 2") and
+`unit` (mm cm m in ft) / `aunit` (deg rad) for bare numbers. The variable remembers its kind (length, angle …) so
+using it in a box that wants something else is an error, not a silent number.
+
+Measured types (below):
 
 Like a Variable feature, but its value comes from geometry — a distance, angle, diameter, length, area,
 volume, count, coordinate, centre of mass or bounding-box size — and it is measured again on every rebuild,
@@ -38,10 +45,21 @@ import numpy as np
 
 from . import kernel as K
 
-TYPES = [("distance", "Distance"), ("ray", "Ray distance"), ("angle", "Angle"), ("diameter", "Diameter"),
-         ("radius", "Radius"), ("length", "Perimeter / length"), ("area", "Area"), ("volume", "Volume"),
-         ("count", "Count"), ("coordinate", "Coordinate of a vertex"), ("centroid", "Centroid"),
-         ("size", "Bounding box size"), ("inertia", "Inertia")]
+FIXED_TYPES = [("fixed_length", "Length"), ("fixed_angle", "Angle"), ("fixed_number", "Number"),
+               ("expression", "Any expression")]
+FIXED = {k for k, _ in FIXED_TYPES}
+MEASURED_TYPES = [("distance", "Distance"), ("ray", "Ray distance"), ("angle", "Angle"), ("diameter", "Diameter"),
+                  ("radius", "Radius"), ("length", "Perimeter / length"), ("area", "Area"), ("volume", "Volume"),
+                  ("count", "Count"), ("coordinate", "Coordinate of a vertex"), ("centroid", "Centroid"),
+                  ("size", "Bounding box size"), ("inertia", "Inertia")]
+TYPES = FIXED_TYPES + [(k, "Measured " + lab[0].lower() + lab[1:]) for k, lab in MEASURED_TYPES]
+LENGTH_UNITS = [("mm", "mm"), ("cm", "cm"), ("m", "m"), ("in", "in"), ("ft", "ft")]
+ANGLE_UNITS = [("deg", "deg"), ("rad", "rad")]
+# what kind of quantity each type makes (for unit checking where the variable is used)
+KINDS = {"fixed_length": "length", "fixed_angle": "angle", "fixed_number": "number", "distance": "length",
+         "ray": "length", "angle": "angle", "diameter": "length", "radius": "length", "length": "length",
+         "area": "area", "volume": "volume", "count": "number", "coordinate": "length", "centroid": "length",
+         "size": "length", "inertia": "any"}
 METHODS = [("min", "Minimum"), ("max", "Maximum"), ("inf", "Infinite propagation"), ("center", "Centre distance")]
 COUNT_MODES = [("matching", "Matching faces / edges"), ("picks", "Picked items")]
 COORD_TYPES = [("global", "Global"), ("local", "Local (plane's frame)"), ("along", "Along direction")]
@@ -49,7 +67,7 @@ COMPONENTS = [("total", "Distance"), ("x", "X"), ("y", "Y"), ("z", "Z")]
 AXIS_COMPONENTS = [("x", "X"), ("y", "Y"), ("z", "Z")]
 UNITS = {"distance": "mm", "ray": "mm", "inertia": "g·mm²", "diameter": "mm", "radius": "mm", "length": "mm", "coordinate": "mm",
          "centroid": "mm", "size": "mm", "area": "mm²", "volume": "mm³", "angle": "°", "count": ""}
-DEFAULTS = {"name": "d", "mtype": "distance", "entities": [], "method": "min", "component": "total", "axis_c": "x",
+DEFAULTS = {"name": "v", "mtype": "fixed_length", "expr": "10", "unit": "mm", "aunit": "deg", "entities": [], "method": "min", "component": "total", "axis_c": "x",
             "round_to": 0.0, "ray": [], "ray_offset": 0.0, "ray_flip": False, "ray_closest": True, "ray_box": False,
             "ray_index": 0, "flip_angle": False, "count_mode": "matching", "coord_type": "global", "frame": [],
             "density": 1.0, "hide_preview": False}
@@ -384,6 +402,8 @@ def measure(state, p):
     """(value, line): the value before rounding and the (from, to) points of the measured line for the preview
     (None when there is no line)."""
     mtype = p.get("mtype", "distance")
+    if mtype in FIXED:
+        return fixed_value(state, p)[0], None
     items = resolve_items(state, p.get("entities"))
     if mtype == "ray":
         return _ray(state, p, items)
@@ -538,6 +558,64 @@ def _ray(state, p, items):
     return val, (o0, o0 + d * val)
 
 
+def fixed_value(state, p):
+    """(value in mm / degrees / plain, kind) of a typed Length / Angle / Number / Any expression. A bare number
+    is in the chosen unit; an expression with its own units ("1 m", "#a * 2") is converted; the wrong kind of
+    quantity ("30 deg" for a Length) is an error."""
+    from .expr import KIND_DIMS, UnitError, _UNITS, dims_name, expr_dims, parse_number, var_names
+    mtype = p.get("mtype", "fixed_length")
+    text = str(p.get("expr", "")).strip()
+    if not text:
+        raise K.KernelError("Enter a value or expression")
+    want = {"fixed_length": "length", "fixed_angle": "angle", "fixed_number": "number"}.get(mtype, "any")
+    val = parse_number(text, angle=(want == "angle"), variables=state.vars)
+    if val is None:
+        missing = [n for n in var_names(text) if n not in state.vars]
+        raise K.KernelError(f"#{missing[0]} isn't defined before this feature" if missing
+                            else f"Can't read '{text}'")
+    kinds = getattr(state, "var_kinds", {})
+    try:
+        d = expr_dims(text, kinds)
+    except UnitError as e:
+        raise K.KernelError(f"'{text}': {e}")
+    if want != "any":
+        if d not in (None, (0, 0), KIND_DIMS[want]):
+            raise K.KernelError(f"'{text}' is {dims_name(d)} — this variable is {dims_name(KIND_DIMS[want])}")
+        if d == (0, 0) and want == "length":
+            val *= _UNITS.get(p.get("unit", "mm"), 1.0)
+        elif d == (0, 0) and want == "angle":
+            val *= _UNITS.get(p.get("aunit", "deg"), 1.0)
+        return float(val), want
+    kind = {(1, 0): "length", (0, 1): "angle", (2, 0): "area", (3, 0): "volume", (0, 0): "number"}.get(d, "any")
+    return float(val), kind
+
+
+def kind_of(state, p):
+    mtype = p.get("mtype", "distance")
+    if mtype in FIXED:
+        return fixed_value(state, p)[1]
+    return KINDS.get(mtype, "any")
+
+
+def value_text(p, val, kind=None):
+    """How a variable's value is shown: in the unit chosen for a typed Length / Angle, else mm, °, mm², mm³."""
+    from .expr import _UNITS, fmt
+    mtype = p.get("mtype", "distance")
+    if mtype == "fixed_length":
+        u = p.get("unit", "mm")
+        return f"{fmt(val / _UNITS.get(u, 1.0), 4)} {u}"
+    if mtype == "fixed_angle":
+        u = p.get("aunit", "deg")
+        return f"{fmt(val / _UNITS.get(u, 1.0), 4)} {'°' if u == 'deg' else u}"
+    if mtype in ("fixed_number",):
+        return fmt(val, 4)
+    if mtype == "expression":
+        unit = {"length": "mm", "angle": "°", "area": "mm²", "volume": "mm³"}.get(kind or "", "")
+        return f"{fmt(val, 4)}{(' ' + unit) if unit else ''}"
+    unit = UNITS.get(mtype, "")
+    return f"{fmt(val, 3)}{(' ' + unit) if unit else ''}"
+
+
 def rounded(value, step):
     step = float(step or 0)
     if step <= 0:
@@ -550,9 +628,13 @@ def run(state, f):
     name = str(p.get("name", "")).strip().lstrip("#")
     if not name or not name.replace("_", "a").isalnum() or name[0].isdigit():
         raise K.KernelError("Variable names use letters, digits and _ (not starting with a digit)")
-    val = rounded(compute(state, p), p.get("round_to", 0))
+    val = compute(state, p)
+    if p.get("mtype", "distance") not in FIXED:
+        val = rounded(val, p.get("round_to", 0))
     state.vars[name] = val
     state.measured[f["id"]] = val
+    if hasattr(state, "var_kinds"):
+        state.var_kinds[name] = kind_of(state, p)
 
 
 def label(f, state):
@@ -562,9 +644,8 @@ def label(f, state):
     val = state.measured.get(f["id"]) if state is not None else None
     if val is None:
         return f["name"]
-    from .expr import fmt
-    unit = UNITS.get(p.get("mtype", "distance"), "")
-    return f"{f['name']}  ·  #{name} = {fmt(val, 3)}{(' ' + unit) if unit else ''}"
+    kind = getattr(state, "var_kinds", {}).get(name)
+    return f"{f['name']}  ·  #{name} = {value_text(p, val, kind)}"
 
 
 SHORT = {"distance": "Min dist", "angle": "Angle", "diameter": "Diameter", "radius": "Radius",
@@ -582,7 +663,7 @@ def prefill(items, state=None):
     two picks → distance (minimum), a face or a surface body → area, a solid → volume, an edge or a sketch
     curve → length (a round one → diameter), a vertex → its X coordinate.
     With the model state, surface bodies and round edges are told apart; without it parts count as solids."""
-    p = dict(DEFAULTS, entities=[[k, r] for k, r in items])
+    p = dict(DEFAULTS, mtype="distance", name="d", entities=[[k, r] for k, r in items])
     kinds = [k for k, _ in items]
     if state is not None and "sketch_line" in kinds:
         # a sketch curve that is just a point measures like a vertex

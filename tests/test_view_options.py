@@ -54,6 +54,8 @@ def _window():
     from test_ui_fixes import _cross_doc, _window as win
     doc, _ = _cross_doc()
     app, w = win(doc)
+    for k, v in w.DISPLAY_DEFAULTS.items():          # don't depend on display settings saved on this machine
+        w.set_display(k, v, save=False)
     return app, w, doc
 
 

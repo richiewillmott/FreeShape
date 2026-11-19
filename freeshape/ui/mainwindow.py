@@ -464,10 +464,9 @@ class MainWindow(QMainWindow):
               "union subtract intersect combine merge"),
             C("split", "Split", "Cut parts with planes, faces (flat or curved) or sketch curves; keep both sides or one.", lambda: F_("split"), "cut"),
             C("move", "Move", "Move, rotate or copy parts by exact amounts.", lambda: F_("move"), "translate"),
-            C("variable", "Variable", "Define #name values to use in any dimension.", lambda: F_("variable"),
-              "parameter"),
-            C("measure_value", "Measure value", "A #variable measured from the model (distance, area, volume…) "
-              "that updates when the model changes.", lambda: F_("measure_value"), "measure variable distance area volume"),
+            C("variable", "Variable", "A #name to use in any dimension: a length, angle, number or expression "
+              "with its unit, or measured from the model (distance, area, volume…) so it follows the model.",
+              lambda: F_("measure_value"), "parameter measure value distance area volume angle unit"),
             C("derived", "Derived", "Bring parts from another Part Studio, kept linked.", lambda: F_("derived"),
               "link reference copy other studio"),
             C("configs", "Configurations", "Sizes or versions of this Part Studio from a table of variable values.",
@@ -573,9 +572,8 @@ class MainWindow(QMainWindow):
         self.btn_undo = self._tb(h, "undo", "Undo (Ctrl+Z)", self.undo)
         self.btn_redo = self._tb(h, "redo", "Redo (Ctrl+Y)", self.redo)
         h.addWidget(_sep())
-        self._tb(h, "variable", "Variable — define #name values to use in any dimension", lambda: self.start_feature("variable"))
-        self._tb(h, "measure_value", "Measure value — a #variable measured from the model that follows its changes",
-                 lambda: self.start_feature("measure_value"))
+        self._tb(h, "variable", "Variable — a #name for any dimension: a length, angle or number with its unit, or "
+                 "measured from the model (it follows the model)", lambda: self.start_feature("measure_value"))
         self._tb(h, "configs", "Configurations — sizes / versions of this part from a table of variable values",
                  self.edit_configs)
         self._tb(h, "derived", "Derived — bring parts from another Part Studio, kept linked",
@@ -3681,10 +3679,17 @@ class _MeasurePanel(QFrame):
         self.expanded = False
         self._has_head = False
 
+    def enterEvent(self, e):
+        # the selection-count badge follows the pointer over the 3D view; it would sit on top of (x) here
+        badge = getattr(self.parentWidget(), "count_badge", None)
+        if badge is not None:
+            badge.hide()
+        super().enterEvent(e)
+
     def _toggle(self):
         self.expanded = not self.expanded
         self.label.setVisible(self.expanded or not self._has_head)
-        self.adjustSize()
+        self._fit()
         p = self.parentWidget()
         if p is not None:
             self.move(p.width() - self.width() - 14, p.height() - self.height() - 14)
@@ -3698,6 +3703,16 @@ class _MeasurePanel(QFrame):
         self.create.setVisible(self._has_head)
         if head:
             self.value.setText(f"<span style='color:#6a737d'>{head[0]}:</span> <b>{head[1]}</b>")
+        self._fit()
+
+    def _fit(self):
+        """Resize to the new contents now: the layout is otherwise recalculated later, so a longer value
+        (after a shorter one) would be cut off."""
+        for wdg in (self.label, self.value, self.create):
+            wdg.updateGeometry()
+        lay = self.layout()
+        lay.invalidate()
+        lay.activate()
         self.adjustSize()
 
     def setText(self, text):

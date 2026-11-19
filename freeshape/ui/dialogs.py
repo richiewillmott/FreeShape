@@ -817,10 +817,15 @@ SCHEMAS = {
     ],
     "measure_value": [
         {"t": "text", "key": "name", "label": "Name   #", "placeholder": "e.g. gap"},
-        _choice("mtype", "Measure type", _mv().TYPES),
+        _choice("mtype", "Type", _mv().TYPES),
+        {"t": "text", "key": "expr", "label": "Value", "placeholder": "e.g. 25, 1 m or #a * 2", "expr": True,
+         "visible": lambda p: p.get("mtype") in _mv().FIXED},
+        _choice("unit", "Unit", _mv().LENGTH_UNITS, visible=lambda p: p.get("mtype") == "fixed_length"),
+        _choice("aunit", "Unit", _mv().ANGLE_UNITS, visible=lambda p: p.get("mtype") == "fixed_angle"),
         _sel("ray", "Ray (sketch line or edge from its start, round edge, cylinder)", {"axis", "face"},
              multi=False, visible=lambda p: p.get("mtype") == "ray"),
-        _sel("entities", "Entities", {"vertex", "edge", "face", "part", "plane", "region", "sketch_line"}),
+        _sel("entities", "Entities", {"vertex", "edge", "face", "part", "plane", "region", "sketch_line"},
+             visible=lambda p: p.get("mtype") not in _mv().FIXED),
         _choice("method", "Measure method", _mv().METHODS, visible=lambda p: p.get("mtype", "distance") == "distance"),
         _choice("component", "Value", _mv().COMPONENTS, visible=lambda p: p.get("mtype", "distance") == "distance"),
         _num("ray_offset", "Ray origin offset", visible=lambda p: p.get("mtype") == "ray"),
@@ -840,10 +845,15 @@ SCHEMAS = {
                 visible=lambda p: p.get("mtype") in ("centroid", "size", "inertia")
                 or (p.get("mtype") == "coordinate" and p.get("coord_type", "global") != "along")),
         _num("density", "Density", unit="g/cm³", visible=lambda p: p.get("mtype") == "inertia", minimum=0),
-        _num("round_to", "Round to a multiple of (0 = don't)", minimum=0),
-        _check("hide_preview", "Hide preview"),
-        {"t": "info", "key": "_info", "text": lambda p: "Measured again on every rebuild, so whatever uses "
-                                                       "#" + str(p.get("name") or "name") + " follows the model."},
+        {**_num("round_to", "Round to a multiple of (0 = don't)", minimum=0,
+                visible=lambda p: p.get("mtype") not in _mv().FIXED), "dims": "any"},
+        _check("hide_preview", "Hide preview", visible=lambda p: p.get("mtype") not in _mv().FIXED),
+        {"t": "info", "key": "_info", "text": lambda p: (
+            "Use #" + str(p.get("name") or "name") + " in any box that takes a "
+            + {"fixed_length": "length", "fixed_angle": "angle", "fixed_number": "number"}.get(p.get("mtype"), "value")
+            + ". A bare number is in the unit chosen here.") if p.get("mtype") in _mv().FIXED else
+            "Measured again on every rebuild, so whatever uses #" + str(p.get("name") or "name")
+            + " follows the model."},
     ],
     "variable": [
         {"t": "text", "key": "name", "label": "Name   #", "placeholder": "e.g. wall"},
@@ -1191,6 +1201,7 @@ class FeatureDialog(_ResizableFrame):
             self.schema = plugins.dialog_schema(self.ftype)
         self.fields: dict[str, SelectionField] = {}
         self.widgets = {}
+        self._field_errors = {}          # param key -> why the number typed in its box can't be used
         self._info_rows = []
         self.rows = []
         self.active_field = None
@@ -1211,6 +1222,13 @@ class FeatureDialog(_ResizableFrame):
             self._apply_preselection(preselection)
             if self.ftype == "measure_value":
                 self._prefill_measure()
+        if is_new and self.ftype == "measure_value":
+            pr = self.feature["params"]
+            base, n, taken = pr.get("name") or "v", 1, set(self.base_state.vars)
+            while pr.get("name") in taken:                  # v, v2, v3 … — never overwrite a #variable
+                n += 1
+                pr["name"] = f"{base}{n}"
+            self._show_value("name", pr["name"])
         if self.ftype in ("extrude", "revolve", "sweep") and \
                 self.feature["params"].get("creation", "solid") != "solid":
             # a Thin / Surface feature (e.g. made in 2.1) whose regions sit in the hidden faces box: show them as
@@ -1340,21 +1358,32 @@ class FeatureDialog(_ResizableFrame):
                 ed.setPlaceholderText(unit)
                 ed.setToolTip(f"Value in {unit}. Expressions, units and variables work: '25/2', '1 in', '#wall * 2'.")
 
-            def done(ed=ed, k=spec["key"], unit=unit, mn=spec.get("min"), whole=bool(spec.get("int"))):
+            want = spec.get("dims") or {"mm": "length", "deg": "angle", "": "number"}.get(unit, "any")
+
+            def done(ed=ed, k=spec["key"], unit=unit, mn=spec.get("min"), whole=bool(spec.get("int")),
+                     label=spec.get("label", ""), want=want):
                 txt = ed.text()
-                v = parse_number(txt, angle=(unit == "deg"), variables=self.base_state.vars)
-                bad = v is None or (mn is not None and v < mn)
-                ed.setProperty("invalid", "true" if bad else "false")
+                why = self._number_problem(txt, want, unit, mn)
+                ed.setProperty("invalid", "true" if why else "false")
                 ed.style().unpolish(ed)
                 ed.style().polish(ed)
-                if not bad:
-                    if has_vars(txt):
-                        self._set(k, txt.strip())        # keep the expression so it follows the variable
-                    else:
-                        self._set(k, int(round(v)) if k == "count" or whole else v)
+                ed.setToolTip(why or "")
+                if why:
+                    # keep what was typed and say why — never quietly fall back to the old value
+                    self._field_errors[k] = f"{label.split('(')[0].strip()}: {why}"
+                    self._show_field_errors()
+                    return
+                self._field_errors.pop(k, None)
+                v = parse_number(txt, angle=(unit == "deg"), variables=self.base_state.vars)
+                if has_vars(txt):
+                    self._set(k, txt.strip())        # keep the expression so it follows the variable
+                else:
+                    self._set(k, int(round(v)) if k == "count" or whole else v)
             self.widgets[spec["key"]] = ed
             ed.textEdited.connect(lambda _t, f=done: f())
-            ed.editingFinished.connect(lambda ed=ed, k=spec["key"]: ed.setText(_show(self.feature["params"].get(k, 0))))
+            ed.editingFinished.connect(
+                lambda ed=ed, k=spec["key"]: None if k in self._field_errors
+                else ed.setText(_show(self.feature["params"].get(k, 0))))
             h.addWidget(ed)
             if unit:
                 u = QLabel(unit)
@@ -1865,13 +1894,41 @@ class FeatureDialog(_ResizableFrame):
     def schedule_preview(self):
         self._timer.start(90)
 
+    def _number_problem(self, txt, want, unit, mn):
+        """Why a number box's text can't be used (None if it can): unreadable, an undefined variable, the wrong
+        kind of quantity (an angle in a length box), or below the minimum."""
+        from ..expr import check_units, var_names
+        if not str(txt).strip():
+            return "enter a value"
+        v = parse_number(txt, angle=(unit == "deg"), variables=self.base_state.vars)
+        if v is None:
+            missing = [n for n in var_names(txt) if n not in self.base_state.vars]
+            if missing:
+                return f"#{missing[0]} isn't defined before this feature"
+            return f"can't read '{txt.strip()}'"
+        why = check_units(txt, want, getattr(self.base_state, "var_kinds", {}))
+        if why:
+            return why
+        if mn is not None and v < mn:
+            return f"must be at least {fmt(mn)}"
+        return None
+
+    def _show_field_errors(self):
+        if self._field_errors:
+            self.err.setText("⚠ " + "\n⚠ ".join(self._field_errors.values()))
+            self.err.setStyleSheet("color:#d93025; font-weight:600;")
+            self.err.show()
+            self.adjustSize()
+
     def _do_preview(self):
         self.feature["name"] = self.title.text().strip() or self.feature["name"]
         vp = self.main.viewport
         if vp._manip_drag is None:          # don't rebuild the arrow while it's being dragged
             vp.manipulators = self.manipulators()
         err = self.main.show_preview(self.feature, self.index, self.overlays())
-        if err:
+        if self._field_errors:
+            self._show_field_errors()
+        elif err:
             self.err.setText("⚠ " + err)
             self.err.setStyleSheet("")
             self.err.show()
@@ -1881,10 +1938,11 @@ class FeatureDialog(_ResizableFrame):
             try:
                 pp = F.prepare(self.feature, self.base_state)["params"]
                 val, line = MV.measure(self.base_state, pp)
-                val = MV.rounded(val, pp.get("round_to", 0))
+                if pp.get("mtype") not in MV.FIXED:
+                    val = MV.rounded(val, pp.get("round_to", 0))
                 self.main.viewport.measure_line = None if pp.get("hide_preview") else line
-                unit = MV.UNITS.get(p.get("mtype", "distance"), "")
-                self.err.setText(f"#{str(p.get('name', '')).lstrip('#')} = {fmt(val)} {unit}".rstrip())
+                kind = MV.kind_of(self.base_state, pp)
+                self.err.setText(f"#{str(p.get('name', '')).lstrip('#')} = {MV.value_text(pp, val, kind)}")
             except K.KernelError as ex:
                 val = None
                 self.main.viewport.measure_line = None
@@ -1902,6 +1960,9 @@ class FeatureDialog(_ResizableFrame):
         self.adjustSize()
 
     def accept(self):
+        if self._field_errors:
+            self._show_field_errors()                 # a box can't be used: say so rather than accept it
+            return
         self._timer.stop()
         if self.ftype == "measure_value":
             self.main.viewport.measure_line = None

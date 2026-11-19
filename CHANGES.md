@@ -1,5 +1,23 @@
 # FreeShape revisions
 
+## Unreleased
+
+### Variables and units (issue #31)
+- **One Variable feature.** *Measure value* and *Variable* are now a single **Variable** feature (one toolbar
+  button and the (x) button): its *Type* is **Length**, **Angle**, **Number**, **Any expression**, or one of the
+  measured types (distance, angle, area, volume, …). A Length or Angle has a **unit** (mm, cm, m, in, ft / deg, rad)
+  for bare numbers, so `1` in *m* is stored as 1000 mm and shown as `#v = 1 m`; a value with its own unit
+  (`2 in`) is converted. New variables get a free name (v, v2, v3 …). Files with the old Variable or Measure value
+  features open and work as before.
+- **Units are checked.** Each variable remembers its kind (length, angle, number, area, volume), and every
+  feature box checks what you give it: an angle as an extrude depth (`#a`, `90 deg`), a length as a draft angle, a
+  measured area as a length, or adding a length to an angle is now an error that says so ("Depth '#a': that's an
+  angle — this needs a length") instead of being used as a silent wrong number. Bare numbers, `sqrt(#area)`,
+  `sin(30 deg) * #w` and old variables without a type work as before.
+- **No more silent reverts.** A number box that can't be used (wrong unit, an undefined `#name`, text it can't
+  read, below the minimum) keeps what you typed, shows why in red under the dialog, and ✓ waits until it's fixed —
+  before, it quietly went back to the previous value (often 0).
+
 ## 2.2.0
 
 Whole features from Onshape's Part Studio menu, measured variables, smarter selection, and Onshape's view options.
@@ -88,6 +106,9 @@ Whole features from Onshape's Part Studio menu, measured variables, smarter sele
 ### Fixes
 - **View ▸ Front … Isometric and Shift+1 … Shift+7** turn the view again (they did nothing), as do the
   *Views* entries of the right-click menu.
+- The measure bar now widens for a longer value: picking a second vertex after a first no longer cuts
+  the `Min dist` number off.
+- The selection-count badge no longer sits on top of the measure bar's **(x)** button.
 
 ## 2.1.0
 
