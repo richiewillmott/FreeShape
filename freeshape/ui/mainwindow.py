@@ -54,12 +54,73 @@ def _sep():
     return f
 
 
+class _ToolStrip(QWidget):
+    """A toolbar row that never makes the window wider than the screen: when its buttons don't fit, it scrolls
+    sideways (mouse wheel over it, or the ‹ › buttons at its ends)."""
+
+    def __init__(self, inner):
+        super().__init__()
+        from PySide6.QtWidgets import QScrollArea, QFrame as _QF
+        self.inner = inner
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+        self.area = QScrollArea()
+        self.area.setFrameShape(_QF.NoFrame)
+        self.area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.area.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.area.setWidgetResizable(True)
+        self.area.setWidget(inner)
+        self.area.setStyleSheet("QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; }")
+        self.left_btn, self.right_btn = QToolButton(), QToolButton()
+        for b, txt, step in ((self.left_btn, "‹", -1), (self.right_btn, "›", 1)):
+            b.setText(txt)
+            b.setAutoRaise(True)
+            b.setFixedWidth(18)
+            b.setAutoRepeat(True)
+            b.clicked.connect(lambda _=False, st=step: self.scroll_by(st * 160))
+            b.hide()
+        lay.addWidget(self.left_btn)
+        lay.addWidget(self.area, 1)
+        lay.addWidget(self.right_btn)
+        self.area.horizontalScrollBar().valueChanged.connect(lambda _v: self._arrows())
+        self.area.horizontalScrollBar().rangeChanged.connect(lambda _a, _b: self._arrows())
+
+    def scroll_by(self, dx):
+        sb = self.area.horizontalScrollBar()
+        sb.setValue(sb.value() + dx)
+
+    def _arrows(self):
+        sb = self.area.horizontalScrollBar()
+        over = sb.maximum() > 0
+        self.left_btn.setVisible(over)
+        self.right_btn.setVisible(over)
+        self.left_btn.setEnabled(sb.value() > 0)
+        self.right_btn.setEnabled(sb.value() < sb.maximum())
+
+    def wheelEvent(self, e):
+        d = e.angleDelta()
+        self.scroll_by(-(d.y() or d.x()) // 2)
+        e.accept()
+
+    def minimumSizeHint(self):
+        return QSize(200, self.inner.minimumSizeHint().height())
+
+    def sizeHint(self):
+        return self.inner.sizeHint()
+
+
 class MainWindow(QMainWindow):
     def __init__(self, path=None):
         super().__init__()
         self.setStyleSheet(theme.STYLESHEET)
         self.setWindowIcon(app_icon())
-        self.resize(1440, 900)
+        scr = QApplication.primaryScreen()
+        avail = scr.availableGeometry() if scr is not None else None
+        if avail is not None and avail.width() > 400:      # fit a small or scaled-up screen
+            self.resize(min(1440, avail.width() - 40), min(900, avail.height() - 60))
+        else:
+            self.resize(1440, 900)
         self.doc = None             # the document in the current tab
         self.docs = {}              # tab key -> Document
         self._views = {}            # tab key -> saved camera state
@@ -118,10 +179,9 @@ class MainWindow(QMainWindow):
         root.setSpacing(0)
         self.tool_stack = QStackedWidget()
         self.tool_stack.setObjectName("toolbar")
-        self.tool_stack.addWidget(self._build_feature_toolbar())
-        self.tool_stack.addWidget(self._build_sketch_toolbar())
-        self.tool_stack.addWidget(self._build_assembly_toolbar())
-        self.tool_stack.addWidget(self._build_drawing_toolbar())
+        for build in (self._build_feature_toolbar, self._build_sketch_toolbar, self._build_assembly_toolbar,
+                      self._build_drawing_toolbar):
+            self.tool_stack.addWidget(_ToolStrip(build()))     # scrolls sideways on a narrow screen
         self.tool_stack.setFixedHeight(44)
         root.addWidget(self.tool_stack)
 

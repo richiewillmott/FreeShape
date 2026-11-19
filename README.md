@@ -27,7 +27,8 @@ OpenCascade kernel FreeCAD uses, so you get real B-rep solids and proper STEP fi
 - **Configurations, derived parts and version history** — many sizes from one table, and a readable *what
   changed* between any two versions, shown in 3D.
 - **Import and export** — STEP (with colours, fast even with hundreds of parts), STL for 3D printing, BREP.
-- **Python plugins** — add your own parametric features and commands ([PLUGINS.md](PLUGINS.md)).
+- **Plugins** — ready-made Gridfinity bins, timing pulleys, gears, Lighten pockets, laser-cut boxes and batch
+  export, or write your own in Python ([PLUGINS.md](PLUGINS.md)).
 
 | Part Studio | Assemblies | Drawings | Sheet metal |
 |---|---|---|---|

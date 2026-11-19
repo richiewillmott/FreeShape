@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### New example plugins
+Document ▸ Plugins ▸ Manage plugins… ▸ **Add the examples** installs them.
+- **Gridfinity bin / baseplate** — bins for the Gridfinity storage system: grid size, height units, dividers, a
+  stacking lip that takes the foot of the bin above, magnet holes; or a baseplate.
+- **Timing pulley** — GT2 2 mm / 3 mm and HTD 3M / 5M from the number of teeth (a GT2 20-tooth comes out at the
+  standard 12.22 mm outside diameter), with flanges, hub, bore, M3 grub screw hole and a print clearance.
+- **Lighten** — triangle (isogrid), hexagon or circle pockets in flat faces, through or to a depth, with set rib
+  width and a solid border round the edges and holes; corners rounded.
+- **Laser-cut box** — six finger-jointed panels from the size and sheet thickness (outside or inside sizes, with
+  or without a lid), assembled or laid flat; **Export flat panels as DXF…** writes them for the laser cutter.
+- **Batch export parts…** — every part, or the selected ones, to its own STL and / or STEP file named after it.
+
+### Fixes
+- **Window wider than the screen** — on a 1920-pixel (or smaller) screen the Part Studio toolbar made the window
+  wider than the screen, cutting off the view cube until it was un-maximised and maximised again. The toolbars now
+  scroll sideways when they don't fit (mouse wheel over them, or the ‹ › at their ends), and FreeShape opens at a
+  size that fits the screen.
+
 ### Variables and units (issue #31)
 - **One Variable feature.** *Measure value* and *Variable* are now a single **Variable** feature (one toolbar
   button and the (x) button): its *Type* is **Length**, **Angle**, **Number**, **Any expression**, or one of the

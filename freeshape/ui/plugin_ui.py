@@ -119,8 +119,9 @@ class PluginsDialog(QDialog):
         if self.list.count():
             self.list.setCurrentRow(0)
         else:
-            self.info.setHtml("<p>No plugins installed yet.</p><p>Click <b>Add the examples</b> for a spur gear "
-                              "feature and a part weights command to try, or <b>Install plugin file…</b>.</p>")
+            self.info.setHtml("<p>No plugins installed yet.</p><p>Click <b>Add the examples</b> for Gridfinity "
+                              "bins, timing pulleys, spur gears, Lighten pockets, laser-cut boxes, batch export and "
+                              "part weights, or <b>Install plugin file…</b>.</p>")
 
     def _show(self, row):
         it = self.list.item(row)

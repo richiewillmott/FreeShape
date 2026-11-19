@@ -8,8 +8,7 @@ Extrude or Fillet) and **commands** (run once from the Plugins menu).
 **Document ▸ Plugins ▸ Manage plugins…** shows what's installed. From there:
 
 - **Install plugin file…** copies a `.py` file into your plugins folder.
-- **Add the examples** installs the two examples that come with FreeShape: a *Spur gear* feature and a *Part
-  weights* command.
+- **Add the examples** installs the examples that come with FreeShape (below).
 - **Open plugins folder** opens the folder, so you can put files there yourself.
 - **Reload** picks up changes after you edit a plugin.
 
@@ -21,6 +20,22 @@ Plugin features appear under the **jigsaw button** on the Part Studio toolbar an
 Commands appear in the same menus.
 
 > Plugins are ordinary Python and run with the same rights as FreeShape. Only install plugins you trust.
+
+## The examples
+
+![Gridfinity bin, timing pulley, Lighten and laser-cut box](docs/images/plugins.png)
+
+| | |
+|---|---|
+| **Gridfinity bin / baseplate** | Bins for the Gridfinity storage system (42 mm grid, 7 mm height units): size, height, dividers, stacking lip, magnet holes. Or a baseplate for them. |
+| **Timing pulley** | GT2 (2 / 3 mm) and HTD (3M / 5M) pulleys from the number of teeth, with flanges, a hub, a bore, an M3 grub screw hole and a print clearance. |
+| **Spur gear** | Involute spur gears from the module and number of teeth. |
+| **Lighten (pockets)** | Pick flat faces: triangle (isogrid), hexagon or circle pockets, through or to a depth, with ribs of a set width and a solid border round the edges and every hole. |
+| **Laser-cut box** | Six finger-jointed panels from the size and sheet thickness, with or without a lid, assembled or laid flat. **Export flat panels as DXF…** writes them for the laser cutter. |
+| **Batch export parts…** | Every part (or the selected ones) to its own STL and / or STEP file, named after the part. |
+| **Part weights…** | Volume, area and weight of parts in common materials. |
+
+They're ordinary plugins, so they're also good starting points for your own.
 
 ## A first plugin
 
