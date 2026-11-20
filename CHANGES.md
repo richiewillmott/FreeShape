@@ -1,5 +1,25 @@
 # FreeShape revisions
 
+## 2.3.1
+
+Fixes for fillets after threads and for the Extrude dialog, and clearer undo / redo icons.
+
+- **Fillets and chamfers that failed at any size** on some models now work. A modelled thread (or another earlier
+  feature) could leave a solid that OpenCascade's checker flags as invalid, and every later fillet or chamfer on
+  that part then failed with "too large", however small. The solid is now repaired first and the picked edges found
+  again on it. When no size really works, the message now says so instead of "too large".
+- Clearer **undo / redo** icons: hooked arrows, as in most apps.
+- **Extrude / Revolve / Sweep, Surface and Thin:** switching from Solid now lists the area's **edges one by one**
+  instead of a single "Outline of sketch region", so you can remove some. For example, take one edge off a square
+  to get a C-shaped surface or wall. Switching back to Solid gives the area again if all its edges are still there.
+- Fixed: with Surface or Thin chosen and nothing selected yet, clicking a face by mistake quietly made a **solid**,
+  while the dialog still showed Surface with an empty list. The box for the chosen type is now always the active
+  one, and Surface / Thin only take edges and sketch curves. The automatic choice of type now only happens for
+  edges or faces you selected *before* starting the feature.
+- A new **Extrude / Revolve / Sweep** now picks **New** when it touches no part, and **Add** when it does, with the
+  parts it touches filled in as the merge scope, as Onshape does. It follows as you change the selection or depth,
+  until you choose an option or a merge scope yourself. Before, it always chose Add whenever the model had a part.
+
 ## 2.3.0
 
 Sub-assemblies, inch units, an Onshape-style toolbar, one Variable feature with units and text, STL resolution,

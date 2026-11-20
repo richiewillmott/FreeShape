@@ -1602,7 +1602,10 @@ def run_thread(state, f):
                 shape = K.external_thread(shape, p0, ax, sp["r"], P, z0, z1, left=left, clearance=clearance)
         if taps:
             shape = K.cut_internal_threads(shape, taps)
-        set_part_shape(state, part, shape)
+        # threads can leave a solid OpenCascade flags as invalid (later fillets would then fail at any size):
+        # check and repair each solid on its own
+        pieces = [K.heal(sol) for sol in K.solids(shape)] or [shape]
+        set_part_shape(state, part, pieces[0] if len(pieces) == 1 else K.compound(pieces))
 
 
 # --------------------------------------------------------------------------- sweep / loft / draft / split / move
@@ -1634,6 +1637,8 @@ def _path_wire(state, refs):
         elif r.get("kind") == "edge":
             _, e = resolve(state, r["edge"], "edge")
             edges.append(e)
+        elif r.get("kind") == "region_edge":
+            edges.append(region_edge(state, r))
         elif r.get("kind") == "outline":
             # the boundary of a region / flat face (its outer loop here; body_options takes the holes too)
             from OCP.BRepTools import BRepTools
@@ -1641,6 +1646,22 @@ def _path_wire(state, refs):
                 return BRepTools.OuterWire_s(outline_face(state, r))
             edges += K.edges(BRepTools.OuterWire_s(outline_face(state, r)))
     return K.make_wire(edges)
+
+
+def region_edge(state, ref):
+    """One edge of a sketch region's boundary ({"kind": "region_edge", "region": region ref, "c": its middle}):
+    the region's edge nearest that middle point."""
+    face = resolve_regions(state, [ref["region"]])[0]
+    c = np.asarray(ref["c"], float)
+    best, best_d = None, 1e18
+    for e in K.edges(face):
+        d = float(np.linalg.norm(np.asarray(K.edge_info(e)["c"]) - c))
+        if d < best_d:
+            best, best_d = e, d
+    lo, hi = K.bbox(face)
+    if best is None or best_d > 0.05 * float(np.linalg.norm(np.asarray(hi) - np.asarray(lo))) + 1e-6:
+        raise K.KernelError("An edge of the sketch region is missing")
+    return best
 
 
 def outline_face(state, ref):

@@ -46,7 +46,7 @@ OpenCascade kernel FreeCAD uses, so you get real B-rep solids and proper STEP fi
 - **Plugins** — Gridfinity bins, timing pulleys, Lighten pockets, laser-cut boxes, batch export.
 - **STL resolution**, **your own icons**, and fixes: chamfers next to fillets, and the window fits small screens.
 
-Full history in [CHANGES.md](CHANGES.md).
+**2.3.1** fixes fillets after threads and two Extrude dialog bugs, and redraws the undo / redo icons. Full history in [CHANGES.md](CHANGES.md).
 
 ## Install
 

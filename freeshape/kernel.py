@@ -899,6 +899,18 @@ def _repair(shape):
         return None
 
 
+def heal(shape):
+    """The shape, repaired if OpenCascade's checker finds it invalid (and the repair makes it valid); otherwise
+    unchanged. Invalid solids make later fillets, chamfers and shells fail at every size."""
+    try:
+        if shape is None or is_valid(shape):
+            return shape
+    except Exception:
+        return shape
+    fixed = _repair(shape)
+    return fixed if fixed is not None else shape
+
+
 def _run_boolean(cls, a, b, fuzzy, preset):
     if preset:                     # settings applied before the operation runs
         op = cls()
@@ -1072,10 +1084,22 @@ def fillet(shape, edge_list, radius: float, radius2: float | None = None):
         def add(mk, e, r):
             mk.Add(r, r * ratio, e)
     out = _try_blend(BRepFilletAPI_MakeFillet, shape, edge_list, radius, add)
+    if out is None and not is_valid(shape):
+        # a solid OpenCascade sees as invalid (left by an earlier feature) can't be rounded at any size:
+        # repair it, and find the picked edges again on the repaired solid
+        fixed = _repair(shape)
+        if fixed is not None:
+            moved = _same_edges(fixed, edge_list)
+            if moved:
+                shape, edge_list = fixed, moved
+                out = _try_blend(BRepFilletAPI_MakeFillet, shape, edge_list, radius, add)
     if out is None:
         best = _largest_blend(BRepFilletAPI_MakeFillet, shape, edge_list, radius, add)
-        hint = f" — the largest that works here is about {_nice_down(best):g} mm" if best else ""
-        raise KernelError(f"Fillet radius too large for these edges (the rounds would overlap or not fit){hint}")
+        if not best:
+            raise KernelError("Couldn't round these edges at any size — they may meet very narrow faces or slivers "
+                              "left by earlier features. Try picking the face instead, or a different edge.")
+        raise KernelError(f"Fillet radius too large for these edges (the rounds would overlap or not fit) — the "
+                          f"largest that works here is about {_nice_down(best):g} mm")
     return out
 
 
@@ -1105,6 +1129,13 @@ def chamfer(shape, edge_list, dist: float, mode="equal", dist2: float | None = N
             else:
                 mk.AddDA(d, math.radians(float(angle)), e, face)
     out = _try_blend(BRepFilletAPI_MakeChamfer, shape, edge_list, dist, add)
+    if out is None and not is_valid(shape):
+        fixed = _repair(shape)                       # (as for fillets: an invalid solid can't be bevelled)
+        if fixed is not None:
+            moved = _same_edges(fixed, edge_list)
+            if moved:
+                shape, edge_list = fixed, moved
+                out = _try_blend(BRepFilletAPI_MakeChamfer, shape, edge_list, dist, add)
     if out is None:
         # OpenCascade's chamfer often gives up where a straight edge between two flat faces runs into a
         # rounded corner (a fillet made earlier). Cut the bevel as a prism instead, carried on through the
@@ -1115,8 +1146,28 @@ def chamfer(shape, edge_list, dist: float, mode="equal", dist2: float | None = N
             out = None
     if out is None:
         best = _largest_blend(BRepFilletAPI_MakeChamfer, shape, edge_list, dist, add)
-        hint = f" — the largest that works here is about {_nice_down(best):g} mm" if best else ""
-        raise KernelError(f"Chamfer too large for these edges (the cuts would overlap or not fit){hint}")
+        if not best:
+            raise KernelError("Couldn't chamfer these edges at any size — they may meet very narrow faces or slivers "
+                              "left by earlier features. Try a different edge.")
+        raise KernelError(f"Chamfer too large for these edges (the cuts would overlap or not fit) — the largest "
+                          f"that works here is about {_nice_down(best):g} mm")
+    return out
+
+
+def _same_edges(shape, edge_list):
+    """The edges of `shape` that match `edge_list` by position (ends and middle), or None if any is missing."""
+    def key(e):
+        info = edge_info(e)
+        lo, hi = bbox(e)
+        return np.round(np.concatenate([np.asarray(info["c"]), lo, hi]), 4)
+    pool = [(key(e), e) for e in edges(shape)]
+    out = []
+    for e in edge_list:
+        k = key(e)
+        hit = next((x for kk, x in pool if np.allclose(kk, k, atol=1e-3)), None)
+        if hit is None:
+            return None
+        out.append(hit)
     return out
 
 

@@ -42,3 +42,21 @@ def test_angle_chamfer_and_a_concave_edge_is_left_to_opencascade():
     assert 0.5 * np.tan(np.radians(30)) * 27 < gone < 0.5 * np.tan(np.radians(30)) * 30.01
     with pytest.raises(K.KernelError):
         K.chamfer(f, side, 100.0)                   # far too big still fails, with the usual message
+
+
+def test_an_invalid_solid_is_repaired_before_rounding(monkeypatch):
+    """A solid OpenCascade flags as invalid (seen after a modelled thread) can't be filleted or chamfered at any
+    size; FreeShape repairs it first and finds the picked edges again on the repaired solid."""
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_Copy
+    box = fs.box(40, 30, 20)
+    edge = [e for e in K.edges(box) if np.allclose(K.bbox(e)[0][:2], [40, 0], atol=1e-6)
+            and np.allclose(K.bbox(e)[1][:2], [40, 0], atol=1e-6)]
+    real_try, real_valid = K._try_blend, K.is_valid
+    monkeypatch.setattr(K, "is_valid", lambda s: False if s.IsSame(box) else real_valid(s))
+    monkeypatch.setattr(K, "_try_blend", lambda mk, s, es, size, add=None:
+                        None if s.IsSame(box) else real_try(mk, s, es, size, add))
+    monkeypatch.setattr(K, "_repair", lambda s: BRepBuilderAPI_Copy(s).Shape())
+    for op in (lambda: K.fillet(box, edge, 3.0), lambda: K.chamfer(box, edge, 3.0)):
+        out = op()
+        assert real_valid(out) and K.volume(out) < K.volume(box)
+

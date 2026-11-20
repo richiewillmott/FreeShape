@@ -188,6 +188,8 @@ def item_label(doc, item):
     if kind == "path":
         if ref["kind"] == "outline":
             return "Outline of sketch region" if ref.get("of") == "region" else "Outline of face"
+        if ref["kind"] == "region_edge":
+            return "Edge of sketch region"
         if ref["kind"] == "sketch_chain" and ref.get("only"):
             return "Sketch curve" if len(ref["only"]) == 1 else f"{len(ref['only'])} sketch curves"
         return "Sketch curves" if ref["kind"] == "sketch_chain" else "Edge"
@@ -448,7 +450,7 @@ def _creation_fields(verb):
         {**_segments("surface_op", SURFACE_OPS, "new"), "visible": lambda p: p.get("creation", "solid") == "surface"},
         _sel("profiles", f"Faces and sketch regions to {verb}", {"region", "face"},
              visible=lambda p: p.get("creation", "solid") == "solid"),
-        _sel("curves", "Sketch curves, edges and outlines", {"path", "outline"}, visible=curvy),
+        _sel("curves", "Sketch curves and edges", {"path"}, visible=curvy),
         _num("thickness", "Thickness", visible=thin, minimum=1e-6),
         _choice("thin_side", "Wall goes", BO.THIN_SIDES, visible=thin),
         _num("thickness2", "Second thickness (other side)", visible=lambda p: thin(p) and p.get("thin_side") == "two",
@@ -1212,6 +1214,8 @@ class FeatureDialog(_ResizableFrame):
         self._info_rows = []
         self.rows = []
         self.active_field = None
+        self._op_chosen = not is_new     # New / Add follow what the shape touches until you pick one yourself
+        self._auto_busy = False
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self._do_preview)
@@ -1606,6 +1610,10 @@ class FeatureDialog(_ResizableFrame):
                 self._fields_changed()
             return
         fld = self.active_field
+        if fld is not None and not self._field_shown(fld):
+            fld = self._first_visible_field()            # (e.g. Surface chosen while the faces box was active)
+            if fld is not None:
+                self.activate(fld)
         if fld is None:
             return
         item = pick_to_item(self.main.viewport, pick, fld.want)
@@ -1619,6 +1627,15 @@ class FeatureDialog(_ResizableFrame):
                     pass
             return
         fld.toggle(item)
+
+    def _field_shown(self, f):
+        """Does the dialog show this selection box for the current choices?"""
+        spec = next((sp for sp, _w in self.rows if sp.get("key") == f.key), None)
+        vis = spec.get("visible") if spec else None
+        return vis is None or bool(vis(self.feature["params"]))
+
+    def _first_visible_field(self):
+        return next((f for f in self.fields.values() if self._field_shown(f)), None)
 
     def _apply_preselection(self, picks):
         for pk in picks:
@@ -1725,34 +1742,143 @@ class FeatureDialog(_ResizableFrame):
             w.set_value(value)
 
     def _fields_changed(self):
+        if self._auto_busy:
+            return
+        if self.sender() is self.fields.get("scope_sel"):
+            self._op_chosen = True                       # you set the merge scope yourself: leave it alone
         fields = {k: f.items for k, f in self.fields.items()}
         fields_to_params(self.ftype, fields, self.feature["params"])
+        self._auto_op()
         self._sync_visibility()
         self.schedule_preview()
 
-    def _move_profiles_for(self, old, new):
-        """Switching Solid <-> Thin / Surface keeps the selection: faces and regions become their outlines in the
-        curves box (and back again), so the same shape is made into a wall or surface."""
+    AUTO_OP_TYPES = ("extrude", "revolve", "sweep")
+
+    def _auto_op(self):
+        """For a new Extrude / Revolve / Sweep, like Onshape: New when the shape touches no part, otherwise Add
+        with the parts it touches as the merge scope. Stops once you choose New/Add/Remove/… or a scope."""
         from .. import body_options as BO
-        prof, curves = self.fields.get("profiles"), self.fields.get("curves")
-        if prof is None or curves is None or (old == "solid") == (new == "solid"):
+        if self._op_chosen or self.ftype not in self.AUTO_OP_TYPES or "scope_sel" not in self.fields:
             return
-        if new != "solid":
-            curves.items = [it for it in curves.items] + [("path", BO.outline_ref(k, r)) for k, r in prof.items]
-            prof.items = []
-        else:
-            back = [(r["of"], r["ref"]) for k, r in curves.items if r.get("kind") == "outline"]
-            curves.items = [(k, r) for k, r in curves.items if r.get("kind") != "outline"]
-            prof.items = prof.items + back
-        for f in (prof, curves):
-            f.refresh(self.doc)
-        if new != "solid" and curves.items:
-            QTimer.singleShot(0, lambda: self.activate(curves))
-        elif new == "solid":
-            QTimer.singleShot(0, lambda: self.activate(prof))
+        p = self.feature["params"]
+        if BO.creation(p) == "surface" or p.get("op", "new") not in ("new", "add"):
+            return
+        parts = {pid: pt for pid, pt in self.base_state.parts.items() if K.faces(pt.shape)}
+        key = json.dumps({k: v for k, v in p.items() if k not in ("op", "scope")}, sort_keys=True, default=str)
+        if key == getattr(self, "_auto_key", None):
+            return                                       # nothing that moves the shape has changed
+        touching = []
+        if parts:
+            tools = self._tool_shapes()
+            if tools is None:
+                return                                   # nothing to extrude yet (or it fails): leave as is
+            touching = [pid for pid, pt in parts.items() if any(K.touches_or_intersects(pt.shape, t) for t in tools)]
+        op = "add" if touching else "new"
+        self._auto_key = key
+        self._auto_busy = True
+        try:
+            p["op"] = op
+            p["scope"] = touching or None
+            fld = self.fields["scope_sel"]
+            fld.items = [("part", pid) for pid in touching]
+            fld.refresh(self.doc)
+            for spec, w in self.rows:
+                if spec.get("t") == "ops" and spec.get("key") == "op":
+                    for b in getattr(w, "buttons", []):
+                        b.setChecked(b.property("value") == op)
+        finally:
+            self._auto_busy = False
+
+    def _tool_shapes(self):
+        """The solids this feature would make on its own (as New), or None if it can't be made yet."""
+        st = copy.copy(self.base_state)
+        st.parts = dict(self.base_state.parts)
+        before = set(st.parts)
+        f = copy.deepcopy(self.feature)
+        f["params"]["op"] = "new"
+        f["params"].pop("scope", None)
+        try:
+            f = F.prepare(f, self.base_state)
+            F.RUNNERS[self.ftype](st, f)
+        except Exception:
+            return None
+        made = [pt.shape for pid, pt in st.parts.items() if pid not in before]
+        return made or None
+
+    def _move_profiles_for(self, old, new):
+        """Switching Solid <-> Thin / Surface keeps the selection: each face or region becomes its edges, one item
+        each, in the curves box (so you can take one away: a square's four edges, less one, make a C), and back
+        again. The box for the chosen type is always the active one, so a click can't land in a hidden box."""
+        prof, curves = self.fields.get("profiles"), self.fields.get("curves")
+        if prof is None or curves is None:
+            return
+        if (old == "solid") != (new == "solid"):
+            if new != "solid":
+                add = []
+                for k, r in prof.items:
+                    add += self._edge_items(k, r)
+                curves.items = list(curves.items) + add
+                prof.items = []
+            else:
+                back, groups, legacy = [], {}, []
+                for k, r in curves.items:
+                    src = r.get("from")
+                    if r.get("kind") == "outline":
+                        legacy.append((r["of"], r["ref"]))
+                    elif src:
+                        groups.setdefault(json.dumps(src, sort_keys=True), []).append(r)
+                    else:
+                        back.append((k, r))
+                restored, dropped = list(legacy), 0
+                for key, rs in groups.items():
+                    src = json.loads(key)
+                    if len(rs) >= src.get("n", 0):
+                        restored.append((src["of"], src["ref"]))      # all its edges still there: the area again
+                    else:
+                        dropped += 1
+                curves.items = back
+                prof.items = prof.items + restored
+                if dropped:
+                    try:
+                        self.main.status.showMessage(
+                            f"{dropped} area(s) had edges taken away, so they can't make a solid — pick the "
+                            "faces or regions again", 8000)
+                    except Exception:
+                        pass
+            for f in (prof, curves):
+                f.refresh(self.doc)
+        target = curves if new != "solid" else prof
+        QTimer.singleShot(0, lambda t=target: self.activate(t))
+
+    def _edge_items(self, kind, ref):
+        """A region or face as curve items, one per edge of its boundary (holes included), each remembering
+        where it came from. Falls back to one 'outline' item if the edges can't be listed."""
+        from .. import body_options as BO
+        src = {"of": kind, "ref": copy.deepcopy(ref)}
+        out = []
+        try:
+            if kind == "region":
+                face = F.resolve_regions(self.base_state, [ref])[0]
+                es = K.edges(face)
+                src["n"] = len(es)
+                for e in es:
+                    out.append(("path", {"kind": "region_edge", "region": copy.deepcopy(ref),
+                                         "c": [float(x) for x in K.edge_info(e)["c"]], "from": src}))
+            elif kind == "face":
+                pid, face = F.resolve(self.base_state, ref, "face")
+                shape = self.base_state.parts[pid].shape
+                es = K.edges(face)
+                src["n"] = len(es)
+                for e in es:
+                    out.append(("path", {"kind": "edge", "edge": F.make_ref(pid, e, "edge", shape), "from": src}))
+        except (K.KernelError, KeyError, IndexError):
+            out = []
+        return out or [("path", BO.outline_ref(kind, ref))]
 
     def _set(self, key, value):
         p = self.feature["params"]
+        if key == "op":
+            self._op_chosen = True
         if key == "creation" and self.ftype in ("extrude", "revolve", "sweep"):
             self._move_profiles_for(p.get("creation", "solid"), value)
         p[key] = value
@@ -1953,6 +2079,9 @@ class FeatureDialog(_ResizableFrame):
     def _do_preview(self):
         self.feature["name"] = self.title.text().strip() or self.feature["name"]
         vp = self.main.viewport
+        if not self._op_chosen and vp._manip_drag is None:
+            self._auto_op()                     # a longer extrude may reach a part now (or no longer)
+            self._sync_visibility()
         if vp._manip_drag is None:          # don't rebuild the arrow while it's being dragged
             vp.manipulators = self.manipulators()
         err = self.main.show_preview(self.feature, self.index, self.overlays())

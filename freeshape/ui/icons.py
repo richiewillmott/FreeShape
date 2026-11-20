@@ -77,15 +77,19 @@ def draw(name: str, p: QPainter):
         if name == "redo":
             p.translate(32, 0)
             p.scale(-1, 1)
+        # a hooked arrow, as in most apps: from the lower right, up and round, pointing back to the left
         path = QPainterPath()
-        path.moveTo(9, 13)
-        path.cubicTo(14, 7, 26, 8, 25, 18)
-        path.cubicTo(24, 24, 18, 25, 14, 24)
-        p.setPen(_pen(INK, 2))
+        path.moveTo(12, 24)
+        path.lineTo(19, 24)
+        path.cubicTo(24.5, 24, 27, 20.5, 27, 16.75)
+        path.cubicTo(27, 13, 24.5, 9.5, 19, 9.5)
+        path.lineTo(10, 9.5)
+        p.setPen(_pen(INK, 2.2))
+        p.setBrush(Qt.NoBrush)
         p.drawPath(path)
         p.setBrush(INK)
-        p.setPen(Qt.NoPen)
-        p.drawPolygon(QPolygonF([QPointF(5, 9), QPointF(13, 9), QPointF(7, 17)]))
+        p.setPen(_pen(INK, 1.0))
+        p.drawPolygon(QPolygonF([QPointF(4, 9.5), QPointF(11, 4.5), QPointF(11, 14.5)]))
     elif name == "sketch":
         # a sketch plane seen at an angle, a curve drawn on it, and the pencil drawing it
         p.setPen(_pen(BLUE, 1.3))

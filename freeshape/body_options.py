@@ -37,15 +37,47 @@ def curve_wires(state, p):
     split_network() sorts out."""
     from . import features as F
     out = []
+    loose = []                                       # single edges (of parts or sketch regions): joined up below
     for ref in p.get("curves", []) or []:
         if ref.get("kind") == "outline":
             out += outline_wires([F.outline_face(state, ref)])
+            continue
+        if ref.get("kind") == "region_edge":
+            loose.append(F.region_edge(state, ref))
+            continue
+        if ref.get("kind") == "edge":
+            loose.append(F.resolve(state, ref["edge"], "edge")[1])
             continue
         net = _branching_sketch_network(state, ref)
         if net is not None:
             out += net
         else:
             out.append(F._path_wire(state, [ref]))
+    return out + join_edges(loose)
+
+
+def join_edges(edges, tol=1e-6):
+    """Edges picked one by one, as wires: each run of edges that meet end to end becomes one wire (so the four
+    edges of a square make one closed outline, and three of them a C). Edges that branch are left as their own
+    wires, for split_network() to sort out."""
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeWire
+    left = list(edges)
+    out = []
+    while left:
+        mk = BRepBuilderAPI_MakeWire()
+        mk.Add(left.pop(0))
+        grown = True
+        while grown and left:
+            grown = False
+            for i, e in enumerate(left):
+                trial = BRepBuilderAPI_MakeWire(mk.Wire())
+                trial.Add(e)
+                if trial.IsDone():
+                    mk = trial
+                    left.pop(i)
+                    grown = True
+                    break
+        out.append(mk.Wire())
     return out
 
 
@@ -208,6 +240,10 @@ def picked_normal(state, p):
             return np.asarray(state.sketches[ref["sketch"]].plane.normal, float)
         if ref.get("kind") == "outline" and ref.get("of") == "region":
             sk = state.sketches.get(ref["ref"].get("sketch"))
+            if sk is not None:
+                return np.asarray(sk.plane.normal, float)
+        if ref.get("kind") == "region_edge":
+            sk = state.sketches.get(ref["region"].get("sketch"))
             if sk is not None:
                 return np.asarray(sk.plane.normal, float)
     return None
