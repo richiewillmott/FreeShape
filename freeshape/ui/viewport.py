@@ -1483,14 +1483,16 @@ class Viewport(QOpenGLWidget):
 
     def _draw_scale_bar(self, p: QPainter):
         """A map-style scale bar so sizes on screen are easy to judge."""
+        from .. import units as U
         target_px = 120
-        raw = target_px * self.cam.scale
+        f = U.factor()                                  # a round length in the document's unit
+        raw = target_px * self.cam.scale / f
         mag = 10 ** np.floor(np.log10(raw))
         length = mag
         for m in (1, 2, 5, 10):
             if m * mag <= raw:
                 length = m * mag
-        px = length / self.cam.scale
+        px = length * f / self.cam.scale
         x0 = 16
         y0 = self.height() - (46 if self.status_text else 22)
         dark = QColor(theme.OVERLAY_TEXT)
@@ -1503,8 +1505,11 @@ class Viewport(QOpenGLWidget):
         f.setPixelSize(11)
         f.setBold(True)
         p.setFont(f)
-        label = (f"{length / 1000:g} m" if length >= 1000 else
-                 f"{length:g} mm" if length >= 1 else f"{length * 1000:g} µm")
+        if U.unit() == "mm":
+            label = (f"{length / 1000:g} m" if length >= 1000 else
+                     f"{length:g} mm" if length >= 1 else f"{length * 1000:g} µm")
+        else:
+            label = f"{length:g} {U.unit()}"
         p.drawText(QPointF(x0 + px + 8, y0 + 4), label)
 
     # ================================================================== picking

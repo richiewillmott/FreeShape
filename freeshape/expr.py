@@ -80,7 +80,7 @@ def parse_number(text, angle=False, variables=None):
 
         def sub(m):
             v = (variables or {}).get(m.group(1))
-            if v is None:
+            if v is None or isinstance(v, str):         # undefined, or a text variable: not a number
                 missing.append(m.group(1))
                 return "0"
             return f"({float(v)!r})"
@@ -243,6 +243,110 @@ def check_units(text, want, kinds=None):
     if d is None or d == (0, 0) or d == KIND_DIMS.get(want):
         return None
     return f"that's {dims_name(d)} — this needs {dims_name(KIND_DIMS[want])}"
+
+
+# ---------------------------------------------------------------------- the document's length unit
+def with_unit(text, unit, kinds=None):
+    """Give the bare numbers in a length expression the document's unit, so they keep meaning that unit even if
+    the document's unit changes later: in inches, "#w + 1" becomes "#w + (1 in)" and "2" becomes "(2 in)".
+    Terms that already have a unit or a length variable are left alone. Millimetres: unchanged."""
+    if unit in (None, "mm") or not isinstance(text, str) or not text.strip():
+        return text
+    terms = _split_terms(text.strip().replace(",", ".").replace("×", "*"))
+    out = []
+    for i, (sign, term) in enumerate(terms):
+        term = term.strip()
+        try:
+            d = expr_dims(term, kinds)
+        except UnitError:
+            d = None
+        if d == (0, 0) and term:
+            simple = re.fullmatch(r"\d+(?:\.\d*)?|\.\d+", term)
+            term = f"({term} {unit})" if simple else f"(({term}) * 1 {unit})"
+        if i == 0:
+            out.append(("-" if sign < 0 else "") + term)
+        else:
+            out.append((" - " if sign < 0 else " + ") + term)
+    return "".join(out)
+
+
+def parse_length(text, unit="mm", variables=None, kinds=None):
+    """A length typed in a document whose unit is `unit` (bare numbers are in that unit), in mm; None if it
+    can't be read."""
+    return parse_number(with_unit(text, unit, kinds) if isinstance(text, str) else
+                        (None if text is None else float(text) * {"mm": 1.0, "cm": 10.0, "m": 1000.0,
+                                                                 "in": 25.4, "ft": 304.8}.get(unit, 1.0)),
+                        variables=variables)
+
+
+# ---------------------------------------------------------------------- text values
+def text_problem(text, variables) -> str | None:
+    """If a number box's expression uses a text variable: the reason it can't be a number."""
+    for n in var_names(text):
+        if isinstance((variables or {}).get(n), str):
+            return f"#{n} is text, not a number"
+    return None
+
+
+def is_text_expr(text, variables=None) -> bool:
+    """Is this a text expression: something in quotes, or a text variable?"""
+    if not isinstance(text, str):
+        return False
+    return '"' in text or "'" in text or any(isinstance((variables or {}).get(n), str) for n in var_names(text))
+
+
+def _split_plus(t):
+    """Split at + outside quotes and brackets."""
+    out, depth, q, start = [], 0, None, 0
+    for i, ch in enumerate(t):
+        if q:
+            if ch == q:
+                q = None
+        elif ch in "\"'":
+            q = ch
+        elif ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == "+" and depth == 0:
+            out.append(t[start:i])
+            start = i + 1
+    if q:
+        raise ValueError("a quote isn't closed")
+    out.append(t[start:])
+    return out
+
+
+def eval_text(text, variables=None) -> str:
+    """A text expression, as Onshape's text variables: "Rev B", #rev, "PN-" + #part + "-" + #size. Pieces joined
+    with + are quoted text, variables (text, or numbers written out) or number expressions. Raises ValueError with
+    the reason when it can't be read."""
+    if not isinstance(text, str):
+        return fmt(float(text))
+    out = []
+    for piece in _split_plus(text.strip()):
+        s = piece.strip()
+        if not s:
+            raise ValueError("something is missing either side of a +")
+        if len(s) >= 2 and s[0] == s[-1] and s[0] in "\"'":
+            out.append(s[1:-1])
+            continue
+        m = re.fullmatch(r"#([A-Za-z_][A-Za-z0-9_]*)", s)
+        if m:
+            if m.group(1) not in (variables or {}):
+                raise ValueError(f"#{m.group(1)} isn't defined")
+            v = variables[m.group(1)]
+            out.append(v if isinstance(v, str) else fmt(v))
+            continue
+        why = text_problem(s, variables)
+        if why:
+            raise ValueError(why)
+        v = parse_number(s, variables=variables)
+        if v is None:
+            missing = [n for n in var_names(s) if n not in (variables or {})]
+            raise ValueError(f"#{missing[0]} isn't defined" if missing else f"can't read {s!r} (text goes in quotes)")
+        out.append(fmt(v))
+    return "".join(out)
 
 
 def fmt(v, digits=4) -> str:

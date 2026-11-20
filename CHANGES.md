@@ -1,6 +1,58 @@
 # FreeShape revisions
 
-## Unreleased
+## 2.3.0
+
+Sub-assemblies, inch units, an Onshape-style toolbar, one Variable feature with units and text, STL resolution,
+your own icons, five new plugins, and fixes for chamfers next to fillets and for small screens.
+
+### Units: inches and more
+- Each Part Studio and Assembly has its own **length unit** — millimetre, centimetre, metre, **inch** or foot —
+  chosen from **Units ▾** at the bottom right (which also sets the default for new documents). Feature boxes, sketch
+  dimensions and the values you type as you draw, the move triad, measurements, mass properties, variables measured
+  from the model and the scale bar all use it, and a bare number you type is in it. `25 mm` or `1 in` always work.
+- The model itself is still worked out in millimetres, so changing the unit never changes the part: a 25.4 mm
+  block shows as 1 in. Expressions keep the unit they were typed in (`#w + 1` typed in inches is saved as
+  `#w + (1 in)`), so changing the unit later doesn't change what they mean. Drawings stay in millimetres for now.
+
+### Toolbars organised like Onshape's
+- **Sketch comes first**, with its name beside a new icon, then the features in Onshape's order and groups: make
+  (Extrude, Revolve, Sweep, Loft, Thicken ▾), change (Fillet, Chamfer, Draft, Rib, Shell, Hole ▾), copy (Pattern ▾,
+  Mirror), parts (Boolean, Split, Transform, Delete part, Compound ▾, direct edits ▾), Plane ▾, Sheet metal ▾,
+  then variables, configurations and the rest. Related tools share a button with a **▾** menu (the button runs the
+  first one), so the toolbar is about 400 pixels shorter.
+- The sketch toolbar groups variants the same way — rectangle / centre rectangle / hexagon, circle / ellipse, the
+  two arcs, the two patterns — and the shared button shows and repeats the one used last.
+- The feature list starts with a **Default geometry** group (origin, Top, Front, Right) that folds away.
+- Hovering the origin or a default plane in the feature list highlights it in the 3D view, as in Onshape.
+
+### Sub-assemblies
+- **Insert an assembly into an assembly.** Open assemblies are listed in the Insert panel (*as a sub-assembly*),
+  and *From file…* takes a `.fasm`. The sub-assembly comes in laid out as it is in its own tab and moves as **one
+  rigid group**: drag, move or turn any of its parts and the rest follow, fix or unfix it as a whole, and it counts
+  as one body for degrees of freedom. **Mate to any of its parts** like any other instance.
+- **It stays linked:** add, remove or move parts in the sub-assembly's own tab (or file) and the assembly using it
+  follows. The parts are saved in the file too, so it still opens if the sub-assembly's file is missing.
+- Sub-assemblies can contain sub-assemblies; an assembly can't contain itself (directly or further down).
+  Deleting any of a sub-assembly's parts removes the whole sub-assembly (Ctrl+Z brings it back). The parts list,
+  drawings and export list every part.
+
+### Text variables (issue #31 follow-up)
+- **Any expression** variables can hold **text**: `"Rev B"`, or built from pieces with `+`, like
+  `"PN-" + #part + "-" + #size` (numbers are written out). The feature list shows `#rev = "Rev B"`.
+- **Sketch text from variables:** tick *From variables* in the sketch Text dialog and type an expression such as
+  `#rev` or `"PN-" + #part`; the letters change whenever the variable (or the configuration) does.
+- A text variable in a number box is a clear error ("#rev is text, not a number").
+
+### STL resolution
+- Exporting STL asks for the resolution: **Coarse**, **Medium** (as before), **Fine**, or **Custom** with your own
+  deviation (mm) and angle (°). The choice is remembered. Each export makes a fresh mesh, so a fine export no longer
+  sticks to the part for later coarse ones.
+
+### Your own icons (issue #30)
+- **View ▸ Icons**: put an `.svg` or `.png` named like a tool (`extrude.svg`, `fillet.png`, `plugin_gridfinity.svg`
+  …) in your icons folder and it replaces the built-in icon, on the toolbars and in the feature list. *Save the
+  built-in icons there* writes every built-in icon as a PNG with the right name, to start from; *Reload icons*
+  applies changes without restarting. Delete a file to get the built-in icon back.
 
 ### New example plugins
 Document ▸ Plugins ▸ Manage plugins… ▸ **Add the examples** installs them.
@@ -11,10 +63,14 @@ Document ▸ Plugins ▸ Manage plugins… ▸ **Add the examples** installs the
 - **Lighten** — triangle (isogrid), hexagon or circle pockets in flat faces, through or to a depth, with set rib
   width and a solid border round the edges and holes; corners rounded.
 - **Laser-cut box** — six finger-jointed panels from the size and sheet thickness (outside or inside sizes, with
-  or without a lid), assembled or laid flat; **Export flat panels as DXF…** writes them for the laser cutter.
+  or without a lid), assembled or laid flat, with a **kerf** setting so cut parts come out the drawn size and the
+  joints are snug; **Export flat panels as DXF…** writes them for the laser cutter.
 - **Batch export parts…** — every part, or the selected ones, to its own STL and / or STEP file named after it.
 
 ### Fixes
+- **Chamfer after a fillet** — chamfering a straight side edge that runs up into filleted (rounded) edges failed
+  with "Chamfer too large" even for small sizes, because OpenCascade's chamfer can't finish at the rounded corner.
+  Such edges are now bevelled by cutting along them, carried on through the rounded corner, as Onshape does.
 - **Window wider than the screen** — on a 1920-pixel (or smaller) screen the Part Studio toolbar made the window
   wider than the screen, cutting off the view cube until it was un-maximised and maximised again. The toolbars now
   scroll sideways when they don't fit (mouse wheel over them, or the ‹ › at their ends), and FreeShape opens at a

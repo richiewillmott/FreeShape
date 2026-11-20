@@ -56,6 +56,10 @@ Drag points or curves with the select tool and everything constrained follows. D
 edit it. `Del` deletes, `Ctrl+Z` undoes inside the sketch. Closed areas become shaded **regions** — overlapping
 shapes give separate regions, exactly like Onshape.
 
+**Units** — **Units ▾** at the bottom right sets this document's length unit: millimetre, centimetre, metre, inch
+or foot (and the default for new documents). Lengths are shown in it, and a bare number you type is in it; `25 mm`
+or `1 in` always mean what they say. The part itself is the same whatever the unit.
+
 **Variables** — the **(x)** button defines a named value, e.g. `#wall = 3`. Pick its type (Length, Angle, Number,
 Any expression, or one of the measured types) and, for a length or angle, its unit: `1` with unit *m* is 1000 mm.
 Type `#wall` (or `#wall * 2 + 1`) in any dimension or feature field; edit the variable later and everything that
@@ -63,6 +67,14 @@ uses it updates. **Units are checked**: an angle in a length box (`#angle` or `9
 area as a length is an error saying so, never a silent wrong number, and a box you can't use keeps your text and
 says why (and ✓ waits until it's fixed). Variables appear in the feature list, so you can define them part-way
 through and use them in later features.
+
+**Text variables** — choose *Any expression* and type text in quotes (`"Rev B"`), or build it with `+`
+(`"PN-" + #part + "-" + #size`). Sketch text can use them: tick *From variables* in the Text dialog and type
+`#rev` or an expression, and the letters follow the variable (and the configuration).
+
+**Your own icons** — View ▸ Icons ▸ *Open my icons folder…*: an `.svg` or `.png` there named like a tool
+(`extrude.svg`, `fillet.png`; a plugin feature is `plugin_<id>`) replaces the built-in icon. *Save the built-in
+icons there* writes them all as PNGs with the right names to start from; *Reload icons* applies changes. [ICONS.md](ICONS.md) lists every icon name.
 
 **Part features** — each opens a floating dialog with a live preview; ✓ (Enter) accepts, ✕ (Esc) cancels.
 Things selected before opening a feature are pre-filled. Extrude and Plane show a **blue arrow you can drag** to set the depth/offset (drag back past the start to flip direction; hold Shift for finer, unsnapped values).
@@ -128,6 +140,8 @@ Things selected before opening a feature are pre-filled. Extrude and Plane show 
 - **Boolean** — union, subtract, intersect parts (intersect keeps only the targets' material inside the tools —
   Onshape's *subtract complement*).
 - **Import STEP / BREP** and **Export STEP / STL / BREP** (whole studio, or selected parts from the Parts list).
+  STL asks for the resolution: Coarse, Medium, Fine or Custom (the largest distance from the true surface, and the
+  largest angle between neighbouring facets).
 
 **Feature list** — double-click to edit any feature; the model rolls back while you edit and everything
 after it regenerates when you accept. Right-click for rename, suppress, roll to here, hide/show, delete, and
@@ -184,6 +198,10 @@ tab puts parts together and lets them move the way the real thing would — like
 - **Insert** (`I`) — pick parts from any open Part Studio tab (or a whole Part Studio at once), or from a `.fshape`
   or STEP file. Parts from Part Studios stay **linked**: change the part in its tab and the assembly updates when
   you come back to it. The first part inserted is **fixed** (⚓); everything else can move.
+- **Sub-assemblies** — open assemblies are listed in the Insert panel too (*as a sub-assembly*), and *From file…*
+  takes a `.fasm`. A sub-assembly moves as one rigid group: drag any of its parts and the rest follow, and it is
+  fixed, hidden or deleted as a whole. Mate to any of its parts. Edit it in its own tab (or file) and the assembly
+  follows; its parts are listed as *Sub-assembly <1> / Part <1>*.
 - **Drag** a part with the left mouse button to move it. Mated parts move only the way their mates allow — drag
   the arm of a hinge and it swings round the pin. If nothing in a mated group is fixed, the whole group slides.
 - **Move / rotate triad** — click a part and a triad appears where you clicked, like Onshape's: drag an **arrow**
@@ -285,7 +303,7 @@ This is a capable hobby/prototyping tool, not a replacement for Onshape:
 - Some feature options are still missing — conic fillets, loft guide curves and start / end tangency, and
   parting-line draft; sweep takes one guide curve; Rib takes straight lines that already reach the part; and
   there's no Fill, Extend surface, Replace face or Wrap yet. [FEATURE_PARITY.md](../FEATURE_PARITY.md) has the full list.
-- Assemblies are one level deep (no sub-assemblies yet), and there are no mate limits.
+- Sub-assemblies are rigid (no flexible sub-assemblies yet), and there are no mate limits.
 - Sheet metal has no rolled / conical sheet, and cuts that cross a bend are left out of the flat pattern.
 - Drawings have no broken views, angle dimensions, hole tables, GD&T or multiple sheets yet.
 - The installers aren't code-signed yet, so Windows and macOS warn the first time you run them.
@@ -296,4 +314,4 @@ This is a capable hobby/prototyping tool, not a replacement for Onshape:
   more robust here.
 - The sketch solver is a numerical least-squares solver: it is fine for typical sketches (tens of entities),
   not for huge ones.
-- Default units are millimetres.
+- Drawings are in millimetres whatever the document unit.

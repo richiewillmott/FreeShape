@@ -80,7 +80,12 @@ QToolButton:hover {{ background: {g['ACCENT_LIGHT']}; border-color: {g['ACCENT_B
 QToolButton:checked {{ background: {g['ACCENT_SOFT']}; border-color: {g['ACCENT']}; }}
 QToolButton:disabled {{ color: {g['TEXT_MUTED']}; }}
 QToolButton#menuButton {{ padding: 4px 8px; font-weight: 600; }}
+QToolButton#unitsButton {{ padding: 2px 6px; color: {g['TEXT_MUTED']}; }}
 QToolButton::menu-indicator {{ image: none; width: 0; }}
+QToolButton[popupMode="1"] {{ padding-right: 12px; }}
+QToolButton::menu-button {{ border: none; width: 11px; border-top-right-radius: 4px; border-bottom-right-radius: 4px; }}
+QToolButton::menu-button:hover {{ background: {g['ACCENT_SOFT']}; }}
+QToolButton#sketchButton {{ font-weight: 600; padding: 3px 9px 3px 4px; }}
 QFrame#sep {{ background: {g['BORDER']}; max-width: 1px; min-width: 1px; margin: 6px 4px; }}
 
 QWidget#leftpanel {{ background: {g['PANEL']}; border-right: 1px solid {g['BORDER']}; }}

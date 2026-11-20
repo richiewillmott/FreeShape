@@ -57,6 +57,7 @@ class Document:
         # configuration table: {"rows": [{"name", "vars": {name: expr}, "suppress": [fid]}], "active": index}
         self.configs: dict = {"rows": [], "active": 0}
         self.named_views: dict = {}               # name -> {"target", "R", "scale", "perspective"} (View ▸ Named views)
+        self.units = "mm"                         # what lengths are shown and typed in: mm cm m in ft
         self.derived_fallback: dict = {}          # derived feature id -> saved copy of its parts (from the file)
         self.plugin_fallback: dict = {}           # plugin feature id -> saved copy of what it made (from the file)
         self.versions: list = []                  # version history (see history.py), oldest first
@@ -619,7 +620,7 @@ class Document:
                            "overrides": self.part_overrides, "hidden": sorted(self.hidden_parts),
                            "hidden_features": sorted(self.hidden_features), "folders": self.folders,
                            "configs": self.configs, "versions": self.versions,
-                           "named_views": self.named_views,
+                           "named_views": self.named_views, "units": self.units,
                            "version_blobs": self.version_blobs}, indent=1)
 
     def save(self, path=None, version=True):
@@ -691,6 +692,7 @@ class Document:
         doc.folders = d.get("folders", {})
         doc.configs = d.get("configs", {"rows": [], "active": 0})
         doc.named_views = d.get("named_views", {})
+        doc.units = d.get("units", "mm")
         doc.derived_fallback = d.get("derived_copies", {})
         doc.plugin_fallback = d.get("plugin_copies", {})
         doc.versions = d.get("versions", [])
@@ -704,13 +706,14 @@ class Document:
     def visible_parts(self):
         return [p for p in self.state.parts.values() if p.id not in self.hidden_parts]
 
-    def export(self, path, part_ids=None):
+    def export(self, path, part_ids=None, stl=None):
+        """stl: (deviation mm, angle °) for STL files; the medium resolution if not given."""
         parts = [p for p in self.state.parts.values() if part_ids is None or p.id in part_ids]
         if not parts:
             raise K.KernelError("Nothing to export")
         shapes = [p.shape for p in parts]
         if str(path).lower().endswith((".stl",)):
-            K.export_stl(shapes, path)
+            K.export_stl(shapes, path, *(stl or K.STL_RESOLUTIONS["medium"]))
         elif str(path).lower().endswith((".brep", ".brp")):
             K.export_brep(shapes, path)
         else:

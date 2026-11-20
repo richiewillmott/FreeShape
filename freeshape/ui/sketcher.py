@@ -10,6 +10,8 @@ from PySide6.QtGui import QColor, QFont, QPen, QPainterPath, QPolygonF, QFontMet
 from PySide6.QtWidgets import QLineEdit
 
 from .. import kernel as K
+from .. import units as U
+from ..expr import with_unit
 from ..sketch import Sketch, ORIGIN, DIMENSIONS, CONSTRAINT_LABELS
 from . import theme
 from . import boxsel
@@ -1301,16 +1303,41 @@ class Sketcher:
         dlg = QDialog(vp.window() if hasattr(vp, "window") else None)
         dlg.setWindowTitle("Edit text" if e else "Text")
         form = QFormLayout(dlg)
-        txt = QLineEdit(e.get("text", ""))
+        txt = QLineEdit(e.get("expr") or e.get("text", ""))
         txt.setPlaceholderText("Type the text")
         form.addRow("Text:", txt)
+        from PySide6.QtWidgets import QLabel
+        use_expr = QCheckBox('From variables — e.g. #rev, or "PN-" + #part (text in quotes)')
+        use_expr.setChecked(bool(e.get("expr")))
+        form.addRow("", use_expr)
+        shows = QLabel("")
+        shows.setStyleSheet("color:#5f6b7a;")
+        form.addRow("", shows)
+
+        def check():
+            from ..expr import eval_text
+            if not use_expr.isChecked():
+                shows.setText("")
+                return True
+            try:
+                out = eval_text(txt.text(), self.variables)
+            except ValueError as err:
+                shows.setText(f"⚠ {err}")
+                shows.setStyleSheet("color:#d93025;")
+                return False
+            shows.setText(f"Shows: {out}")
+            shows.setStyleSheet("color:#5f6b7a;")
+            return bool(out.strip())
+        txt.textChanged.connect(lambda _t: check())
+        use_expr.toggled.connect(lambda _c: check())
+        check()
         font = QFontComboBox()
         font.setCurrentFont(_QF(e.get("font", "Arial")))
         form.addRow("Font:", font)
         size = QDoubleSpinBox()
         size.setRange(0.1, 10000)
         size.setDecimals(2)
-        size.setSuffix(" mm")
+        size.setSuffix(" mm")                       # (text size: always mm, like a font size)
         size.setValue(float(e.get("size", getattr(self, "_last_text_size", 10.0))))
         form.addRow("Size:", size)
         style = QHBoxLayout()
@@ -1331,11 +1358,19 @@ class Sketcher:
         bb.rejected.connect(dlg.reject)
         form.addRow(bb)
         txt.setFocus()
-        if dlg.exec() != QDialog.Accepted or not txt.text().strip():
-            return None
+        while True:
+            if dlg.exec() != QDialog.Accepted or not txt.text().strip():
+                return None
+            if check():
+                break
         self._last_text_size = size.value()
-        return {"text": txt.text(), "font": font.currentFont().family(), "size": size.value(),
-                "bold": bold.isChecked(), "italic": italic.isChecked(), "angle": ang.value()}
+        vals = {"text": txt.text(), "font": font.currentFont().family(), "size": size.value(),
+                "bold": bold.isChecked(), "italic": italic.isChecked(), "angle": ang.value(), "expr": None}
+        if use_expr.isChecked():
+            from ..expr import eval_text
+            vals["expr"] = txt.text()
+            vals["text"] = eval_text(txt.text(), self.variables)
+        return vals
 
     def edit_text(self, vp, eid):
         e = self.sk.entities.get(eid)
@@ -1648,12 +1683,16 @@ class Sketcher:
 
         run(initial)
         s = self.scr(vp, uv_pos)
-        ed = self._make_editor(vp, s[0] + 70, s[1] - 26, fmt(initial))
-        ed.setToolTip(label)
+        is_len = not integer and "angle" not in label.lower() and "number" not in label.lower()
+        ed = self._make_editor(vp, s[0] + 70, s[1] - 26, U.num(initial) if is_len else fmt(initial))
+        ed.setToolTip(label + (f" ({U.unit()})" if is_len else ""))
         ed.setPlaceholderText(label)
 
+        def read(txt):
+            return parse_number(with_unit(txt, U.unit()) if is_len else txt, variables=self.variables)
+
         def edited(_t):
-            v = parse_number(ed.text(), variables=self.variables)
+            v = read(ed.text())
             if valid(v):
                 run(int(round(v)) if integer else v)
 
@@ -1669,7 +1708,8 @@ class Sketcher:
             elif has_vars(txt) and expr_target:
                 c = expr_target()
                 if c is not None:
-                    c["expr"] = txt if expr_scale == 1.0 else f"({txt})*{expr_scale}"
+                    t2 = with_unit(txt, U.unit()) if is_len else txt
+                    c["expr"] = t2 if expr_scale == 1.0 else f"({t2})*{expr_scale}"
             self._prompt_label = None
             self.changed(True)
             vp.status_text = self.hint()
@@ -1706,13 +1746,13 @@ class Sketcher:
         ctype, refs, value, pos = offers[0]
         rest = offers[1:]
         s = self.scr(vp, pos)
-        ed = self._make_editor(vp, s[0], s[1], fmt(value))
+        ed = self._make_editor(vp, s[0], s[1], U.num(value))
         ed.setToolTip("Type a value and press Enter to dimension it — or just keep drawing")
 
         def commit():
             if self._editor is not ed:
                 return
-            txt = ed.text().strip()
+            txt = with_unit(ed.text().strip(), U.unit())
             v = parse_number(txt, variables=self.variables)
             self._close_editor()
             # (refs can be curves or points: e.g. a hexagon's across-flats runs from a corner to a side)
@@ -1759,7 +1799,7 @@ class Sketcher:
         ed = QLineEdit(vp)
         ed.setFixedWidth(110)
         unit = "deg" if c["type"] == "angle" else "mm"
-        ed.setText(c.get("expr") or fmt(c["value"]))
+        ed.setText(c.get("expr") or (fmt(c["value"]) if unit == "deg" else U.num(c["value"])))
         ed.selectAll()
         r = self._dim_rects.get(c["id"])
         if r is None:
@@ -1775,6 +1815,8 @@ class Sketcher:
             if self._editor is not ed:
                 return
             txt = ed.text().strip()
+            if unit != "deg":
+                txt = with_unit(txt, U.unit())         # a bare number is in the document's unit
             v = parse_number(txt, angle=(unit == "deg"), variables=self.variables)
             self._close_editor()
             if v is None or (c["type"] != "angle" and v <= 0):
@@ -2204,14 +2246,14 @@ class Sketcher:
         if self.cursor_uv is not None:
             txt = None
             if self.tool == "line" and self.chain_anchor is not None:
-                txt = fmt(np.linalg.norm(self.cursor_uv - self.sk.P(self.chain_anchor)))
+                txt = U.num(np.linalg.norm(self.cursor_uv - self.sk.P(self.chain_anchor)))
             elif self.tool in ("circle",) and self.temp:
-                txt = "Ø" + fmt(2 * np.linalg.norm(self.cursor_uv - self.temp[0][0]))
+                txt = "Ø" + U.num(2 * np.linalg.norm(self.cursor_uv - self.temp[0][0]))
             elif self.tool == "hexagon" and self.temp:
-                txt = fmt(math.sqrt(3) * np.linalg.norm(self.cursor_uv - self.temp[0][0])) + " A/F"
+                txt = U.num(math.sqrt(3) * np.linalg.norm(self.cursor_uv - self.temp[0][0])) + " A/F"
             elif self.tool in ("rect", "center_rect") and self.temp:
                 d = np.abs(self.cursor_uv - self.temp[0][0]) * (2 if self.tool == "center_rect" else 1)
-                txt = f"{fmt(d[0])} × {fmt(d[1])}"
+                txt = f"{U.num(d[0])} × {U.num(d[1])}"
             if txt:
                 s = self.scr(vp, self.cursor_uv)
                 f3 = QFont()
@@ -2270,11 +2312,11 @@ class Sketcher:
         if t == "angle":
             text = fmt(val) + "°"
         elif t == "diameter":
-            text = "Ø" + fmt(val)
+            text = "Ø" + U.num(val)
         elif t == "radius":
-            text = "R" + fmt(val)
+            text = "R" + U.num(val)
         else:
-            text = fmt(val)
+            text = U.num(val)
         if c.get("expr"):
             text = f"{c['expr']} ({text})"
         pos = np.array(c["pos"]) if c.get("pos") else None

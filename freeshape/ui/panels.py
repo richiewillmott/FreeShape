@@ -102,7 +102,7 @@ class _EyeDelegate(QStyledItemDelegate):
                        opt.rect.height())
         style = self.view.style()
         style.drawPrimitive(QStyle.PE_PanelItemViewItem, o, p, self.view)
-        is_folder = index.data(ROLE_KIND) == "folder"
+        is_folder = index.data(ROLE_KIND) in ("folder", "group")
         if is_folder:
             paint_chevron(p, chevron_rect(opt.rect), bool(index.data(ROLE_OPEN)))
             o.rect = o.rect.adjusted(CHEVRON_W, 0, 0, 0)
@@ -196,6 +196,7 @@ class FeatureList(_EyeMixin, QListWidget):
         self.itemClicked.connect(self._clicked)
         self._filter = ""
         self._folder_of = {}
+        self._default_open = True            # the "Default geometry" group (origin and the three planes)
         self._eye_setup()
 
     def populate(self, doc, editing_id=None):
@@ -204,19 +205,31 @@ class FeatureList(_EyeMixin, QListWidget):
         self._folder_of = {f["id"]: f.get("folder") for f in doc.features}
         bold = QFont()
         bold.setBold(True)
+        # like Onshape: the origin and the three planes sit in a "Default geometry" group that folds away
+        g = QListWidgetItem("Default geometry")
+        g.setData(ROLE_KIND, "group")
+        g.setData(ROLE_ID, "default")
+        g.setData(ROLE_OPEN, self._default_open)
+        g.setFlags(Qt.ItemIsEnabled)
+        g.setToolTip("The origin and the Top, Front and Right planes (click the arrow to fold them away)")
+        self.addItem(g)
         it = QListWidgetItem(icon("origin"), "Origin")
         it.setData(ROLE_KIND, "origin")
+        it.setData(ROLE_INDENT, True)
         it.setFlags(Qt.ItemIsEnabled)
         self.addItem(it)
+        it.setHidden(not self._default_open)
         for name in STD_PLANES:
             it = QListWidgetItem(icon("plane"), name)
             it.setData(ROLE_KIND, "std_plane")
             it.setData(ROLE_ID, name)
+            it.setData(ROLE_INDENT, True)
             it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
             it.setData(ROLE_EYE, "hidden" if name in doc.hidden_features else "shown")
             if name in doc.hidden_features:
                 it.setForeground(QColor("#9aa3ae"))
             self.addItem(it)
+            it.setHidden(not self._default_open)
         active = doc.active_count()
         feats = doc.features
         folders = getattr(doc, "folders", {}) or {}
@@ -334,14 +347,28 @@ class FeatureList(_EyeMixin, QListWidget):
         return out
 
     def _entered(self, it):
-        fid = it.data(ROLE_ID) if it is not None and it.data(ROLE_KIND) == "feature" else None
+        k = it.data(ROLE_KIND) if it is not None else None
+        # a feature's id; the default planes and the origin are highlighted too ("std:Top", "origin")
+        fid = it.data(ROLE_ID) if k == "feature" else f"std:{it.data(ROLE_ID)}" if k == "std_plane" else \
+            "origin" if k == "origin" else None
         if fid != self._hover_fid:
             self._hover_fid = fid
             self.featureHovered.emit(fid)
 
+    def toggle_default_geometry(self):
+        self._default_open = not self._default_open
+        for i in range(self.count()):
+            it = self.item(i)
+            k = it.data(ROLE_KIND)
+            if k == "group":
+                it.setData(ROLE_OPEN, self._default_open)
+            elif k in ("origin", "std_plane"):
+                it.setHidden(not self._default_open)
+        self.viewport().update()
+
     def _chevron_hit(self, pos):
         it = self.itemAt(pos)
-        if it is None or it.data(ROLE_KIND) != "folder":
+        if it is None or it.data(ROLE_KIND) not in ("folder", "group"):
             return None
         r = self.visualItemRect(it)
         return it if pos.x() < r.left() + CHEVRON_W + 2 else None
@@ -354,8 +381,14 @@ class FeatureList(_EyeMixin, QListWidget):
             e.accept()
             return
         it = self._chevron_hit(pos) if e.button() == Qt.LeftButton else None
+        if it is None and e.button() == Qt.LeftButton:
+            row = self.itemAt(pos)
+            it = row if row is not None and row.data(ROLE_KIND) == "group" else None    # the whole row folds
         if it is not None:
-            self.folderToggled.emit(it.data(ROLE_ID))
+            if it.data(ROLE_KIND) == "group":
+                self.toggle_default_geometry()
+            else:
+                self.folderToggled.emit(it.data(ROLE_ID))
             e.accept()
             return
         super().mousePressEvent(e)
@@ -366,6 +399,9 @@ class FeatureList(_EyeMixin, QListWidget):
             e.accept()
             return
         it = self.itemAt(pos)
+        if it is not None and it.data(ROLE_KIND) == "group":
+            e.accept()
+            return
         if it is not None and it.data(ROLE_KIND) == "folder":
             self.folderToggled.emit(it.data(ROLE_ID))
             e.accept()

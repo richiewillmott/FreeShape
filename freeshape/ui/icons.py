@@ -87,15 +87,31 @@ def draw(name: str, p: QPainter):
         p.setPen(Qt.NoPen)
         p.drawPolygon(QPolygonF([QPointF(5, 9), QPointF(13, 9), QPointF(7, 17)]))
     elif name == "sketch":
-        p.setPen(_pen(INK, 1.2))
-        p.setBrush(QColor("#eef3fa"))
-        p.drawPolygon(QPolygonF([QPointF(3, 22), QPointF(11, 14), QPointF(29, 14), QPointF(21, 22)]))
-        p.setPen(_pen(BLUE, 1.8))
-        p.drawEllipse(QPointF(16, 18), 4.5, 2.2)
-        p.setPen(_pen(INK, 1.6))
-        p.drawLine(QPointF(20, 4), QPointF(27, 11))
-        p.setBrush(ORANGE)
-        p.drawPolygon(QPolygonF([QPointF(20, 4), QPointF(23, 3), QPointF(28, 8), QPointF(27, 11)]))
+        # a sketch plane seen at an angle, a curve drawn on it, and the pencil drawing it
+        p.setPen(_pen(BLUE, 1.3))
+        p.setBrush(QColor(156, 195, 240, 110))
+        p.drawPolygon(QPolygonF([QPointF(2, 25), QPointF(10, 16), QPointF(30, 16), QPointF(22, 25)]))
+        path = QPainterPath()
+        path.moveTo(7, 22.5)
+        path.cubicTo(10, 18.5, 13, 23.5, 16.5, 20.5)
+        p.setPen(_pen(INK, 1.7))
+        p.setBrush(Qt.NoBrush)
+        p.drawPath(path)
+        _dot(p, 7, 22.5, INK, 1.5)
+        p.save()                                    # the pencil, tip at the end of the curve
+        p.translate(16.5, 20.5)
+        p.rotate(-50)
+        p.setPen(_pen(INK, 1.1))
+        p.setBrush(QColor("#f5c542"))               # body
+        p.drawRect(QRectF(4.5, -2.4, 13, 4.8))
+        p.setBrush(QColor("#e88a9a"))               # eraser
+        p.drawRect(QRectF(17.5, -2.4, 3, 4.8))
+        p.setBrush(QColor("#f1d9b5"))               # sharpened wood
+        p.drawPolygon(QPolygonF([QPointF(4.5, -2.4), QPointF(0, 0), QPointF(4.5, 2.4)]))
+        p.setPen(Qt.NoPen)
+        p.setBrush(INK)                             # graphite point
+        p.drawPolygon(QPolygonF([QPointF(1.6, -0.85), QPointF(0, 0), QPointF(1.6, 0.85)]))
+        p.restore()
     elif name == "extrude":
         _box(p, 6, 16, 14, 10, 6)
         _arrow(p, 16, 12, 16, 3, ORANGE, 2)
@@ -883,8 +899,39 @@ def draw_constraint(name, p: QPainter, rect: QRectF):
     p.drawText(rect, Qt.AlignCenter, s)
 
 
-@lru_cache(maxsize=None)
-def icon(name: str, size: int = 32) -> QIcon:
+def user_icons_dir() -> str:
+    """Your own icons: $FREESHAPE_ICONS, or an 'icons' folder in FreeShape's data folder (next to 'plugins')."""
+    import os
+    env = os.environ.get("FREESHAPE_ICONS")
+    if env:
+        return env
+    base = None
+    try:
+        from PySide6.QtCore import QStandardPaths
+        g = QStandardPaths.writableLocation(QStandardPaths.GenericDataLocation)
+        base = os.path.join(g, "FreeShape") if g else None
+    except Exception:
+        pass
+    return os.path.normpath(os.path.join(base or os.path.expanduser("~/.freeshape"), "icons"))
+
+
+def file_stem(name: str) -> str:
+    """The file name for an icon: 'extrude', 'plugin_gridfinity' (for 'plugin:gridfinity') …"""
+    return name.replace(":", "_")
+
+
+def user_icon_path(name: str):
+    """Your icon for `name` (an .svg or .png in the icons folder), or None."""
+    import os
+    d = user_icons_dir()
+    for ext in (".svg", ".png"):
+        path = os.path.join(d, file_stem(name) + ext)
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def builtin_icon(name: str, size: int = 32) -> QIcon:
     ic = QIcon()
     for scale in (1, 2):
         pm = QPixmap(size * scale, size * scale)
@@ -897,3 +944,30 @@ def icon(name: str, size: int = 32) -> QIcon:
         pm.setDevicePixelRatio(scale)
         ic.addPixmap(pm)
     return ic
+
+
+@lru_cache(maxsize=None)
+def icon(name: str, size: int = 32) -> QIcon:
+    """The icon for a tool: yours from the icons folder if there is one, otherwise the built-in drawing. A plugin
+    feature without its own icon gets the jigsaw piece."""
+    path = user_icon_path(name)
+    if path:
+        ic = QIcon(path)
+        if not ic.isNull():
+            return ic
+    return builtin_icon(name, size)
+
+
+def export_builtin(names, folder, size=64) -> int:
+    """Write the built-in icons as PNGs (a starting point for your own); returns how many were written."""
+    import os
+    os.makedirs(folder, exist_ok=True)
+    n = 0
+    for name in sorted(set(names)):
+        pm = builtin_icon(name, size).pixmap(size, size)
+        if pm.save(os.path.join(folder, file_stem(name) + ".png")):
+            n += 1
+    with open(os.path.join(folder, "names.txt"), "w", encoding="utf-8") as fh:
+        fh.write("Icon file names (add .svg or .png):\n\n" + "\n".join(file_stem(x) for x in sorted(set(names))) + "\n")
+    return n
+

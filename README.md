@@ -18,8 +18,8 @@ OpenCascade kernel FreeCAD uses, so you get real B-rep solids and proper STEP fi
 - **Part Studios** — constrained sketches; extrude, revolve, sweep and loft as solids, surfaces or thin walls;
   fillets, chamfers, shell, draft, holes and real ISO threads; patterns, mirror, booleans, split; variables with
   units, and variables *measured from the model* that follow every change.
-- **Assemblies** — Onshape-style mates, gear / rack / screw relations, a standard parts library (ISO screws, nuts,
-  bearings), exploded views, interference check and bill of materials.
+- **Assemblies** — Onshape-style mates, sub-assemblies, gear / rack / screw relations, a standard parts library
+  (ISO screws, nuts, bearings), exploded views, interference check and bill of materials.
 - **Drawings** — projected, section and detail views, dimensions that follow the model, parts lists and balloons;
   export **PDF** or **DXF with real AutoCAD dimensions**.
 - **Sheet metal** — flanges, hems, jogs and tabs, exact flat patterns with bend lines, and nesting on stock
@@ -34,14 +34,17 @@ OpenCascade kernel FreeCAD uses, so you get real B-rep solids and proper STEP fi
 |---|---|---|---|
 | ![](docs/screenshot.png) | ![](docs/images/assembly.png) | ![](docs/images/drawing.png) | ![](docs/images/sheet_metal.png) |
 
-## New in 2.2
+## New in 2.3
 
-- **Thicken, Enclose, Rib, Helix, Delete part and Bounding box** from Onshape's feature menu.
-- **Variables measured from the model** — distance, angle, area, volume and more, re-measured on every rebuild.
-  Select something and press **(x)**.
-- **Compound** (from SALOME) — solids that share the faces where they touch, for conformal meshing.
-- **Surfaces from crossing curves** — a + or a T extrudes into one surface per arm, where Onshape errors.
-- **Onshape's view options** — perspective, translucent, hidden edges, named views and more.
+- **Sub-assemblies** — insert an assembly into another as one rigid group, mate to any of its parts, and it
+  follows edits made to it.
+- **Inch units** — each document in mm, cm, m, inches or feet.
+- **Toolbars organised like Onshape's** — Sketch first, related tools grouped under ▾, a foldable *Default
+  geometry* group.
+- **One Variable feature with units** — Length, Angle, Number, text or measured from the model; units are checked,
+  so a wrong kind of value is an error instead of a silent wrong number.
+- **Plugins** — Gridfinity bins, timing pulleys, Lighten pockets, laser-cut boxes, batch export.
+- **STL resolution**, **your own icons**, and fixes: chamfers next to fillets, and the window fits small screens.
 
 Full history in [CHANGES.md](CHANGES.md).
 
@@ -71,7 +74,7 @@ progress against Onshape is tracked in [FEATURE_PARITY.md](FEATURE_PARITY.md).
 ## Honest limits
 
 FreeShape is a capable tool for hobby, prototyping and small-business work, not a drop-in Onshape replacement:
-no FeatureScript (Python plugins instead), no sub-assemblies yet, no real-time collaboration or cloud (on
+no FeatureScript (Python plugins instead), no flexible sub-assemblies or mate limits yet, no real-time collaboration or cloud (on
 purpose), and references are re-found by geometry, so a drastic upstream change can occasionally make a later
 feature need re-picking. The full list is in the [user guide](docs/USER_GUIDE.md#honest-limits).
 

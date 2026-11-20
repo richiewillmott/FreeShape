@@ -144,6 +144,11 @@ class AssemblyPanel(QWidget):
                 it.setForeground(QColor("#9aa3ae"))
                 tips.append("Hidden")
             src = inst["source"]
+            if inst.get("sub"):
+                sub = doc.sub(inst["sub"]) or {}
+                tips.append(f"Part of the sub-assembly “{sub.get('name', '?')}” — it moves as one; edit it in its "
+                            f"own tab ({sub.get('source', {}).get('name', '?')})")
+                it.setIcon(icon("assembly", 16))
             tips.append("From " + (src.get("filename") or "STEP") if src.get("kind") == "step" else
                         "From Part Studio “%s”" % (src.get("studio_name") or "?"))
             it.setToolTip("\n".join(tips))
@@ -365,6 +370,16 @@ class InsertPanel(QFrame):
                     top.addChild(it)
                 self.tree.addTopLevelItem(top)
                 top.setExpanded(cfg is None or cfg == doc.active_config())
+        for asm in self.ctl.w.assembly_docs():
+            if asm is self.ctl.doc or not asm.instances:
+                continue
+            top = QTreeWidgetItem([asm.name + "  (as a sub-assembly)"])
+            top.setIcon(0, icon("assembly", 16))
+            top.setData(0, ROLE_KIND, "assembly")
+            top.setData(0, ROLE_ID, asm.uid)
+            top.setToolTip(0, "Insert this assembly as one rigid group. Mate to any of its parts; edits made to it "
+                              "in its own tab show up here.")
+            self.tree.addTopLevelItem(top)
         if self.tree.topLevelItemCount() == 0:
             it = QTreeWidgetItem(["No Part Studios open — use “From file…”"])
             it.setDisabled(True)
@@ -380,12 +395,25 @@ class InsertPanel(QFrame):
         elif kind == "studio":
             uid, cfg = it.data(0, ROLE_ID)
             self.ctl.insert_studio_parts(uid, None, cfg)
+        elif kind == "assembly":
+            if not self.ctl.insert_subassembly(self.ctl.w._resolve_assembly({"uid": it.data(0, ROLE_ID)})):
+                return
         self.msg.setText(f"Inserted {it.text(0)}")
 
     def _from_file(self):
         path, _ = filedlg.getOpenFileName(self, "Insert from file", "",
-                                              "Parts (*.fshape *.fcad *.step *.stp);;All files (*)")
+                                              "Parts and assemblies (*.fshape *.fcad *.fasm *.step *.stp);;"
+                                              "All files (*)")
         if not path:
+            return
+        if path.lower().endswith(".fasm"):
+            try:
+                asm = self.ctl.w._resolve_assembly({"path": path})
+            except Exception as e:
+                QMessageBox.warning(self, "Insert", f"Couldn't open the assembly:\n{e}")
+                return
+            if asm is not None and self.ctl.insert_subassembly(asm):
+                self.msg.setText(f"Inserted {asm.name} as a sub-assembly")
             return
         if path.lower().endswith((".step", ".stp")):
             n = self.ctl.insert_step(path)
@@ -667,12 +695,18 @@ class MateDialog(QFrame):
         lab = QLabel(label)
         lab.setFixedWidth(60)
         h.addWidget(lab)
-        ed = QLineEdit(fmt(float(value or 0)))
+        from .. import units as U
+        from ..expr import with_unit
+        is_len = unit == "mm"
+        if is_len:
+            unit = U.unit()                              # lengths in the document's unit
+        ed = QLineEdit(U.num(float(value or 0)) if is_len else fmt(float(value or 0)))
         ed.setProperty("unit", unit)
 
         def done(ed=ed, key=key):
             try:
-                v = parse_number(ed.text(), angle=(key == "angle"))
+                txt = with_unit(ed.text(), U.unit()) if is_len else ed.text()
+                v = parse_number(txt, angle=(key == "angle"))
                 if v is None:
                     raise ValueError
             except Exception:
@@ -851,7 +885,7 @@ class MoveDialog(QFrame):
     def __init__(self, ctl, ids):
         super().__init__(ctl.w.viewport)
         _floating(self)
-        self.ctl, self.doc, self.ids = ctl, ctl.doc, list(ids)
+        self.ctl, self.doc, self.ids = ctl, ctl.doc, ctl.doc.expand_to_bodies(list(ids))
         self._backup = copy.deepcopy(self.doc.instances)
         self.vals = {"dx": 0.0, "dy": 0.0, "dz": 0.0, "angle": 0.0}
         self.axis = "Z"
@@ -1172,6 +1206,20 @@ class AssemblyController:
             pass
         self.w.status.showMessage(f"Inserted {len(first_new)} instance(s)", 4000)
         QTimer.singleShot(0, lambda: self.vp.fit())
+
+    def insert_subassembly(self, other):
+        """Insert another assembly as a rigid sub-assembly. True if it went in."""
+        if other is None:
+            QMessageBox.warning(self.w, "Insert", "That assembly isn't open and its file wasn't found.")
+            return False
+        try:
+            self.doc.insert_assembly(other)
+        except K.KernelError as e:
+            QMessageBox.warning(self.w, "Insert", str(e))
+            return False
+        self.w.status.showMessage(f"Inserted {other.name} as a sub-assembly", 4000)
+        QTimer.singleShot(0, lambda: self.vp.fit())
+        return True
 
     def insert_std(self, spec, qty=1):
         """Insert copies of a standard part, side by side next to what's there (ready to mate)."""
@@ -1547,7 +1595,7 @@ class AssemblyController:
         a part with no mates, or a mated group with nothing fixed, moves exactly (the whole group together);
         otherwise the solver moves it within its mates' freedom."""
         doc = self.doc
-        group = doc._groups()[iid] if self._group_has_mates(iid) else {iid}
+        group = doc._groups()[iid]                   # mated parts, and a sub-assembly's parts, move together
         if not any(doc.instance(i).get("fixed") for i in group):
             for i in group:
                 doc.instance(i)["T"] = A.orthonormalize(M @ T0s[i]).tolist()
@@ -1593,7 +1641,7 @@ class AssemblyController:
         target = o + t * dr
         d["moved"] = True
         doc = self.doc
-        group = doc._groups()[d["inst"]] if self._group_has_mates(d["inst"]) else {d["inst"]}
+        group = doc._groups()[d["inst"]]
         if not any(doc.instance(i).get("fixed") for i in group):
             # nothing in this group is fixed: slide the whole group together, like Onshape — the mates
             # between them stay exactly as they are and nothing spins round

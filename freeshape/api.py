@@ -230,8 +230,9 @@ def save_step(shapes, path):
     K.export_step(list(shapes) if isinstance(shapes, (list, tuple)) else [shapes], path)
 
 
-def save_stl(shapes, path):
-    K.export_stl(list(shapes) if isinstance(shapes, (list, tuple)) else [shapes], path)
+def save_stl(shapes, path, resolution="medium"):
+    """Binary STL; resolution "coarse", "medium" or "fine"."""
+    K.export_stl(list(shapes) if isinstance(shapes, (list, tuple)) else [shapes], path, *K.STL_RESOLUTIONS[resolution])
 
 
 # a few handy numbers for gear / pattern plugins

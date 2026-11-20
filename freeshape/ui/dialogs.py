@@ -22,6 +22,10 @@ from .viewport import Pick
 OP_LABELS = [("new", "New"), ("add", "Add"), ("remove", "Remove"), ("intersect", "Intersect")]
 
 
+from .. import units as U  # noqa: E402
+from ..expr import with_unit  # noqa: E402
+
+
 def _show(v):
     """Text for a number field: expressions stay as typed, numbers are tidied."""
     return v if isinstance(v, str) else fmt(v)
@@ -851,7 +855,10 @@ SCHEMAS = {
         {"t": "info", "key": "_info", "text": lambda p: (
             "Use #" + str(p.get("name") or "name") + " in any box that takes a "
             + {"fixed_length": "length", "fixed_angle": "angle", "fixed_number": "number"}.get(p.get("mtype"), "value")
-            + ". A bare number is in the unit chosen here.") if p.get("mtype") in _mv().FIXED else
+            + ". A bare number is in the unit chosen here.") if p.get("mtype") in ("fixed_length", "fixed_angle",
+                                                                                   "fixed_number") else
+            ("Any expression: a number, a quantity with units (2 * 3 mm), or text in quotes (\"Rev B\", "
+             "\"PN-\" + #n) for sketch text.") if p.get("mtype") == "expression" else
             "Measured again on every rebuild, so whatever uses #" + str(p.get("name") or "name")
             + " follows the model."},
     ],
@@ -1224,6 +1231,9 @@ class FeatureDialog(_ResizableFrame):
                 self._prefill_measure()
         if is_new and self.ftype == "measure_value":
             pr = self.feature["params"]
+            if pr.get("mtype") == "fixed_length" and pr.get("unit", "mm") == "mm" and U.unit() != "mm":
+                pr["unit"] = U.unit()                   # a new Length is in the document's unit
+                self._show_value("unit", pr["unit"])
             base, n, taken = pr.get("name") or "v", 1, set(self.base_state.vars)
             while pr.get("name") in taken:                  # v, v2, v3 … — never overwrite a #variable
                 n += 1
@@ -1350,19 +1360,26 @@ class FeatureDialog(_ResizableFrame):
         lab.setStyleSheet("color:#4b5563;")
         h.addWidget(lab, 1)
         if t == "num":
-            ed = QLineEdit(_show(p.get(spec["key"], 0)))
+            unit = spec["unit"]
+            if unit == "mm" and not spec.get("dims"):      # a length: shown and typed in the document's unit
+                self.__dict__.setdefault("_len_keys", set()).add(spec["key"])
+                unit = U.unit()
+            ed = QLineEdit(self._num_text(spec["key"], p.get(spec["key"], 0)))
             ed.setFixedWidth(110)
             ed.setAlignment(Qt.AlignRight)
-            unit = spec["unit"]
             if unit:
                 ed.setPlaceholderText(unit)
-                ed.setToolTip(f"Value in {unit}. Expressions, units and variables work: '25/2', '1 in', '#wall * 2'.")
+                ed.setToolTip(f"Value in {unit}. Expressions, units and variables work: '25/2', '1 in', '25 mm', "
+                              "'#wall * 2'.")
 
-            want = spec.get("dims") or {"mm": "length", "deg": "angle", "": "number"}.get(unit, "any")
+            want = spec.get("dims") or ("length" if spec["key"] in self.__dict__.get("_len_keys", ()) else
+                                        {"deg": "angle", "": "number"}.get(unit, "any"))
 
             def done(ed=ed, k=spec["key"], unit=unit, mn=spec.get("min"), whole=bool(spec.get("int")),
                      label=spec.get("label", ""), want=want):
                 txt = ed.text()
+                if k in self.__dict__.get("_len_keys", ()):     # bare numbers are in the document's unit
+                    txt = with_unit(txt, U.unit(), getattr(self.base_state, "var_kinds", {}))
                 why = self._number_problem(txt, want, unit, mn)
                 ed.setProperty("invalid", "true" if why else "false")
                 ed.style().unpolish(ed)
@@ -1383,7 +1400,7 @@ class FeatureDialog(_ResizableFrame):
             ed.textEdited.connect(lambda _t, f=done: f())
             ed.editingFinished.connect(
                 lambda ed=ed, k=spec["key"]: None if k in self._field_errors
-                else ed.setText(_show(self.feature["params"].get(k, 0))))
+                else ed.setText(self._num_text(k, self.feature["params"].get(k, 0))))
             h.addWidget(ed)
             if unit:
                 u = QLabel(unit)
@@ -1781,7 +1798,7 @@ class FeatureDialog(_ResizableFrame):
         self.feature["params"][key] = value
         w = self.widgets.get(key)
         if isinstance(w, QLineEdit):
-            w.setText(fmt(value))
+            w.setText(self._num_text(key, value))
         elif isinstance(w, QCheckBox):
             w.blockSignals(True)
             w.setChecked(bool(value))
@@ -1862,11 +1879,11 @@ class FeatureDialog(_ResizableFrame):
                     else:
                         self._set_quiet("depth", round(abs(v), 6))
                         self._set_quiet("flip", v < 0)
-                    self.main.viewport.manipulators[0]["label"] = fmt(self.feature["params"]["depth"]) + " mm"
+                    self.main.viewport.manipulators[0]["label"] = U.length(self.feature["params"]["depth"], 4)
                     self.schedule_preview()
                 return [{"origin": origin, "dir": n, "value": value, "on_drag": on_drag,
                          "on_done": self.schedule_preview, "snap": self._snap_step(),
-                         "min": 1e-3 if symmetric else None, "label": fmt(depth) + " mm"}]
+                         "min": 1e-3 if symmetric else None, "label": U.length(depth, 4)}]
             if self.ftype == "plane":
                 if F.plane_type(p) != "offset":
                     return []
@@ -1882,10 +1899,10 @@ class FeatureDialog(_ResizableFrame):
                 def on_drag(v):
                     self._set_quiet("offset", round(abs(v), 6))
                     self._set_quiet("flip", v < 0)
-                    self.main.viewport.manipulators[0]["label"] = fmt(abs(v)) + " mm"
+                    self.main.viewport.manipulators[0]["label"] = U.length(abs(v), 4)
                     self.schedule_preview()
                 return [{"origin": base.origin, "dir": base.normal, "value": value, "on_drag": on_drag,
-                         "on_done": self.schedule_preview, "snap": self._snap_step(), "label": fmt(off) + " mm"}]
+                         "on_done": self.schedule_preview, "snap": self._snap_step(), "label": U.length(off, 4)}]
         except (K.KernelError, KeyError, IndexError):
             return []
         return []
@@ -1894,12 +1911,25 @@ class FeatureDialog(_ResizableFrame):
     def schedule_preview(self):
         self._timer.start(90)
 
+    def _num_text(self, key, v):
+        """A number box's text: a length in the document's unit; expressions as typed."""
+        if key in self.__dict__.get("_len_keys", ()) and not isinstance(v, str):
+            try:
+                return U.num(v)
+            except (TypeError, ValueError):
+                return _show(v)
+        return _show(v)
+
     def _number_problem(self, txt, want, unit, mn):
         """Why a number box's text can't be used (None if it can): unreadable, an undefined variable, the wrong
         kind of quantity (an angle in a length box), or below the minimum."""
         from ..expr import check_units, var_names
         if not str(txt).strip():
             return "enter a value"
+        from ..expr import text_problem
+        tp = text_problem(txt, self.base_state.vars)
+        if tp:
+            return tp
         v = parse_number(txt, angle=(unit == "deg"), variables=self.base_state.vars)
         if v is None:
             missing = [n for n in var_names(txt) if n not in self.base_state.vars]
@@ -1910,7 +1940,7 @@ class FeatureDialog(_ResizableFrame):
         if why:
             return why
         if mn is not None and v < mn:
-            return f"must be at least {fmt(mn)}"
+            return f"must be at least {U.length(mn) if want == 'length' else fmt(mn)}"
         return None
 
     def _show_field_errors(self):

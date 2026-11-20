@@ -335,9 +335,14 @@ class AssemblyDoc:
         # exploded view: steps that slide instances apart (display only; mates and positions are untouched)
         self.explode: dict = {"steps": [], "amount": 1.0}
         self.named_views: dict = {}               # name -> camera (View ▸ Named views)
+        self.units = "mm"                         # what lengths are shown and typed in
         # relations between mates (gear, rack and pinion, screw) and patterns of instances
         self.relations: list[dict] = []
         self.patterns: list[dict] = []
+        # sub-assemblies: another assembly inserted as one rigid group. Its parts are ordinary instances here
+        # (so they can be mated to) tagged "sub": the group's id, placed at the group's T @ their "local_T".
+        self.subs: list[dict] = []
+        self.asm_resolver = None                 # callable(source) -> AssemblyDoc or None (set by the window)
         self.blobs: dict[str, str] = {}          # embedded STEP files (base64), keyed by content hash
         self.path = None
         self.dirty = False
@@ -363,7 +368,8 @@ class AssemblyDoc:
     def new_id(self, prefix):
         self._counter += 1
         used = {i["id"] for i in self.instances} | {m["id"] for m in self.mates} | \
-            {r["id"] for r in getattr(self, "relations", [])} | {p_["id"] for p_ in getattr(self, "patterns", [])}
+            {r["id"] for r in getattr(self, "relations", [])} | {p_["id"] for p_ in getattr(self, "patterns", [])} | \
+            {s_["id"] for s_ in getattr(self, "subs", [])}
         while f"{prefix}{self._counter}" in used:
             self._counter += 1
         return f"{prefix}{self._counter}"
@@ -380,7 +386,8 @@ class AssemblyDoc:
     # ------------------------------------------------------------------ undo / redo
     def _snapshot(self):
         return json.dumps({"instances": self.instances, "mates": self.mates, "name": self.name,
-                           "explode": self.explode, "relations": self.relations, "patterns": self.patterns})
+                           "explode": self.explode, "relations": self.relations, "patterns": self.patterns,
+                           "subs": self.subs})
 
     def _restore(self, snap):
         d = json.loads(snap)
@@ -388,6 +395,7 @@ class AssemblyDoc:
         self.explode = d.get("explode", {"steps": [], "amount": 1.0})
         self.relations = d.get("relations", [])
         self.patterns = d.get("patterns", [])
+        self.subs = d.get("subs", [])
         for i in self.instances:                 # copies made by a pattern that was undone
             if i["id"] not in self.parts:
                 try:
@@ -465,6 +473,7 @@ class AssemblyDoc:
         from .features import Part
         self.errors = {}
         changed = set()
+        self._update_subassemblies()
         for inst in self.instances:
             old = self.parts.get(inst["id"])
             try:
@@ -718,7 +727,9 @@ class AssemblyDoc:
 
     def delete_instances(self, ids):
         self.checkpoint()
-        ids = set(ids)
+        ids = set(self.expand_to_bodies(ids))            # a sub-assembly's part takes the whole sub-assembly
+        gone = {self.instance(i).get("sub") for i in ids if self.instance(i)}
+        self.subs = [s_ for s_ in self.subs if s_["id"] not in gone]
         self.instances = [i for i in self.instances if i["id"] not in ids]
         self.mates = [m for m in self.mates if m["a"]["inst"] not in ids and m["b"]["inst"] not in ids]
         live = {m["id"] for m in self.mates}
@@ -758,7 +769,8 @@ class AssemblyDoc:
         if (self.instance(iid) or {}).get("pattern"):
             return                                   # a pattern copy is placed by its pattern
         self.checkpoint()
-        self.instance(iid)["fixed"] = bool(value)
+        for m_ in self.expand_to_bodies([iid]):          # a sub-assembly is fixed or free as a whole
+            self.instance(m_)["fixed"] = bool(value)
         self.solve()
         self.notify()
 
@@ -789,8 +801,9 @@ class AssemblyDoc:
         """Apply a world-space rigid motion to an instance (a fixed one too — this is the explicit move)."""
         if checkpoint:
             self.checkpoint()
-        inst = self.instance(iid)
-        inst["T"] = orthonormalize(np.asarray(M_world, float) @ np.array(inst["T"], float)).tolist()
+        for m_ in self.expand_to_bodies([iid]):
+            inst = self.instance(m_)
+            inst["T"] = orthonormalize(np.asarray(M_world, float) @ np.array(inst["T"], float)).tolist()
         if solve:
             self.solve(keep=iid)
         self.notify()
@@ -836,6 +849,163 @@ class AssemblyDoc:
         self.solve()
         self.notify()
 
+    # ------------------------------------------------------------------ sub-assemblies
+    def body_of(self, iid):
+        """What moves with an instance: its sub-assembly's id, or the instance itself."""
+        inst = self.instance(iid)
+        return (inst.get("sub") or iid) if inst else iid
+
+    def _members(self):
+        """body -> its instances that have a part, in the order of the instance list."""
+        out = {}
+        for i in self.instances:
+            if i["id"] in self.parts:
+                out.setdefault(i.get("sub") or i["id"], []).append(i["id"])
+        return out
+
+    def expand_to_bodies(self, ids):
+        """The ids, with a sub-assembly's part standing for all of its parts."""
+        out = []
+        for iid in ids:
+            sid = (self.instance(iid) or {}).get("sub")
+            add = [i["id"] for i in self.instances if i.get("sub") == sid] if sid else [iid]
+            out += [a for a in add if a not in out]
+        return out
+
+    def _body_centre(self, ids):
+        lo, hi = np.full(3, np.inf), np.full(3, -np.inf)
+        for iid in ids:
+            s = self.world_shape(iid)
+            if s is not None:
+                a, b = K.bbox(s)
+                lo, hi = np.minimum(lo, a), np.maximum(hi, b)
+        return (lo + hi) / 2 if np.all(np.isfinite(lo)) else np.zeros(3)
+
+    def sub(self, sid):
+        return next((s_ for s_ in self.subs if s_["id"] == sid), None)
+
+    def sub_T(self, sid):
+        """Where a sub-assembly sits: its parts' common placement (any part's T @ inverse of its local T)."""
+        for i in self.instances:
+            if i.get("sub") == sid:
+                return np.array(i["T"], float) @ np.linalg.inv(np.array(i["local_T"], float))
+        return np.eye(4)
+
+    def contained_uids(self):
+        """This assembly's uid and those of every sub-assembly in it (at any depth): what it mustn't contain."""
+        out = {self.uid}
+        for s_ in self.subs:
+            out |= set(s_.get("contains", [])) | {s_["source"].get("uid")}
+        return out
+
+    def _member_records(self, other):
+        """(instance, part, colour) for every part of another assembly, in its own coordinates."""
+        return [(i, other.parts[i["id"]], other.instance_color(i)) for i in other.instances if i["id"] in other.parts]
+
+    def insert_assembly(self, other, T=None, name=None, checkpoint=True):
+        """Insert another assembly as a rigid sub-assembly. Its parts become instances here (you can mate to
+        them); they move together. Returns the sub-assembly's id."""
+        if other is self or other.uid in self.contained_uids() or self.uid in other.contained_uids():
+            raise K.KernelError("An assembly can't contain itself (directly or through its sub-assemblies)")
+        recs = self._member_records(other)
+        if not recs:
+            raise K.KernelError(f"“{other.name}” has no parts yet")
+        if checkpoint:
+            self.checkpoint()
+        sid = self.new_id("S")
+        names = {s_["name"] for s_ in self.subs}
+        k = 1
+        while f"{name or other.name} <{k}>" in names:
+            k += 1
+        sname = f"{name or other.name} <{k}>"
+        sub = {"id": sid, "name": sname, "source": {"kind": "assembly", "uid": other.uid, "path": other.path,
+                                                    "name": other.name},
+               "contains": sorted(other.contained_uids())}
+        self.subs.append(sub)
+        first = not self.instances
+        G = np.eye(4) if T is None else np.asarray(T, float)
+        for inst, part, col in recs:
+            self._add_member(sub, inst, part, col, G, other)
+        if first:
+            for i in self.instances:
+                i["fixed"] = True                    # the first thing in an assembly is fixed in place
+        elif T is None:                              # beside what's already there
+            mine = [i["id"] for i in self.instances if i.get("sub") == sid]
+            others = [i["id"] for i in self.instances if i.get("sub") != sid and i["id"] in self.parts]
+            lo, hi = self._bounds_of(others)
+            plo, phi = self._bounds_of(mine)
+            if np.all(np.isfinite(lo)):
+                gap = max(0.15 * float(np.linalg.norm(phi - plo)), 5.0)
+                v = np.array([hi[0] + gap - plo[0], (lo[1] + hi[1]) / 2 - (plo[1] + phi[1]) / 2, lo[2] - plo[2]])
+                for iid in mine:
+                    inst = self.instance(iid)
+                    inst["T"] = (translation(v) @ np.array(inst["T"], float)).tolist()
+        self._update_status()
+        self.notify()
+        return sid
+
+    def _add_member(self, sub, inst, part, col, G, other):
+        from .features import Part
+        src = copy.deepcopy(inst["source"])
+        if src.get("kind") == "step" and src.get("blob") in other.blobs:
+            self.blobs[src["blob"]] = other.blobs[src["blob"]]
+        local = np.array(inst["T"], float)
+        new = {"id": self.new_id("I"), "name": f"{sub['name']} / {inst['name']}", "source": src,
+               "T": (G @ local).tolist(), "fixed": False, "hidden": bool(inst.get("hidden")), "sub": sub["id"],
+               "sub_inst": inst["id"], "local_T": local.tolist(), "color": list(col) if col else None,
+               "part_name": part.name}
+        self.instances.append(new)
+        self.parts[new["id"]] = Part(new["id"], part.name, part.shape, part.color, getattr(part, "face_colors", None))
+        if inst["id"] in getattr(other, "_fallback", {}):
+            self._fallback[new["id"]] = other._fallback[inst["id"]]
+        return new
+
+    def _bounds_of(self, ids):
+        lo, hi = np.full(3, np.inf), np.full(3, -np.inf)
+        for iid in ids:
+            s = self.world_shape(iid)
+            if s is not None:
+                a, b = K.bbox(s)
+                lo, hi = np.minimum(lo, a), np.maximum(hi, b)
+        return lo, hi
+
+    def _update_subassemblies(self):
+        """Follow edits to the sub-assemblies' own files or tabs: parts added, removed or moved inside them.
+        Without the source (not open, file gone) the parts stay as they were saved."""
+        if not self.subs or self.asm_resolver is None:
+            return
+        for sub in self.subs:
+            try:
+                other = self.asm_resolver(sub["source"])
+            except Exception:
+                other = None
+            if other is None:
+                continue
+            sid = sub["id"]
+            G = self.sub_T(sid)
+            mine = {i["sub_inst"]: i for i in self.instances if i.get("sub") == sid}
+            recs = {inst["id"]: (inst, part, col) for inst, part, col in self._member_records(other)}
+            sub["contains"] = sorted(other.contained_uids())
+            fixed = any(i.get("fixed") for i in mine.values())
+            for oid, inst in list(mine.items()):
+                if oid not in recs:                  # removed from the sub-assembly
+                    self.instances.remove(inst)
+                    self.parts.pop(inst["id"], None)
+                    self.mates = [m for m in self.mates if inst["id"] not in (m["a"]["inst"], m["b"]["inst"])]
+            for oid, (oinst, part, col) in recs.items():
+                if oid in mine:
+                    inst = mine[oid]
+                    local = np.array(oinst["T"], float)
+                    inst["local_T"] = local.tolist()
+                    inst["T"] = orthonormalize(G @ local).tolist()
+                    inst["source"] = copy.deepcopy(oinst["source"])
+                    if inst["source"].get("kind") == "step" and inst["source"].get("blob") in other.blobs:
+                        self.blobs[inst["source"]["blob"]] = other.blobs[inst["source"]["blob"]]
+                    inst["name"] = f"{sub['name']} / {oinst['name']}"
+                else:                                # added to the sub-assembly
+                    new = self._add_member(sub, oinst, part, col, G, other)
+                    new["fixed"] = fixed
+
     # ------------------------------------------------------------------ solving
     def _groups(self, exclude=None):
         """Connected groups of instances through (unsuppressed) mates, ignoring mate `exclude`."""
@@ -852,6 +1022,10 @@ class AssemblyDoc:
             a, b = m["a"]["inst"], m["b"]["inst"]
             if a in parent and b in parent:
                 parent[find(a)] = find(b)
+        for members in self._members().values():         # a sub-assembly's parts move as one
+            for iid in members[1:]:
+                if iid in parent and members[0] in parent:
+                    parent[find(iid)] = find(members[0])
         groups = {}
         for iid in parent:
             groups.setdefault(find(iid), set()).add(iid)
@@ -1009,7 +1183,8 @@ class AssemblyDoc:
                 M = rot_about(fa["z"], np.radians(degrees / steps) * sign, fa["o"])
             else:
                 M = translation(unit(fa["z"]) * (slide or 0.0) * sign)
-            self.instance(movable)["T"] = (M @ T).tolist()
+            for m_ in self.expand_to_bodies([movable]):
+                self.instance(m_)["T"] = (M @ self.T(m_)).tolist()
             self.solve(keep=movable)
             fa = transform_frame(self.T(m["a"]["inst"]), frame_from_json(m["a"]["frame"]))
         self.notify()
@@ -1166,23 +1341,21 @@ class AssemblyDoc:
 
     def _solve_core(self, mates, drag, iters, keep):
         """One least-squares solve over the given mates. Returns the ids of mates left unsatisfied."""
-        fixed = {i["id"] for i in self.instances if i.get("fixed")}
+        members = self._members()
+        fixed = {self.body_of(i["id"]) for i in self.instances if i.get("fixed")}
         involved = set()
         for m in mates:
-            involved |= {m["a"]["inst"], m["b"]["inst"]}
+            involved |= {self.body_of(m["a"]["inst"]), self.body_of(m["b"]["inst"])}
         if drag is not None:
-            involved.add(drag["inst"])
-        free = [i["id"] for i in self.instances if i["id"] in involved and i["id"] not in fixed
-                and i["id"] in self.parts]
+            involved.add(self.body_of(drag["inst"]))
+        free = [b for b in members if b in involved and b not in fixed]
+        keep = self.body_of(keep) if keep is not None else None
         L = self.length_scale()
         frames = {m["id"]: (frame_from_json(m["a"]["frame"]), frame_from_json(m["b"]["frame"])) for m in mates}
         Ts = {i["id"]: np.array(i["T"], float) for i in self.instances}
         if not free:
             return self._failing(mates, Ts, frames, L)
-        pivots = {}
-        for iid in free:
-            a, b = K.bbox(self.world_shape(iid))
-            pivots[iid] = (a + b) / 2
+        pivots = {b_: self._body_centre(members[b_]) for b_ in free}
         n = 6 * len(free)
         # rotations are measured in mm of arc at the part's size, and cost a little more than sliding
         # (while dragging, much more: parts should slide with the mouse and only turn when a mate makes them)
@@ -1204,7 +1377,8 @@ class AssemblyDoc:
                 D = np.eye(4)
                 D[:3, :3] = R
                 D[:3, 3] = c - R @ c + v
-                out[iid] = D @ Ts0[iid]
+                for m_ in members[iid]:                  # every part of the body (a sub-assembly: all of it)
+                    out[m_] = D @ Ts0[m_]
             return out
 
         def drag_res(Ts_):
@@ -1304,8 +1478,9 @@ class AssemblyDoc:
                     alpha *= 0.5
                 if not ok:
                     break
-        for iid in free:
-            self.instance(iid)["T"] = orthonormalize(cur[iid]).tolist()
+        for b_ in free:
+            for iid in members[b_]:
+                self.instance(iid)["T"] = orthonormalize(cur[iid]).tolist()
         self._apply_patterns()
         self._update_relations()
         Ts = {i["id"]: np.array(i["T"], float) for i in self.instances}
@@ -1332,9 +1507,10 @@ class AssemblyDoc:
             r = self._residuals([m], Ts, frames, L)
             if len(r) and float(np.linalg.norm(r)) > 1e-4 * max(L, 1):
                 self.errors[m["id"]] = "Can't be solved together with the other mates (shown red)"
-        # degrees of freedom of the free instances
-        fixed = {i["id"] for i in self.instances if i.get("fixed")}
-        free = [i["id"] for i in self.instances if i["id"] not in fixed and i["id"] in self.parts]
+        # degrees of freedom of the free instances (a sub-assembly counts as one body)
+        members = self._members()
+        fixed = {self.body_of(i["id"]) for i in self.instances if i.get("fixed")}
+        free = [b_ for b_ in members if b_ not in fixed]
         n = 6 * len(free)
         if n == 0:
             self.dof = 0
@@ -1343,12 +1519,8 @@ class AssemblyDoc:
         if not ok:
             self.dof = n
             return
-        idx = {iid: k for k, iid in enumerate(free)}
-        pivots = {}
-        for iid in free:
-            s = self.world_shape(iid)
-            a, b = K.bbox(s) if s is not None else (np.zeros(3), np.zeros(3))
-            pivots[iid] = (a + b) / 2
+        idx = {b_: k for k, b_ in enumerate(free)}
+        pivots = {b_: self._body_centre(members[b_]) for b_ in free}
         r0 = self._residuals(ok, Ts, frames, L)
         J = np.zeros((len(r0), n))
         h = 1e-6 * L
@@ -1365,7 +1537,8 @@ class AssemblyDoc:
                 else:
                     D = np.eye(4)
                     D[j - 3, 3] = h
-                T2[iid] = D @ Ts[iid]
+                for m_ in members[iid]:
+                    T2[m_] = D @ Ts[m_]
                 J[:, 6 * k + j] = (self._residuals(ok, T2, frames, L) - r0) / h
         sv = np.linalg.svd(J, compute_uv=False) if J.size else np.zeros(0)
         rank = int(np.sum(sv > 1e-6 * (sv[0] if len(sv) else 1)))
@@ -1374,17 +1547,19 @@ class AssemblyDoc:
     def instance_dof(self, iid):
         """Degrees of freedom left for one instance, holding every other instance still."""
         inst = self.instance(iid)
-        if inst is None or inst.get("fixed"):
+        if inst is None:
             return 0
-        mates = [m for m in self._active_mates() if iid in (m["a"]["inst"], m["b"]["inst"])
+        body = self._members().get(self.body_of(iid), [iid])
+        if any((self.instance(m_) or {}).get("fixed") for m_ in body):
+            return 0
+        mates = [m for m in self._active_mates() if (m["a"]["inst"] in body) != (m["b"]["inst"] in body)
                  and m["id"] not in self.errors]
         if not mates:
             return 6
         L = self.length_scale()
         frames = {m["id"]: (frame_from_json(m["a"]["frame"]), frame_from_json(m["b"]["frame"])) for m in mates}
         Ts = {i["id"]: np.array(i["T"], float) for i in self.instances}
-        a, b = K.bbox(self.world_shape(iid))
-        c = (a + b) / 2
+        c = self._body_centre(body)
         r0 = self._residuals(mates, Ts, frames, L)
         J = np.zeros((len(r0), 6))
         h = 1e-6 * L
@@ -1400,7 +1575,8 @@ class AssemblyDoc:
             else:
                 D = np.eye(4)
                 D[j - 3, 3] = h
-            T2[iid] = D @ Ts[iid]
+            for m_ in body:
+                T2[m_] = D @ Ts[m_]
             J[:, j] = (self._residuals(mates, T2, frames, L) - r0) / h
         sv = np.linalg.svd(J, compute_uv=False)
         return 6 - int(np.sum(sv > 1e-6 * (sv[0] if len(sv) else 1)))
@@ -1454,13 +1630,13 @@ class AssemblyDoc:
                     pass
         return list(rows.values())
 
-    def export(self, path, ids=None):
+    def export(self, path, ids=None, stl=None):
         insts = [i for i in self.instances if i["id"] in self.parts and (ids is None or i["id"] in ids)
                  and not i.get("hidden")]
         if not insts:
             raise K.KernelError("Nothing to export")
         if str(path).lower().endswith(".stl"):
-            K.export_stl([self.world_shape(i["id"]) for i in insts], path)
+            K.export_stl([self.world_shape(i["id"]) for i in insts], path, *(stl or K.STL_RESOLUTIONS["medium"]))
         elif str(path).lower().endswith((".brep", ".brp")):
             K.export_brep([self.world_shape(i["id"]) for i in insts], path)
         else:
@@ -1498,8 +1674,8 @@ class AssemblyDoc:
         used = {i["source"]["blob"] for i in self.instances if i["source"].get("kind") == "step"}
         return json.dumps({"format": FILE_FORMAT, "version": FILE_VERSION, "name": self.name, "uid": self.uid,
                            "instances": insts, "mates": self.mates, "explode": self.explode,
-                           "relations": self.relations, "patterns": self.patterns,
-                           "named_views": self.named_views,
+                           "relations": self.relations, "patterns": self.patterns, "subs": self.subs,
+                           "named_views": self.named_views, "units": self.units,
                            "blobs": {k: v for k, v in self.blobs.items() if k in used}}, indent=1)
 
     def save(self, path=None):
@@ -1525,7 +1701,9 @@ class AssemblyDoc:
         a.explode = d.get("explode", {"steps": [], "amount": 1.0})
         a.relations = d.get("relations", [])
         a.patterns = d.get("patterns", [])
+        a.subs = d.get("subs", [])
         a.named_views = d.get("named_views", {})
+        a.units = d.get("units", "mm")
         a.blobs = d.get("blobs", {})
         a.path = path
         base = os.path.dirname(os.path.abspath(path))
@@ -1536,7 +1714,7 @@ class AssemblyDoc:
                 if os.path.exists(cand):
                     src["path"] = cand
         nums = [int("".join(c for c in x["id"] if c.isdigit()) or 0)
-                for x in a.instances + a.mates + a.relations + a.patterns]
+                for x in a.instances + a.mates + a.relations + a.patterns + a.subs]
         a._counter = max(nums + [0])
         a.resolver = resolver
         a.refresh(solve=False, notify=False)

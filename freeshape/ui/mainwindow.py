@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import kernel as K
+from .. import units as U
 from .. import features as F
 from ..document import Document
 from ..assembly import AssemblyDoc
@@ -131,6 +132,7 @@ class MainWindow(QMainWindow):
         self.sk_ctx = None
         self.sketch_waiting_for_plane = False
         self._sketch_buttons = {}
+        self._menu_actions = []               # (menu action, icon name) for the ▾ menus
         self.section_panel = None
         self.history_panel = None
         from PySide6.QtCore import QSettings
@@ -231,8 +233,15 @@ class MainWindow(QMainWindow):
         tl.addWidget(plus)
         tl.addWidget(self.tabs, 1)
         tl.addStretch(0)
-        self.units_label = QLabel("Units: millimetre")
-        self.units_label.setObjectName("muted")
+        self.units_label = QToolButton()               # Units: millimetre ▾ — this document's length unit
+        self.units_label.setObjectName("unitsButton")
+        self.units_label.setText("Units: millimetre ▾")
+        self.units_label.setToolTip("The unit lengths are shown and typed in, for this document. A bare number you "
+                                    "type is in this unit; '25 mm' or '1 in' always work.")
+        self.units_label.setPopupMode(QToolButton.InstantPopup)
+        um = QMenu(self.units_label)
+        um.aboutToShow.connect(lambda m=um: self._fill_units_menu(m))
+        self.units_label.setMenu(um)
         tl.addWidget(self.units_label)
         self._tabwrap = tabwrap
         split.addWidget(center)
@@ -409,6 +418,10 @@ class MainWindow(QMainWindow):
             grp.addAction(a)
             tm.addAction(a)
             self.theme_actions[mode] = a
+        im = vm.addMenu("Icons")
+        im.addAction("Open my icons folder…", self.open_icons_folder)
+        im.addAction("Save the built-in icons there (to start from)", self.export_icons)
+        im.addAction("Reload icons", self.reload_icons)
         view_btn.setMenu(vm)
         h.addWidget(view_btn)
         # ---- what a click / box selection may pick: vertices, edges, faces, solids, sketches, planes
@@ -624,20 +637,105 @@ class MainWindow(QMainWindow):
         layout.addWidget(b)
         return b
 
+    def _tb_group(self, layout, items):
+        """A toolbar button with a ▾ menu, like Onshape's: the button runs the first tool, the arrow lists them all.
+        items: (icon name, tooltip, slot). Returns the button."""
+        name0, tip0, slot0 = items[0]
+        b = self._tb(layout, name0, tip0, slot0)
+        b.setPopupMode(QToolButton.MenuButtonPopup)
+        m = QMenu(b)
+        for name, tip, slot in items:
+            label = tip.split(" — ")[0]
+            a = m.addAction(icon(name, 20), label)
+            a.setToolTip(tip)
+            a.setProperty("icon_name", name)
+            a.triggered.connect(lambda _=False, sl=slot: sl())
+            self._menu_actions.append((a, name))
+        m.setToolTipsVisible(True)
+        b.setMenu(m)
+        b.setProperty("group", [n for n, _t, _s in items])
+        return b
+
     def _build_feature_toolbar(self):
+        """Part Studio tools in Onshape's order: Sketch first (with its name), then features in groups, with
+        related tools under a ▾ (patterns, direct edits, sheet metal …)."""
         w = QWidget()
         h = QHBoxLayout(w)
         h.setContentsMargins(8, 2, 8, 2)
         h.setSpacing(2)
+        self._menu_actions = getattr(self, "_menu_actions", [])
+        F_ = lambda n: (lambda: self.start_feature(n))      # noqa: E731
         self.btn_undo = self._tb(h, "undo", "Undo (Ctrl+Z)", self.undo)
         self.btn_redo = self._tb(h, "redo", "Redo (Ctrl+Y)", self.redo)
         h.addWidget(_sep())
-        self._tb(h, "variable", "Variable — a #name for any dimension: a length, angle or number with its unit, or "
-                 "measured from the model (it follows the model)", lambda: self.start_feature("measure_value"))
+        sk = self._tb(h, "sketch", "Sketch (Shift+S) — select a plane or flat face first, or pick one after",
+                      lambda: self.start_sketch())
+        sk.setText("Sketch")
+        sk.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        sk.setObjectName("sketchButton")
+        h.addWidget(_sep())
+        # make solids and surfaces
+        self._tb(h, "extrude", "Extrude (Shift+E)", F_("extrude"))
+        self._tb(h, "revolve", "Revolve (Shift+W)", F_("revolve"))
+        self._tb(h, "sweep", "Sweep — a profile along a path", F_("sweep"))
+        self._tb(h, "loft", "Loft — blend between profiles", F_("loft"))
+        self._tb_group(h, [("thicken", "Thicken — surfaces or faces into solids", F_("thicken")),
+                           ("enclose", "Enclose — a solid from the space surfaces and planes close off",
+                            F_("enclose"))])
+        h.addWidget(_sep())
+        # change them
+        self._tb(h, "fillet", "Fillet (Shift+F)", F_("fillet"))
+        self._tb(h, "chamfer", "Chamfer", F_("chamfer"))
+        self._tb(h, "draft", "Draft — angle side faces", F_("draft"))
+        self._tb(h, "rib", "Rib — a wall from sketch lines out to the part", F_("rib"))
+        self._tb(h, "shell", "Shell", F_("shell"))
+        self._tb_group(h, [("hole", "Hole — custom or ISO clearance / tapped", F_("hole")),
+                           ("thread", "Thread — real ISO threads on holes and shafts", F_("thread"))])
+        h.addWidget(_sep())
+        # copy them
+        self._tb_group(h, [("linear_pattern", "Linear pattern", F_("linear_pattern")),
+                           ("circular_pattern", "Circular pattern", F_("circular_pattern"))])
+        self._tb(h, "mirror", "Mirror", F_("mirror"))
+        h.addWidget(_sep())
+        # combine, cut up and move parts
+        self._tb(h, "boolean", "Boolean — union, subtract or intersect parts", F_("boolean"))
+        self._tb(h, "split", "Split — parts with planes, faces or sketch curves", F_("split"))
+        self._tb(h, "move", "Transform — move / rotate / copy parts", F_("move"))
+        self._tb(h, "delete_part", "Delete part — remove parts from here on", F_("delete_part"))
+        self._tb_group(h, [("compound", "Compound — solids as one part that share the faces where they touch "
+                                        "(glue faces)", F_("compound")),
+                           ("explode_part", "Explode — a part into its solids (a compound back apart), faces or "
+                                            "edges", F_("explode_part"))])
+        self._tb_group(h, [("delete_face", "Delete face — remove fillets, chamfers, bosses and holes from imported "
+                                           "parts (heal, cap or leave open)", F_("delete_face")),
+                           ("move_face", "Move face — push or pull flat faces", F_("move_face")),
+                           ("offset_surface", "Offset surface — a new surface a set distance from faces",
+                            F_("offset_surface"))])
+        h.addWidget(_sep())
+        # construction
+        self._tb_group(h, [("plane", "Plane", F_("plane")),
+                           ("helix", "Helix — a helix curve (a path for springs and threads)", F_("helix"))])
+        h.addWidget(_sep())
+        # sheet metal
+        self._tb_group(h, [
+            ("sm_base", "Sheet metal — a flat sheet from a sketch (thickness, bend radius, K-factor)", F_("sm_base")),
+            ("sm_flange", "Flange — bend the sheet up along edges", F_("sm_flange")),
+            ("sm_hem", "Hem — fold edges right back over the sheet", F_("sm_hem")),
+            ("sm_jog", "Jog — step the sheet up or down from an edge and carry on", F_("sm_jog")),
+            ("sm_tab", "Tab — more sheet in a panel's plane, from a sketch on its face", F_("sm_tab")),
+            ("sm_convert", "Convert — make a flat plate (an imported one, say) into sheet metal", F_("sm_convert")),
+            ("flat_dxf", "Export flat pattern DXF — for laser / plasma cutting", lambda: self.export_flat_dxf()),
+            ("nest", "Nest for cutting — lay several flat patterns out on stock sheets, one DXF",
+             self.nest_for_cutting)])
+        self.btn_flat = self._tb(h, "flat", "Flat pattern — show sheet metal parts unfolded", self.toggle_flat,
+                                 checkable=True)
+        h.addWidget(_sep())
+        # the Part Studio itself: variables, configurations, linked parts, history, plugins
+        self._tb(h, "variable", "Variable — a #name for any dimension: a length, angle, number or text, or "
+                 "measured from the model (it follows the model)", F_("measure_value"))
         self._tb(h, "configs", "Configurations — sizes / versions of this part from a table of variable values",
                  self.edit_configs)
-        self._tb(h, "derived", "Derived — bring parts from another Part Studio, kept linked",
-                 lambda: self.start_feature("derived"))
+        self._tb(h, "derived", "Derived — bring parts from another Part Studio, kept linked", F_("derived"))
         self._tb(h, "history", "Version history — versions of this Part Studio and what changed between them",
                  self.show_history)
         self.plugin_btn = self._tb(h, "plugin", "Plugins — features and commands added by Python plugins",
@@ -654,52 +752,6 @@ class MainWindow(QMainWindow):
                                           hasattr(self.doc, "set_active_config") else None)
         self.config_box.hide()
         h.addWidget(self.config_box)
-        h.addWidget(_sep())
-        self._tb(h, "sketch", "Sketch (Shift+S)", lambda: self.start_sketch())
-        h.addWidget(_sep())
-        for name, tip in (("extrude", "Extrude (Shift+E)"), ("revolve", "Revolve (Shift+W)"),
-                          ("sweep", "Sweep — a profile along a path"), ("loft", "Loft — blend between profiles"),
-                          ("thicken", "Thicken — surfaces or faces into solids"),
-                          ("enclose", "Enclose — a solid from the space surfaces and planes close off"),
-                          ("fillet", "Fillet (Shift+F)"), ("chamfer", "Chamfer"), ("draft", "Draft — angle side faces"),
-                          ("shell", "Shell"), ("rib", "Rib — a wall from sketch lines out to the part"),
-                          ("hole", "Hole — custom or ISO clearance / tapped"),
-                          ("thread", "Thread — real ISO threads on holes and shafts"),
-                          ("delete_face", "Delete face — remove fillets, chamfers, bosses and holes from "
-                                          "imported parts (heal, cap or leave open)"),
-                          ("move_face", "Move face — push or pull flat faces"),
-                          ("offset_surface", "Offset surface — a new surface a set distance from faces")):
-            self._tb(h, name, tip, lambda _=False, n=name: self.start_feature(n))
-        h.addWidget(_sep())
-        self._tb(h, "sm_base", "Sheet metal — a flat sheet from a sketch (thickness, bend radius, K-factor)",
-                 lambda: self.start_feature("sm_base"))
-        self._tb(h, "sm_flange", "Flange — bend the sheet up along edges", lambda: self.start_feature("sm_flange"))
-        self._tb(h, "sm_hem", "Hem — fold edges right back over the sheet", lambda: self.start_feature("sm_hem"))
-        self._tb(h, "sm_jog", "Jog — step the sheet up or down from an edge and carry on",
-                 lambda: self.start_feature("sm_jog"))
-        self._tb(h, "sm_tab", "Tab — more sheet in a panel's plane, from a sketch on its face",
-                 lambda: self.start_feature("sm_tab"))
-        self._tb(h, "sm_convert", "Convert — make a flat plate (an imported one, say) into sheet metal",
-                 lambda: self.start_feature("sm_convert"))
-        self.btn_flat = self._tb(h, "flat", "Flat pattern — show sheet metal parts unfolded", self.toggle_flat,
-                                 checkable=True)
-        self._tb(h, "flat_dxf", "Export the flat pattern as DXF (for laser / plasma cutting)",
-                 lambda: self.export_flat_dxf())
-        self._tb(h, "nest", "Nest for cutting — lay several flat patterns out on stock sheets, one DXF",
-                 self.nest_for_cutting)
-        h.addWidget(_sep())
-        self._tb(h, "plane", "Plane", lambda: self.start_feature("plane"))
-        self._tb(h, "helix", "Helix — a helix curve (a path for springs and threads)",
-                 lambda: self.start_feature("helix"))
-        h.addWidget(_sep())
-        for name, tip in (("mirror", "Mirror"), ("linear_pattern", "Linear pattern"),
-                          ("circular_pattern", "Circular pattern"), ("boolean", "Boolean"),
-                          ("split", "Split parts with planes, faces or sketch curves"), ("move", "Move / rotate / copy parts"),
-                          ("delete_part", "Delete part — remove parts from here on"),
-                          ("compound", "Compound — solids as one part that share the faces where they touch "
-                                       "(glue faces)"),
-                          ("explode_part", "Explode — a part into its solids (a compound back apart), faces or edges")):
-            self._tb(h, name, tip, lambda _=False, n=name: self.start_feature(n))
         h.addWidget(_sep())
         self._tb(h, "import", "Import STEP (opens in a new tab)", lambda: self.import_step())
         self._tb(h, "export", "Export STEP / STL / BREP", lambda: self.export(None, None))
@@ -813,20 +865,21 @@ class MainWindow(QMainWindow):
         self._tb(h, "undo", "Undo (Ctrl+Z)", lambda: self._sk("undo"))
         self._tb(h, "redo", "Redo (Ctrl+Y)", lambda: self._sk("redo"))
         h.addWidget(_sep())
-        tools = [("select", "Select (S)", "point"),
-                 ("line", "Line (L)", None), ("rect", "Corner rectangle (R)", None),
-                 ("center_rect", "Center rectangle", None),
-                 ("hexagon", "Hexagon — click the centre, then a corner (X)", None), ("circle", "Circle (C)", None),
-                 ("arc3", "3-point arc (A)", None), ("arc_center", "Center-point arc", None),
-                 ("spline", "Spline — click points, double-click or Enter to finish", None),
-                 ("ellipse", "Ellipse", None), ("text", "Text", "sk_text"),
-                 ("point", "Point (P)", None)]
-        for name, tip, ic in tools:
-            b = self._tb(h, ic or name, tip, lambda _=False, n=name: self._sk_tool(n), checkable=True)
-            if name == "select":
-                b.setIcon(self._arrow_icon())
-                b.setProperty("icon_name", "__arrow")
-            self._sketch_buttons[name] = b
+        b = self._tb(h, "point", "Select (S)", lambda: self._sk_tool("select"), checkable=True)
+        b.setIcon(self._arrow_icon())
+        b.setProperty("icon_name", "__arrow")
+        self._sketch_buttons["select"] = b
+        self._sketch_buttons["line"] = self._tb(h, "line", "Line (L)", lambda: self._sk_tool("line"), checkable=True)
+        # like Onshape, variants of a tool share a button: it shows (and repeats) the one used last, ▾ lists them
+        self._sk_group(h, [("rect", "Corner rectangle (R)"), ("center_rect", "Center rectangle"),
+                           ("hexagon", "Hexagon — click the centre, then a corner (X)")])
+        self._sk_group(h, [("circle", "Circle (C)"), ("ellipse", "Ellipse")])
+        self._sk_group(h, [("arc3", "3-point arc (A)"), ("arc_center", "Center-point arc")])
+        self._sketch_buttons["spline"] = self._tb(h, "spline", "Spline — click points, double-click or Enter to "
+                                                  "finish", lambda: self._sk_tool("spline"), checkable=True)
+        self._sketch_buttons["point"] = self._tb(h, "point", "Point (P)", lambda: self._sk_tool("point"),
+                                                 checkable=True)
+        self._sketch_buttons["text"] = self._tb(h, "sk_text", "Text", lambda: self._sk_tool("text"), checkable=True)
         h.addWidget(_sep())
         b = self._tb(h, "construction", "Construction (Q)", lambda: self._sk("toggle_construction"), checkable=True)
         self._sketch_buttons["construction"] = b
@@ -842,11 +895,11 @@ class MainWindow(QMainWindow):
             self._sketch_buttons[name] = b
         h.addWidget(_sep())
         for name, tip in (("sk_fillet", "Sketch fillet — round a corner"), ("offset", "Offset (O)"),
-                          ("slot", "Slot"), ("sk_mirror", "Mirror — select geometry, then the mirror line"),
-                          ("sk_lpattern", "Linear pattern — select geometry, then a direction line"),
-                          ("sk_cpattern", "Circular pattern — select geometry, then the centre point")):
+                          ("slot", "Slot"), ("sk_mirror", "Mirror — select geometry, then the mirror line")):
             self._sketch_buttons[name] = self._tb(h, name, tip, lambda _=False, n=name: self._sk_tool(n),
                                                   checkable=True)
+        self._sk_group(h, [("sk_lpattern", "Linear pattern — select geometry, then a direction line"),
+                           ("sk_cpattern", "Circular pattern — select geometry, then the centre point")])
         h.addWidget(_sep())
         b = self._tb(h, "use", "Use (project) part edges (U)", lambda: self._sk_tool("use"), checkable=True)
         self._sketch_buttons["use"] = b
@@ -863,6 +916,26 @@ class MainWindow(QMainWindow):
         done.clicked.connect(self.finish_sketch)
         h.addWidget(done)
         return w
+
+    def _sk_group(self, layout, items):
+        """Sketch tools that share one button (rectangle / centre rectangle / hexagon …): the button shows the
+        variant used last and clicking it starts that one again; ▾ lists them all."""
+        icon_of = {"text": "sk_text"}
+        b = self._tb(layout, icon_of.get(items[0][0], items[0][0]), items[0][1],
+                     lambda: self._sk_tool(b.property("current")), checkable=True)
+        b.setProperty("current", items[0][0])
+        b.setPopupMode(QToolButton.MenuButtonPopup)
+        m = QMenu(b)
+        for name, tip in items:
+            a = m.addAction(icon(icon_of.get(name, name), 20), tip.split(" — ")[0])
+            a.setToolTip(tip)
+            a.triggered.connect(lambda _=False, n=name: self._sk_tool(n))
+            self._menu_actions.append((a, icon_of.get(name, name)))
+            self._sketch_buttons[name] = b
+        m.setToolTipsVisible(True)
+        b.setMenu(m)
+        b.setProperty("tips", {n: t for n, t in items})
+        return b
 
     def _arrow_icon(self):
         from PySide6.QtGui import QPixmap, QPainter, QPolygonF, QIcon
@@ -1278,11 +1351,22 @@ class MainWindow(QMainWindow):
         self.viewport.update()
 
     def _sketch_tool_changed(self, tool):
+        on = {}
         for name, b in self._sketch_buttons.items():
             if name == "construction":
                 b.setChecked(bool(self.sketcher and self.sketcher.construction))
-            else:
-                b.setChecked(name == tool)
+                continue
+            on.setdefault(id(b), [b, False])
+            if name == tool:
+                on[id(b)][1] = True
+                tips = b.property("tips")
+                if tips:                                   # a shared button: show the variant now in use
+                    b.setProperty("current", name)
+                    b.setProperty("icon_name", name)
+                    b.setIcon(icon(name))
+                    b.setToolTip(tips[name])
+        for b, checked in on.values():
+            b.setChecked(checked)
         if self.sketcher:
             self.viewport.status_text = self.sketcher.hint()
             self.viewport.update()
@@ -1680,6 +1764,50 @@ class MainWindow(QMainWindow):
         if save:
             self.settings.setValue("orbit", mode)
 
+    # ================================================================== your own icons
+    def icon_names(self):
+        """Every icon name the toolbars use, plus every feature type (for the feature list)."""
+        names = {b.property("icon_name") for b in self.findChildren(QToolButton)}
+        names |= {nm for _a, nm in getattr(self, "_menu_actions", [])}
+        names |= set(F.FEATURE_LABELS)
+        names |= {"part", "assembly", "drawing", "error", "folder", "new_folder", "origin", "search", "iso_view"}
+        try:
+            from .. import plugins as P
+            names |= {"plugin:" + k.split(":", 1)[-1] for k in P.FEATURES}
+        except Exception:
+            pass
+        return sorted(n for n in names if n and not str(n).startswith("__"))
+
+    def open_icons_folder(self):
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        from .icons import user_icons_dir
+        d = user_icons_dir()
+        os.makedirs(d, exist_ok=True)
+        readme = os.path.join(d, "README.txt")
+        if not os.path.exists(readme):
+            with open(readme, "w", encoding="utf-8") as fh:
+                fh.write("Your own FreeShape icons\n\nPut an .svg or .png here named like a tool to use it instead of the "
+                         "built-in icon: extrude.svg, fillet.png, sketch.svg ... A plugin feature's icon is "
+                         "plugin_<id>, e.g. plugin_gridfinity.svg.\n\nView > Icons > Save the built-in icons there writes "
+                         "every built-in icon as a PNG with the right name, to see the names or to start from.\n"
+                         "Then View > Icons > Reload icons (or restart). Delete a file to get the built-in icon back.\n")
+        QDesktopServices.openUrl(QUrl.fromLocalFile(d))
+
+    def export_icons(self):
+        from .icons import export_builtin, user_icons_dir
+        d = os.path.join(user_icons_dir(), "built-in")
+        n = export_builtin(self.icon_names(), d)
+        QMessageBox.information(self, APP_NAME, f"Saved {n} built-in icons (64 × 64 PNG) to<br><b>{d}</b><br><br>"
+                                "To change one, copy it up into the icons folder (or make an .svg with the same "
+                                "name there), edit it, then View ▸ Icons ▸ Reload icons.")
+
+    def reload_icons(self):
+        from . import icons as ICONS
+        ICONS.icon.cache_clear()
+        self.set_theme(theme.MODE, save=False)
+        self.status.showMessage("Icons reloaded", 4000)
+
     # ================================================================== theme
     def set_theme(self, mode, save=True):
         from . import icons as ICONS
@@ -1693,6 +1821,8 @@ class MainWindow(QMainWindow):
                 b.setIcon(self._arrow_icon())
             elif nm:
                 b.setIcon(icon(nm))
+        for a, nm in getattr(self, "_menu_actions", []):
+            a.setIcon(icon(nm, 20))
         for i in range(self.tabs.count()):
             d = self.docs.get(self.tabs.tabData(i))
             self.tabs.setTabIcon(i, icon("assembly" if getattr(d, "kind", "") == "assembly" else "part", 16))
@@ -2239,8 +2369,19 @@ class MainWindow(QMainWindow):
         m.exec(gpos)
 
     # ------------------------------------------------------------------ feature-list highlighting (like Onshape)
+    def _std_plane_shown(self, name):
+        return self.act_planes.isChecked() and self.doc is not None and name not in self.doc.hidden_features
+
     def _feature_hovered(self, fid):
         self._hl_hover = fid
+        vp = self.viewport
+        # a default plane hovered in the list lights up in the view just as when the mouse is over it there
+        mine = getattr(self, "_list_plane_hover", None)
+        if mine is not None and vp.hover == mine:
+            vp.hover = None
+        self._list_plane_hover = None
+        if fid and str(fid).startswith("std:") and self._std_plane_shown(fid[4:]):
+            self._list_plane_hover = vp.hover = Pick("plane", ("std", fid[4:]))
         self._update_feature_hl()
 
     def _update_feature_hl(self):
@@ -2281,9 +2422,23 @@ class MainWindow(QMainWindow):
             return hit
         if len(self._hl_cache) > 200:
             self._hl_cache.clear()
+        faces, polys = {}, []
+        if fid == "origin" or str(fid).startswith("std:"):
+            h = self.viewport.plane_half()
+            if fid == "origin":                         # a small ring round the origin in each default plane
+                r = h * 0.06
+                a = np.linspace(0, 2 * np.pi, 33)
+                for name in ("Top", "Front", "Right"):
+                    pl = K.std_plane(name)
+                    polys.append(np.array([pl.to_world(r * np.cos(t), r * np.sin(t)) for t in a]))
+            elif self._std_plane_shown(fid[4:]):
+                pass                                    # shown: it lights up like a hovered plane (above)
+            else:                                       # hidden: just its outline
+                pl = K.std_plane(fid[4:])
+                polys.append(np.array([pl.to_world(u, v) for u, v in ((-h, -h), (h, -h), (h, h), (-h, h), (-h, -h))]))
+            return faces, polys                          # (not cached: it depends on the plane being shown)
         f = doc.feature(fid)
         idx = doc.feature_index(fid)
-        faces, polys = {}, []
         if f is None or f.get("suppressed") or idx is None or idx >= doc.active_count():
             pass
         elif f["type"] == "sketch":
@@ -2569,12 +2724,13 @@ class MainWindow(QMainWindow):
         c = mp["centroid"]
         QMessageBox.information(
             self, "Mass properties",
-            f"<b>{name}</b><br><br>Volume: {fmt(mp['volume'], 3)} mm³<br>"
-            f"Surface area: {fmt(mp['area'], 3)} mm²<br>"
+            f"<b>{name}</b><br><br>Volume: {U.volume(mp['volume'], 3)}<br>"
+            f"Surface area: {U.area(mp['area'], 3)}<br>"
             f"Mass (PLA, 1.24 g/cm³): {fmt(mp['volume'] * 1.24e-3, 2)} g<br>"
             f"Mass (aluminium, 2.7 g/cm³): {fmt(mp['volume'] * 2.7e-3, 2)} g<br>"
-            f"Centre of mass: ({fmt(c[0], 3)}, {fmt(c[1], 3)}, {fmt(c[2], 3)})<br>"
-            f"Bounding box: {fmt(hi[0] - lo[0], 3)} × {fmt(hi[1] - lo[1], 3)} × {fmt(hi[2] - lo[2], 3)} mm")
+            f"Centre of mass: ({U.num(c[0], 3)}, {U.num(c[1], 3)}, {U.num(c[2], 3)}) {U.unit()}<br>"
+            f"Bounding box: {U.num(hi[0] - lo[0], 3)} × {U.num(hi[1] - lo[1], 3)} × {U.num(hi[2] - lo[2], 3)} "
+            f"{U.unit()}")
 
     # ================================================================== viewport interactions
     def _hover_changed(self, pk):
@@ -2783,9 +2939,60 @@ class MainWindow(QMainWindow):
             self.cancel_sketch()
 
     # ------------------------------------------------------------------ tabs
+    # ------------------------------------------------------------------ units
+    def default_units(self):
+        from .. import units as U
+        u = str(self.settings.value("default_units", "mm"))
+        return u if u in U.FACTORS else "mm"
+
+    def _apply_units(self):
+        """Lengths are shown and typed in the unit of the document on screen."""
+        from .. import units as U
+        u = getattr(self.doc, "units", "mm") if self.doc is not None and self.doc.kind != "drawing" else "mm"
+        U.set_unit(u)
+        self.units_label.setText(f"Units: {U.NAMES[U.unit()]} ▾")
+        self.units_label.setEnabled(self.doc is not None and self.doc.kind != "drawing")
+
+    def _fill_units_menu(self, m):
+        from PySide6.QtGui import QActionGroup
+        from .. import units as U
+        m.clear()
+        m.addSection("This document")
+        grp = QActionGroup(m)
+        cur = getattr(self.doc, "units", "mm")
+        for u in U.ORDER:
+            a = m.addAction(f"{U.NAMES[u].capitalize()} ({u})")
+            a.setCheckable(True)
+            a.setChecked(u == cur)
+            grp.addAction(a)
+            a.triggered.connect(lambda _=False, uu=u: self.set_doc_units(uu))
+        m.addSection("New documents")
+        dm = m.addMenu(f"Default: {U.NAMES[self.default_units()]}")
+        for u in U.ORDER:
+            a = dm.addAction(U.NAMES[u].capitalize())
+            a.setCheckable(True)
+            a.setChecked(u == self.default_units())
+            a.triggered.connect(lambda _=False, uu=u: self.settings.setValue("default_units", uu))
+
+    def set_doc_units(self, u):
+        """Change the unit this document shows and takes lengths in. The model doesn't change: a 25.4 mm block is
+        a 1 in block."""
+        if self.doc is None or self.doc.kind == "drawing" or getattr(self.doc, "units", "mm") == u:
+            return
+        self._leave_modes()
+        self.doc.units = u
+        self.doc.dirty = True
+        self._apply_units()
+        if self.doc.kind == "studio":
+            self._populate_lists()
+        self._refresh_tab_title(self.doc)
+        self.measure.hide()
+        self.viewport.update()
+
     def _new_document(self, name=None):
         self._studio_counter += 1
         doc = Document()
+        doc.units = self.default_units()
         doc.name = name or f"Part Studio {self._studio_counter}"
         doc.rebuild()
         return doc
@@ -2810,6 +3017,7 @@ class MainWindow(QMainWindow):
         doc.listeners.append(lambda d=doc: self._doc_changed_from(d))
         if doc.kind == "assembly":
             doc.resolver = self._resolve_source
+            doc.asm_resolver = self._resolve_assembly
         if doc.kind == "drawing":
             doc.resolver = self._resolve_drawing_source
             doc.hlr_async = self.dwg.request_exact
@@ -3001,6 +3209,7 @@ class MainWindow(QMainWindow):
             if self.doc.kind != "drawing":
                 self._views[id(self.doc)] = self.viewport.cam.state()
         self.doc = doc
+        self._apply_units()
         self.viewport.clear_selection()
         self.measure.hide()
         asm = doc.kind == "assembly"
@@ -3096,6 +3305,8 @@ class MainWindow(QMainWindow):
             d = json.loads(src.to_json(embed=False))
             a = AssemblyDoc()
             a.instances, a.mates, a.blobs = d["instances"], d["mates"], dict(src.blobs)
+            a.subs = d.get("subs", [])
+            a.relations, a.patterns = d.get("relations", []), d.get("patterns", [])
             a._counter = src._counter
             a.name = src.name + " (copy)"
             a.resolver = self._resolve_source
@@ -3123,6 +3334,7 @@ class MainWindow(QMainWindow):
         self._asm_counter = getattr(self, "_asm_counter", 0) + 1
         a = AssemblyDoc()
         a.name = f"Assembly {self._asm_counter}"
+        a.units = self.default_units()
         a.resolver = self._resolve_source
         self._add_tab(a)
         QTimer.singleShot(0, self._fresh_view)
@@ -3298,6 +3510,38 @@ class MainWindow(QMainWindow):
         return p.shape
 
     # ------------------------------------------------------------------ links between tabs
+    def assembly_docs(self):
+        return [d for d in (self.docs.get(self.tabs.tabData(i)) for i in range(self.tabs.count()))
+                if d is not None and d.kind == "assembly"]
+
+    def _resolve_assembly(self, source):
+        """The assembly a sub-assembly comes from: its open tab (by id, then by file), else its file (loaded once
+        and kept while the file is unchanged). None if it can't be found."""
+        uid, path = source.get("uid"), source.get("path")
+        open_ = self.assembly_docs()
+        doc = next((d for d in open_ if uid and d.uid == uid), None)
+        if doc is None and path:
+            ap = os.path.abspath(path)
+            doc = next((d for d in open_ if d.path and os.path.abspath(d.path) == ap), None)
+            if doc is None and os.path.exists(ap):
+                cache = self.__dict__.setdefault("_asm_file_cache", {})
+                stamp = os.path.getmtime(ap)
+                hit = cache.get(ap)
+                if hit is not None and hit[0] == stamp:
+                    return hit[1]
+                depth = self.__dict__.get("_asm_load_depth", 0)
+                if depth > 8:
+                    return None                       # (a file loop: give up)
+                self._asm_load_depth = depth + 1
+                try:
+                    doc = AssemblyDoc.load(ap, resolver=self._resolve_source)
+                    doc.asm_resolver = self._resolve_assembly
+                    doc.refresh(solve=False, notify=False)
+                finally:
+                    self._asm_load_depth = depth
+                cache[ap] = (stamp, doc)
+        return doc
+
     def studio_docs(self):
         out = []
         for i in range(self.tabs.count()):
@@ -3582,6 +3826,58 @@ class MainWindow(QMainWindow):
             path += next((e for _k, f, e in self.EXPORT_FORMATS if f == chosen), ".step")
         return path
 
+    def _stl_options(self, path):
+        """For an .stl path: ask for the resolution (Coarse / Medium / Fine / Custom, remembered). Returns
+        (deviation, angle), None for a file that isn't STL, or False if cancelled."""
+        if not str(path).lower().endswith(".stl"):
+            return None
+        from PySide6.QtWidgets import QComboBox, QDialogButtonBox, QDoubleSpinBox, QFormLayout
+        dlg = QDialog(self)
+        dlg.setWindowTitle("STL resolution")
+        form = QFormLayout(dlg)
+        combo = QComboBox()
+        for key, label in (("coarse", "Coarse — small files, visible facets"),
+                           ("medium", "Medium — fine for most 3D printing"),
+                           ("fine", "Fine — smooth curves, bigger files"), ("custom", "Custom")):
+            combo.addItem(label, key)
+        dev, ang = QDoubleSpinBox(), QDoubleSpinBox()
+        dev.setDecimals(3)
+        dev.setRange(0.001, 10.0)
+        dev.setSingleStep(0.01)
+        dev.setSuffix(" mm")
+        ang.setDecimals(1)
+        ang.setRange(0.5, 90.0)
+        ang.setSuffix(" °")
+        form.addRow("Resolution", combo)
+        form.addRow("Deviation (distance from the true surface)", dev)
+        form.addRow("Angle (between neighbouring facets)", ang)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.accepted.connect(dlg.accept)
+        bb.rejected.connect(dlg.reject)
+        form.addRow(bb)
+
+        def pick():
+            key = combo.currentData()
+            custom = key == "custom"
+            dev.setEnabled(custom)
+            ang.setEnabled(custom)
+            if not custom:
+                d, a = K.STL_RESOLUTIONS[key]
+                dev.setValue(d)
+                ang.setValue(a)
+        combo.currentIndexChanged.connect(lambda _i: pick())
+        key = str(self.settings.value("stl/resolution", "medium"))
+        dev.setValue(float(self.settings.value("stl/deviation", 0.05)))
+        ang.setValue(float(self.settings.value("stl/angle", 17.0)))
+        combo.setCurrentIndex(max(0, combo.findData(key)))
+        pick()
+        if dlg.exec() != QDialog.Accepted:
+            return False
+        self.settings.setValue("stl/resolution", combo.currentData())
+        self.settings.setValue("stl/deviation", dev.value())
+        self.settings.setValue("stl/angle", ang.value())
+        return dev.value(), ang.value()
+
     def export(self, part_ids, fmt_=None):
         if self.is_dwg:
             self.dwg.export(fmt_ if fmt_ in ("dxf", "pdf") else None)
@@ -3593,8 +3889,11 @@ class MainWindow(QMainWindow):
             path = self._export_path("Export assembly", self.doc.name.replace(" ", "_"), fmt_)
             if not path:
                 return
+            stl = self._stl_options(path)
+            if stl is False:
+                return
             try:
-                self.doc.export(path)
+                self.doc.export(path, stl=stl)
                 self.status.showMessage(f"Exported {path}", 5000)
             except Exception as e:
                 QMessageBox.critical(self, APP_NAME, f"Export failed:\n{e}")
@@ -3608,8 +3907,11 @@ class MainWindow(QMainWindow):
         path = self._export_path("Export", base, fmt_)
         if not path:
             return
+        stl = self._stl_options(path)
+        if stl is False:
+            return
         try:
-            self.doc.export(path, part_ids)
+            self.doc.export(path, part_ids, stl=stl)
             self.status.showMessage(f"Exported {path}", 5000)
         except Exception as e:
             QMessageBox.critical(self, APP_NAME, f"Export failed:\n{e}")

@@ -77,6 +77,39 @@ def panels(fs, W, D, H, t, finger, lid=True):
     return out
 
 
+def grow(fs, panel, d):
+    """The panel with its outline pushed out by d all round (sharp corners kept), same thickness: kerf
+    compensation, so that after the laser burns away d on each side the parts are the drawn size."""
+    import numpy as np
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeFace
+    from OCP.BRepOffsetAPI import BRepOffsetAPI_MakeOffset
+    from OCP.GeomAbs import GeomAbs_Intersection
+    from OCP.TopAbs import TopAbs_WIRE
+    from OCP.TopExp import TopExp_Explorer
+    from freeshape import kernel as K
+    if d <= 0:
+        return panel
+    lo, hi = map(np.asarray, fs.bbox(panel))
+    thin = int(np.argmin(hi - lo))
+    n = np.zeros(3)
+    n[thin] = 1.0
+    faces = [f for f in K.faces(panel) if (pl := K.planar_face_plane(f)) is not None
+             and abs(abs(pl.normal @ n) - 1) < 1e-9 and abs(fs.bbox(f)[0][thin] - lo[thin]) < 1e-6]
+    if not faces:
+        return panel
+    mo = BRepOffsetAPI_MakeOffset(faces[0], GeomAbs_Intersection)
+    mo.Perform(float(d))
+    ex = TopExp_Explorer(mo.Shape(), TopAbs_WIRE)
+    wires = []
+    while ex.More():
+        wires.append(K._as_wire(ex.Current()))
+        ex.Next()
+    if not wires:
+        return panel
+    outer = max((BRepBuilderAPI_MakeFace(w, True).Face() for w in wires), key=lambda f: fs.volume(fs.extrude(f, 1, n)))
+    return fs.extrude(outer, float(hi[thin] - lo[thin]), direction=n)
+
+
 def lay_flat(fs, parts, t, gap=5.0):
     """The panels laid flat on the Top plane in two rows, for cutting."""
     import numpy as np
@@ -168,6 +201,11 @@ def register(api):
         if ctx["inside"]:
             W, D, H = W + 2 * t, D + 2 * t, H + (2 if ctx["lid"] else 1) * t
         ps = panels(fs, W, D, H, t, finger, ctx["lid"])
+        kerf = ctx.get("kerf", 0.0) or 0.0
+        if kerf < 0 or kerf > t:
+            ctx.fail("The kerf should be between 0 and the sheet thickness")
+        if kerf > 0:
+            ps = {p: grow(fs, s, kerf / 2) for p, s in ps.items()}
         if ctx["layout"] == "flat":
             ps = lay_flat(fs, ps, t)
         for p, s in ps.items():
@@ -182,9 +220,12 @@ def register(api):
         api.number("thickness", "Sheet thickness", 3.0, minimum=0.1),
         api.number("finger", "Finger width (about)", 12.0, minimum=0.1),
         api.check("lid", "Lid", True),
+        api.number("kerf", "Laser kerf (0 for none)", 0.0, minimum=0),
         api.choice("layout", "Show", [("assembled", "Assembled"), ("flat", "Flat, ready to cut")], "assembled"),
         api.note("Choose Flat to lay the panels out, then Plugins ▸ Export flat panels as DXF… writes them for "
-                 "the laser cutter. The finger count on each edge is rounded to an odd number."),
+                 "the laser cutter. The finger count on each edge is rounded to an odd number. Kerf is the width the "
+                 "laser burns away (often 0.1–0.2 mm): each outline is drawn half a kerf bigger all round, so the "
+                 "cut parts come out the right size and the joints are snug."),
     ])
 
     def export_dxf(ctx):

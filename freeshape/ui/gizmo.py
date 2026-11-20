@@ -15,6 +15,8 @@ Everything is drawn with QPainter on top of the model, so it is never hidden beh
 import math
 
 import numpy as np
+
+from .. import units as U
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QPainterPath, QPen, QPolygonF
 from PySide6.QtWidgets import QLineEdit
@@ -316,10 +318,10 @@ class Gizmo:
             at = g["axes"][k]["ring_c"] + np.array([30.0, -22.0])
         elif kind == "move":
             k = d["handle"][1]
-            text = f"{d['value']:.2f} mm"
+            text = U.length(d['value'], 2)
             at = g["axes"][k]["cone_end"] + np.array([34.0, -18.0])
         else:
-            text = f"{d['value']:.2f} mm"
+            text = U.length(d['value'], 2)
             at = g["os"] + np.array([-50.0, 34.0])
         self.last = {"handle": d["handle"], "o": d["o"], "R": d["R"], "T0s": d["T0s"], "value": d["value"],
                      "vec": d.get("vec"), "text": text, "label_at": (float(at[0]), float(at[1])),
@@ -342,7 +344,9 @@ class Gizmo:
         r = self.label_rect()
         self.close_editor()
         ed = _ValueEdit(self.vp, self.close_editor)
-        ed.setText(f"{self.last['value']:.3f}".rstrip("0").rstrip(".") if initial is None else initial)
+        rot = self.last["handle"][0] == "rot"
+        val = self.last["value"] if rot else U.to_unit(self.last["value"])
+        ed.setText(f"{val:.3f}".rstrip("0").rstrip(".") if initial is None else initial)
         ed.setGeometry(int(r.x()), int(r.y()), int(r.width()), int(r.height()))
         ed.setAlignment(Qt.AlignCenter)
         ed.setStyleSheet("QLineEdit { border: 1px solid #2378e6; border-radius: 3px; background: white;"
@@ -365,10 +369,12 @@ class Gizmo:
         ed, last = self.editor, self.last
         if ed is None or last is None:
             return
-        txt = ed.text().replace("deg", "").replace("mm", "").replace("°", "").strip()
-        try:
-            v = float(txt)
-        except ValueError:
+        from ..expr import parse_number, with_unit
+        if last["handle"][0] == "rot":
+            v = parse_number(ed.text().replace("°", " deg"), angle=True)
+        else:
+            v = parse_number(with_unit(ed.text(), U.unit()))     # a bare number is in the document's unit
+        if v is None:
             return
         d = dict(last)
         if d["handle"][0] in ("plane", "free"):

@@ -568,6 +568,15 @@ def fixed_value(state, p):
     if not text:
         raise K.KernelError("Enter a value or expression")
     want = {"fixed_length": "length", "fixed_angle": "angle", "fixed_number": "number"}.get(mtype, "any")
+    from .expr import eval_text, is_text_expr, text_problem
+    if want == "any" and is_text_expr(text, state.vars):         # text: "Rev B", "PN-" + #n
+        try:
+            return eval_text(text, state.vars), "text"
+        except ValueError as e:
+            raise K.KernelError(f"'{text}': {e}")
+    why = text_problem(text, state.vars)
+    if why:
+        raise K.KernelError(f"'{text}': {why}")
     val = parse_number(text, angle=(want == "angle"), variables=state.vars)
     if val is None:
         missing = [n for n in var_names(text) if n not in state.vars]
@@ -609,11 +618,27 @@ def value_text(p, val, kind=None):
         return f"{fmt(val / _UNITS.get(u, 1.0), 4)} {'°' if u == 'deg' else u}"
     if mtype in ("fixed_number",):
         return fmt(val, 4)
+    if isinstance(val, str):
+        return '"' + val + '"'
     if mtype == "expression":
-        unit = {"length": "mm", "angle": "°", "area": "mm²", "volume": "mm³"}.get(kind or "", "")
-        return f"{fmt(val, 4)}{(' ' + unit) if unit else ''}"
-    unit = UNITS.get(mtype, "")
-    return f"{fmt(val, 3)}{(' ' + unit) if unit else ''}"
+        return quantity_text(kind or "", val, 4)
+    return quantity_text(KINDS.get(mtype, "any"), val, 3, mtype)
+
+
+def quantity_text(kind, val, digits=3, mtype=None):
+    """A value of a kind (length, area, volume …) for display: lengths, areas and volumes in the document's unit."""
+    from . import units as U
+    from .expr import fmt
+    if kind == "length":
+        return U.length(val, digits)
+    if kind == "area":
+        return U.area(val, digits)
+    if kind == "volume":
+        return U.volume(val, digits)
+    if kind == "angle":
+        return f"{fmt(val, digits)} °"
+    unit = UNITS.get(mtype, "") if mtype else ""
+    return f"{fmt(val, digits)}{(' ' + unit) if unit else ''}"
 
 
 def rounded(value, step):
@@ -703,10 +728,8 @@ def headline(state, items):
         val = compute(state, p)
     except Exception:
         return None
-    from .expr import fmt
     mtype = p["mtype"]
-    unit = UNITS.get(mtype, "")
     label = SHORT.get(mtype, mtype)
     if mtype in ("coordinate", "centroid", "size"):
         label = p.get("axis_c", "x").upper() if mtype == "coordinate" else f"{label} {p.get('axis_c', 'x').upper()}"
-    return label, f"{fmt(val, 3)}{(' ' + unit) if unit else ''}", p
+    return label, quantity_text(KINDS.get(mtype, "any"), val, 3, mtype), p

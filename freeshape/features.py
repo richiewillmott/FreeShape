@@ -705,6 +705,10 @@ def prepare(f, state):
         v = p2.get(k)
         if isinstance(v, str):
             want = param_kind(k) if k in NUMERIC_KEYS else "any"      # plugin fields: not checked
+            from .expr import text_problem
+            why = text_problem(v, state.vars)
+            if why:
+                raise K.KernelError(f"{k.replace('_', ' ').capitalize()} '{v}': {why}")
             val = parse_number(v, angle=(want == "angle"), variables=state.vars)
             if val is None:
                 bad = [n for n in var_names(v) if n not in state.vars]
@@ -741,7 +745,11 @@ def run_sketch(state, f):
     sk = Sketch.from_dict(p["sketch"])
     # dimensions driven by variables are re-evaluated and the sketch re-solved
     driven = [c for c in sk.constraints if isinstance(c.get("expr"), str)]
+    from .expr import eval_text, text_problem
     for c in driven:
+        why = text_problem(c["expr"], state.vars)
+        if why:
+            raise K.KernelError(f"Dimension '{c['expr']}': {why}")
         val = parse_number(c["expr"], angle=(c["type"] == "angle"), variables=state.vars)
         if val is None:
             bad = [n for n in var_names(c["expr"]) if n not in state.vars]
@@ -749,6 +757,14 @@ def run_sketch(state, f):
         c["value"] = val
     if driven:
         sk.solve()
+    for e in sk.entities.values():             # text that comes from variables: "PN-" + #part
+        if e["type"] == "text" and e.get("expr"):
+            try:
+                e["text"] = eval_text(e["expr"], state.vars)
+            except ValueError as err:
+                raise K.KernelError(f"Sketch text {e['expr']}: {err}")
+            if not e["text"].strip():
+                raise K.KernelError(f"Sketch text {e['expr']} is empty")
     regions = K.sketch_regions(plane, sk.curves())
     bb = K.bbox(K.compound(regions)) if regions else None
     state.sketches[f["id"]] = SketchResult(plane, sk, regions, [region_signature(r) for r in regions], bb)

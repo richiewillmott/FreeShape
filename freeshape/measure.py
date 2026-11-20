@@ -14,6 +14,7 @@ from OCP.GeomAbs import GeomAbs_Circle, GeomAbs_Cylinder, GeomAbs_Line, GeomAbs_
 
 from . import kernel as K
 from .expr import fmt
+from . import units as U
 
 PLA, ALU, STEEL = 1.24e-3, 2.70e-3, 7.85e-3     # g / mm³
 
@@ -69,20 +70,20 @@ def _single(kind, shape, name=None):
     g = _geom(kind, shape)
     if kind in ("face", "region"):
         info = K.face_info(shape)
-        rows.append(("Area", f"{fmt(info['area'], 3)} mm²"))
+        rows.append(("Area", U.area(info['area'], 3)))
         if g["type"] == "cylinder":
-            rows.append(("Diameter", f"{fmt(2 * g['r'], 3)} mm"))
-            rows.append(("Radius", f"{fmt(g['r'], 3)} mm"))
+            rows.append(("Diameter", U.length(2 * g['r'], 3)))
+            rows.append(("Radius", U.length(g['r'], 3)))
         if g["type"] == "plane":
             n = g["n"]
             rows.append(("Normal", f"({fmt(n[0], 3)}, {fmt(n[1], 3)}, {fmt(n[2], 3)})"))
         return {"title": "Sketch region" if kind == "region" else "Face", "rows": rows, "line": None}
     if kind == "edge":
         info = K.edge_info(shape)
-        rows.append(("Length", f"{fmt(info['len'], 3)} mm"))
+        rows.append(("Length", U.length(info['len'], 3)))
         if g["type"] == "circle":
-            rows.append(("Diameter", f"{fmt(2 * g['r'], 3)} mm"))
-            rows.append(("Radius", f"{fmt(g['r'], 3)} mm"))
+            rows.append(("Diameter", U.length(2 * g['r'], 3)))
+            rows.append(("Radius", U.length(g['r'], 3)))
             c = g["p"]
             rows.append(("Centre", f"({fmt(c[0], 3)}, {fmt(c[1], 3)}, {fmt(c[2], 3)})"))
         if g["type"] == "line":
@@ -94,8 +95,8 @@ def _single(kind, shape, name=None):
     lo, hi = K.bbox(shape)
     size = hi - lo
     v = mp["volume"]
-    rows += [("Volume", f"{fmt(v, 2)} mm³"), ("Surface area", f"{fmt(mp['area'], 2)} mm²"),
-             ("Size", f"{fmt(size[0], 2)} × {fmt(size[1], 2)} × {fmt(size[2], 2)} mm"),
+    rows += [("Volume", U.volume(v, 2)), ("Surface area", U.area(mp['area'], 2)),
+             ("Size", f"{U.num(size[0], 2)} × {U.num(size[1], 2)} × {U.num(size[2], 2)} {U.unit()}"),
              ("Mass", f"PLA {fmt(v * PLA, 1)} g · Al {fmt(v * ALU, 1)} g · steel {fmt(v * STEEL, 1)} g")]
     c = mp["centroid"]
     rows.append(("Centre of mass", f"({fmt(c[0], 2)}, {fmt(c[1], 2)}, {fmt(c[2], 2)})"))
@@ -121,7 +122,7 @@ def measure(items, names=None):
         if md:
             d, p1, p2 = md
             dv = np.abs(p2 - p1)
-            rows.append(("Minimum distance", f"{fmt(d, 3)} mm"))
+            rows.append(("Minimum distance", U.length(d, 3)))
             rows.append(("ΔX · ΔY · ΔZ", f"{fmt(dv[0], 3)} · {fmt(dv[1], 3)} · {fmt(dv[2], 3)}"))
             if d > 1e-9:
                 line = (p1, p2)
@@ -129,12 +130,12 @@ def measure(items, names=None):
         ca = ga["p"] if ga["type"] in ("circle",) else None
         cb = gb["p"] if gb["type"] in ("circle",) else None
         if ca is not None and cb is not None:
-            rows.append(("Centre to centre", f"{fmt(float(np.linalg.norm(cb - ca)), 3)} mm"))
+            rows.append(("Centre to centre", U.length(float(np.linalg.norm(cb - ca)), 3)))
             line = (ca, cb)
         if ga["type"] == "cylinder" and gb["type"] == "cylinder" and _angle(ga["d"], gb["d"]) < 1e-3:
             w = gb["p"] - ga["p"]
             perp = w - (w @ ga["d"]) * ga["d"]
-            rows.append(("Axis to axis", f"{fmt(float(np.linalg.norm(perp)), 3)} mm"))
+            rows.append(("Axis to axis", U.length(float(np.linalg.norm(perp)), 3)))
         # angles and parallel distances
         dirs = {"plane": "n", "line": "d", "cylinder": "d", "circle": "d"}
         if ga["type"] in dirs and gb["type"] in dirs:
@@ -143,18 +144,18 @@ def measure(items, names=None):
             ang = 90 - _angle(da, db) if plane_line else _angle(da, db)
             rows.append(("Angle", f"{fmt(ang, 3)}°"))
             if ga["type"] == gb["type"] == "plane" and _angle(da, db) < 1e-4:
-                rows.append(("Plane to plane", f"{fmt(abs(float((gb['p'] - ga['p']) @ da)), 3)} mm"))
+                rows.append(("Plane to plane", U.length(abs(float((gb['p'] - ga['p']) @ da)), 3)))
         return {"title": "Measurement", "rows": rows, "line": line}
     kinds = {k for k, _ in items}
     if kinds <= {"face", "region"}:
         tot = sum(K.face_info(s)["area"] for _, s in items)
-        return {"title": f"{len(items)} faces", "rows": [("Total area", f"{fmt(tot, 3)} mm²")], "line": None}
+        return {"title": f"{len(items)} faces", "rows": [("Total area", U.area(tot, 3))], "line": None}
     if kinds == {"edge"}:
         tot = sum(K.edge_info(s)["len"] for _, s in items)
-        return {"title": f"{len(items)} edges", "rows": [("Total length", f"{fmt(tot, 3)} mm")], "line": None}
+        return {"title": f"{len(items)} edges", "rows": [("Total length", U.length(tot, 3))], "line": None}
     if kinds == {"part"}:
         tot = sum(K.volume(s) for _, s in items)
-        return {"title": f"{len(items)} parts", "rows": [("Total volume", f"{fmt(tot, 2)} mm³"),
+        return {"title": f"{len(items)} parts", "rows": [("Total volume", U.volume(tot, 2)),
                                                          ("Mass (PLA)", f"{fmt(tot * PLA, 1)} g")], "line": None}
     return {"title": f"{len(items)} items selected", "rows": [], "line": None}
 

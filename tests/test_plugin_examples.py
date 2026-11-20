@@ -161,3 +161,14 @@ def test_batch_export_names_files_after_parts(tmp_path):
     assert BE.file_name('a/b:c*', set()) == "a_b_c_"
     used = set()
     assert [BE.file_name("Part", used) for _ in range(3)] == ["Part", "Part (2)", "Part (3)"]
+
+
+def test_laser_box_kerf_grows_every_outline_by_half_a_kerf():
+    doc0 = _feature("laser_box", layout="flat")
+    doc1 = _feature("laser_box", layout="flat", kerf=0.2)
+    assert not doc1.errors
+    for a, b in zip(doc0.state.parts.values(), doc1.state.parts.values()):
+        wa, wb = _bb(a.shape), _bb(b.shape)
+        assert wb[0] == pytest.approx(wa[0] + 0.2) and wb[1] == pytest.approx(wa[1] + 0.2) and wb[2] == wa[2]
+        assert len(K.faces(a.shape)) == len(K.faces(b.shape))          # same fingers, just bigger
+    assert "kerf" in _feature("laser_box", kerf=5).errors.popitem()[1]

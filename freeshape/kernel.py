@@ -1106,10 +1106,133 @@ def chamfer(shape, edge_list, dist: float, mode="equal", dist2: float | None = N
                 mk.AddDA(d, math.radians(float(angle)), e, face)
     out = _try_blend(BRepFilletAPI_MakeChamfer, shape, edge_list, dist, add)
     if out is None:
+        # OpenCascade's chamfer often gives up where a straight edge between two flat faces runs into a
+        # rounded corner (a fillet made earlier). Cut the bevel as a prism instead, carried on through the
+        # rounded corner it runs into, like Onshape.
+        try:
+            out = _chamfer_by_cut(shape, edge_list, dist, mode, dist2, angle, flip)
+        except Exception:
+            out = None
+    if out is None:
         best = _largest_blend(BRepFilletAPI_MakeChamfer, shape, edge_list, dist, add)
         hint = f" — the largest that works here is about {_nice_down(best):g} mm" if best else ""
         raise KernelError(f"Chamfer too large for these edges (the cuts would overlap or not fit){hint}")
     return out
+
+
+def _point_in(shape, pt):
+    from OCP.BRepClass3d import BRepClass3d_SolidClassifier
+    from OCP.TopAbs import TopAbs_IN
+    return BRepClass3d_SolidClassifier(shape, _pnt(pt), 1e-7).State() == TopAbs_IN
+
+
+def _chamfer_by_cut(shape, edge_list, dist, mode="equal", dist2=None, angle=None, flip=False):
+    """A chamfer of straight, convex edges between two flat faces, made by cutting a prism along each edge.
+    At an end where the edge runs into a rounded corner (faces that aren't flat), the cut carries on through the
+    corner's material; elsewhere it stops at the end. None if the edges aren't all like that or the result is bad."""
+    owner = _edge_faces(shape)
+    lo, hi = bbox(shape)
+    big = float(np.linalg.norm(np.asarray(hi) - np.asarray(lo))) + 1.0
+    v_faces = {}                                     # faces round each end vertex, by position
+    for f in faces(shape):
+        for e in edges(f):
+            info = edge_info(e)
+            for key in ("p0", "p1"):
+                if key in info:
+                    v_faces.setdefault(tuple(np.round(info[key], 6)), []).append(f)
+    tools = []
+    removed = 0.0
+    for e in edge_list:
+        info = edge_info(e)
+        if "p0" not in info:
+            return None
+        fs = owner.get(e) or []
+        if len(fs) != 2:
+            return None
+        pls = [planar_face_plane(f) for f in fs]
+        if any(pl is None for pl in pls):
+            return None
+        if flip:
+            fs, pls = fs[::-1], pls[::-1]
+        p0, p1 = np.asarray(info["p0"], float), np.asarray(info["p1"], float)
+        L = float(np.linalg.norm(p1 - p0))
+        t = (p1 - p0) / L
+        mid = (p0 + p1) / 2
+        us = []
+        for f, pl in zip(fs, pls):                   # in each face, the way away from the edge
+            u = np.cross(pl.normal, t)
+            u /= np.linalg.norm(u)
+            probe = mid + u * min(1e-3 * big, 0.05)
+            if _dist_point_shape(probe, f) > 1e-5:
+                u = -u
+            us.append(u)
+        u1, u2 = us
+        d1 = float(dist)
+        if mode == "two":
+            d2 = float(dist2)
+        elif mode == "angle":                        # from A = d1 along face 1, at `angle` to face 1, to face 2
+            th = math.acos(max(-1.0, min(1.0, float(u1 @ u2))))
+            a = math.radians(float(angle))
+            # in the section plane: u1 = (1, 0), u2 = (cos th, sin th); A = (d1, 0); line A + k(-cos a, sin a)
+            M = np.array([[-math.cos(a), -math.cos(th)], [math.sin(a), -math.sin(th)]])
+            k, s_ = np.linalg.solve(M, np.array([-d1, 0.0]))
+            d2 = abs(s_)
+        else:
+            d2 = d1
+        A, B = mid + u1 * d1, mid + u2 * d2
+        if _dist_point_shape(A, fs[0]) > 1e-6 * big or _dist_point_shape(B, fs[1]) > 1e-6 * big:
+            return None                              # wider than the faces it cuts into
+        if not _point_in(shape, (mid + A + B) / 3):  # a concave edge: a chamfer there adds material
+            return None
+        out = -(u1 + u2)
+        out /= np.linalg.norm(out)
+        reach = max(d1, d2)
+        sec = [u1 * d1, u2 * d2, u2 * d2 + out * reach, u1 * d1 + out * reach]   # the bevel's section, round the edge
+
+        def prism(a, b):
+            pts = [a + q for q in sec]
+            from OCP.BRepBuilderAPI import BRepBuilderAPI_MakePolygon, BRepBuilderAPI_MakeFace
+            from OCP.BRepPrimAPI import BRepPrimAPI_MakePrism
+            poly = BRepBuilderAPI_MakePolygon()
+            for q in pts:
+                poly.Add(_pnt(q))
+            poly.Close()
+            face = BRepBuilderAPI_MakeFace(poly.Wire(), True).Face()
+            return BRepPrimAPI_MakePrism(face, _vec(b - a)).Shape()
+
+        ends = []
+        for end, sgn in ((p0, -1.0), (p1, 1.0)):
+            near = v_faces.get(tuple(np.round(end, 6)), [])
+            rounded = any(planar_face_plane(f) is None for f in near)
+            step = 0.01 * reach
+            if rounded:
+                # carry on through the corner's material that touches this end, but no further
+                piece = common(shape, prism(end, end + t * sgn * big))
+                ext = step
+                for sol in solids(piece):
+                    plo, phi = bbox(sol)
+                    ds = [float((np.asarray(c) - end) @ (t * sgn)) for c in (plo, phi)]
+                    if min(ds) < 1e-4 * big:
+                        ext = max(ext, max(ds) + step)
+            else:
+                ext = step if not _point_in(shape, end + t * sgn * step) else 0.0
+            ends.append(end + t * sgn * ext)
+        tools.append(prism(ends[0], ends[1]))
+        removed += 0.5 * d1 * d2 * float(np.linalg.norm(np.cross(u1, u2))) * L
+    res = cut(shape, compound(tools) if len(tools) > 1 else tools[0])
+    if res is None or res.IsNull() or not is_valid(res) or len(solids(res)) != len(solids(shape)):
+        return None
+    gone = volume(shape) - volume(res)
+    if gone < 0.5 * removed:                       # it must at least bevel the edges themselves
+        return None
+    return res
+
+
+def _dist_point_shape(pt, shp):
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
+    from OCP.BRepExtrema import BRepExtrema_DistShapeShape
+    ext = BRepExtrema_DistShapeShape(BRepBuilderAPI_MakeVertex(_pnt(pt)).Vertex(), shp)
+    return ext.Value() if ext.IsDone() else 1e9
 
 
 class _EdgeFaces:
@@ -1544,9 +1667,20 @@ def export_step(shapes, path):
         raise KernelError("STEP export failed")
 
 
-def export_stl(shapes, path, defl=0.05):
+# STL resolution: (largest distance from the true surface in mm, largest angle between neighbouring facets in °)
+STL_RESOLUTIONS = {"coarse": (0.2, 30.0), "medium": (0.05, 17.0), "fine": (0.01, 6.0)}
+
+
+def export_stl(shapes, path, defl=0.05, angle=17.0):
+    """Binary STL. defl: the facets stay within this distance (mm) of the true surface; angle: the most two
+    neighbouring facets on a curve may turn (degrees)."""
+    import math
     shp = compound(shapes) if len(shapes) != 1 else shapes[0]
-    BRepMesh_IncrementalMesh(shp, defl, False, 0.3, True)
+    if defl <= 0 or angle <= 0:
+        raise KernelError("The STL deviation and angle must be more than 0")
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_Copy
+    shp = BRepBuilderAPI_Copy(shp, True, False).Shape()     # a fresh copy: a finer mesh from before isn't reused
+    BRepMesh_IncrementalMesh(shp, float(defl), False, math.radians(float(angle)), True)
     w = StlAPI_Writer()
     w.ASCIIMode = False            # binary STL: about a fifth of the size of text STL for curved parts
     if not w.Write(shp, str(path)):

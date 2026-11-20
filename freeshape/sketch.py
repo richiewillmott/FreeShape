@@ -122,12 +122,15 @@ class Sketch:
         self.entities[eid] = {"type": "ellipse", "c": c, "a": a, "r": float(r), "construction": construction}
         return eid
 
-    def add_text(self, p, text, size=10.0, font="Arial", bold=False, italic=False, angle=0.0) -> str:
-        """Text with its bottom-left at point p; size is the font size (mm), angle in degrees."""
+    def add_text(self, p, text, size=10.0, font="Arial", bold=False, italic=False, angle=0.0, expr=None) -> str:
+        """Text with its bottom-left at point p; size is the font size (mm), angle in degrees. expr: a text
+        expression ("PN-" + #part) worked out from the variables on every rebuild; `text` is its last value."""
         eid = self._id("t")
         self.entities[eid] = {"type": "text", "p": p, "text": str(text), "size": float(size), "font": font,
                               "bold": bool(bold), "italic": bool(italic), "angle": float(angle),
                               "construction": False}
+        if expr:
+            self.entities[eid]["expr"] = str(expr)
         return eid
 
     def add_point_entity(self, p) -> str:
