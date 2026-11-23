@@ -11,7 +11,8 @@ More sketch tools, and the sketch toolbar grouped more like other CAD programs.
 - **Planes come last when picking**, as in Onshape: a face (or sketch, edge …) under the mouse now wins over a
   plane running through it, so a part centred on the origin no longer gives you Front or Right; sketch lines and
   points hidden behind a face can't be picked through it either.
-- **Resize a plane** by dragging the dots at its corners (select it first). Kept in the file, undoable;
+- **Resize a plane** by dragging the dots at its corners (select it first; with several planes selected,
+  each shows its dots). Kept in the file, undoable;
   right-click → *Reset plane size*.
 - **The S menu**: press S over the model for a grid of your own favourite tools at the mouse, with a separate
   menu for sketches, Part Studios, assemblies and drawings. *Customize…* chooses and orders them from every tool

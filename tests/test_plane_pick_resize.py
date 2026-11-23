@@ -98,17 +98,46 @@ def _select_top(w, vp, app):
     app.processEvents()
 
 
-def test_selected_plane_shows_four_handles_only_when_alone_and_idle():
+def test_every_selected_plane_shows_its_four_handles_when_idle():
     app, w, vp = _window_with_centred_box()
     assert vp._plane_handles() == []
     _select_top(w, vp, app)
     assert len(vp._plane_handles()) == 4
-    vp.set_selection([Pick("plane", ("std", "Top")), Pick("plane", ("std", "Front"))])
-    assert vp._plane_handles() == []
+    three = [Pick("plane", ("std", n)) for n in ("Top", "Front", "Right")]
+    vp.set_selection(three)
+    hs = vp._plane_handles()
+    assert len(hs) == 12 and {i for i, *_ in hs} == {0, 1, 2}             # like Onshape: all three, at once
+    pid = next(iter(w.doc.state.parts))
+    vp.set_selection([Pick("face", (pid, 0)), Pick("plane", ("std", "Front"))])
+    assert len(vp._plane_handles()) == 4                                   # a face selected too: still Front's
     vp.set_selection([Pick("plane", ("std", "Top"))])
     w.mode = "dialog"
     assert vp._plane_handles() == []
     w.mode = "idle"
+
+
+def test_with_several_selected_each_plane_resizes_on_its_own():
+    from PySide6.QtTest import QTest
+    app, w, vp = _window_with_centred_box()
+    doc = w.doc
+    vp.set_standard_view("Top", animate=False)
+    vp.fit(animate=False)
+    vp.set_selection([Pick("plane", ("std", "Top")), Pick("plane", ("std", "Front"))])
+    app.processEvents()
+    h = vp.plane_half()
+    top_i = next(i for i, (k, *_r) in enumerate(vp.planes) if k == ("std", "Top"))
+    i, c, sx, sy = next(hd for hd in vp._plane_handles() if hd[0] == top_i and hd[1] == 2)    # Top's (u1, v1)
+    at = QPoint(int(round(sx)), int(round(sy)))
+    target = QPoint(*(int(round(q)) for q in _at(vp, (30, 20, 0))))
+    QTest.mousePress(vp, Qt.LeftButton, Qt.NoModifier, at)
+    QTest.mouseMove(vp, (at + target) / 2)
+    QTest.mouseMove(vp, target)
+    QTest.mouseRelease(vp, Qt.LeftButton, Qt.NoModifier, target)
+    app.processEvents()
+    u0, u1, v0, v1 = doc.plane_rect(("std", "Top"), h)
+    assert abs(u1 - 30) < 2 and abs(v1 - 20) < 2
+    assert doc.plane_rect(("std", "Front"), h) == (-h, h, -h, h)          # the other one is untouched
+    assert len(vp.selection) == 2 and len(vp._plane_handles()) == 8      # both still selected, with handles
 
 
 def test_dragging_a_corner_resizes_the_plane_keeps_it_and_undoes():
@@ -118,8 +147,8 @@ def test_dragging_a_corner_resizes_the_plane_keeps_it_and_undoes():
     _select_top(w, vp, app)
     h = vp.plane_half()
     hs = vp._plane_handles()
-    corner = next(i for i, (sx, sy) in enumerate(hs) if sx > vp.width() / 2 and sy < vp.height() / 2)   # u1, v1
-    at = QPoint(int(round(hs[corner][0])), int(round(hs[corner][1])))
+    _i, _c, sx, sy = next(hd for hd in hs if hd[2] > vp.width() / 2 and hd[3] < vp.height() / 2)   # u1, v1
+    at = QPoint(int(round(sx)), int(round(sy)))
     target = QPoint(*(int(round(c)) for c in _at(vp, (30, 20, 0))))
     QTest.mousePress(vp, Qt.LeftButton, Qt.NoModifier, at)
     QTest.mouseMove(vp, (at + target) / 2)

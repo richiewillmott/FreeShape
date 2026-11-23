@@ -1388,8 +1388,9 @@ class Viewport(QOpenGLWidget):
                 p.setPen(col)
                 p.drawText(QPointF(s[0] + 4, s[1] + 14), label)
         # corner handles of the one selected plane: drag one to resize it
-        for i, (sx, sy) in enumerate(self._plane_handles()):
-            big = self._plane_handle_hover == i or (self._plane_drag is not None and self._plane_drag["corner"] == i)
+        for i, c, sx, sy in self._plane_handles():
+            dr = self._plane_drag
+            big = self._plane_handle_hover == (i, c) or (dr is not None and (dr["i"], dr["corner"]) == (i, c))
             p.setPen(QPen(QColor(theme.ACCENT), 1.5))
             p.setBrush(QColor(theme.ACCENT) if big else QColor("white"))
             r = 6.0 if big else 4.5
@@ -1651,36 +1652,42 @@ class Viewport(QOpenGLWidget):
         return self._spts
 
     # ------------------------------------------------------------------ plane corner handles
-    def _handle_plane(self):
-        """(index in self.planes) of the plane whose corner handles show: the only thing selected, and a plane."""
+    def _handle_planes(self):
+        """Indices (in self.planes) of the planes whose corner handles show: every selected plane, as in Onshape,
+        whatever else is selected with them."""
         if self.sketcher is not None or not self.show_planes or self.on_plane_resized is None:
-            return None
+            return []
+        keys = {pk.key for pk in self.selection if pk.kind == "plane"}
         if self._plane_drag is not None:
-            return self._plane_drag["i"]
-        if len(self.selection) != 1 or self.selection[0].kind != "plane" or not self.can_resize_planes():
-            return None
-        key = self.selection[0].key
-        return next((i for i, (k, *_r) in enumerate(self.planes) if k == key), None)
+            keys.add(self._plane_drag["key"])
+        if not keys or not self.can_resize_planes():
+            return []
+        return [i for i, (k, *_r) in enumerate(self.planes) if k in keys]
 
     def _plane_handles(self):
-        """Screen positions of the selected plane's four corners (none when no handles show)."""
-        i = self._handle_plane()
-        if i is None or i >= len(self.planes):
-            return []
-        _key, pl, _label, size = self.planes[i]
-        return [tuple(self.cam.to_screen(pl.to_world(u, v))[:2]) for u, v in plane_corners(size)]
+        """[(plane index, corner 0-3, screen x, screen y)] for the corners of the selected planes."""
+        out = []
+        for i in self._handle_planes():
+            _key, pl, _label, size = self.planes[i]
+            for c, (u, v) in enumerate(plane_corners(size)):
+                sx, sy = self.cam.to_screen(pl.to_world(u, v))[:2]
+                out.append((i, c, float(sx), float(sy)))
+        return out
 
     def _plane_handle_hit(self, x, y):
-        for i, (sx, sy) in enumerate(self._plane_handles()):
-            if math.hypot(sx - x, sy - y) < 9:
-                return i
-        return None
+        """(plane index, corner) of the handle under the mouse — the nearest, when several overlap — or None."""
+        best = None
+        for i, c, sx, sy in self._plane_handles():
+            d = math.hypot(sx - x, sy - y)
+            if d < 9 and (best is None or d < best[0]):
+                best = (d, (i, c))
+        return best[1] if best else None
 
     def _start_plane_drag(self, x, y):
-        c = self._plane_handle_hit(x, y)
-        if c is None:
+        hit = self._plane_handle_hit(x, y)
+        if hit is None:
             return False
-        i = self._handle_plane()
+        i, c = hit
         key, pl, label, size = self.planes[i]
         self._plane_drag = {"i": i, "key": key, "corner": c, "rect": list(plane_rect(size)), "moved": False}
         return True
@@ -2123,7 +2130,7 @@ class Viewport(QOpenGLWidget):
             self._plane_handle_hover = ph
             self.update()
         if ph is not None:
-            self.setCursor(Qt.SizeFDiagCursor if ph in (0, 2) else Qt.SizeBDiagCursor)
+            self.setCursor(Qt.SizeFDiagCursor if ph[1] in (0, 2) else Qt.SizeBDiagCursor)
             return
         mh = self._manip_hit(x, y) if self.manipulators else None
         if mh != self._manip_hover:

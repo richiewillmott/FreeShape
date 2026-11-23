@@ -26,7 +26,7 @@ main measurement (area, length, diameter or the minimum distance between them) a
 **Planes** come last when you click, as in Onshape: you get a plane only where nothing else is under the mouse, so a
 face, sketch or edge in front of (or with a plane running through it) is what gets picked. Click a plane where it
 sticks out past the parts, or in the feature list. What's hidden behind a face (sketch lines, edges) can't be picked
-through it either. **Resize a plane**: select it and drag one of the four dots at its corners (hold Shift for
+through it either. **Resize a plane**: select it (or several: each selected plane gets its dots, as in Onshape) and drag one of the four dots at its corners (hold Shift for
 unsnapped sizes); the size is kept in the file, undoes with `Ctrl+Z`, and right-click → *Reset plane size* puts it
 back.
 
