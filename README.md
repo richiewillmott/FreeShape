@@ -15,9 +15,10 @@ OpenCascade kernel FreeCAD uses, so you get real B-rep solids and proper STEP fi
 
 ## What you can do
 
-- **Part Studios** — constrained sketches (polygons, conics, splines, DXF and image import …); extrude, revolve, sweep and loft as solids, surfaces or thin walls;
-  fillets, chamfers, shell, draft, holes and real ISO threads; patterns, mirror, booleans, split; variables with
-  units, and variables *measured from the model* that follow every change.
+- **Part Studios** — constrained sketches (polygons, conics, splines, DXF and image import …); extrude, revolve,
+  sweep and loft as solids, surfaces or thin walls; fillets, chamfers, shell, draft, holes and real ISO threads;
+  patterns, mirror, booleans, split; variables with units, and variables *measured from the model* that follow every
+  change.
 - **Assemblies** — Onshape-style mates, sub-assemblies, gear / rack / screw relations, a standard parts library
   (ISO screws, nuts, bearings), exploded views, interference check and bill of materials.
 - **Drawings** — projected, section and detail views, dimensions that follow the model, parts lists and balloons;
@@ -45,7 +46,7 @@ OpenCascade kernel FreeCAD uses, so you get real B-rep solids and proper STEP fi
 - **The S menu and Onshape's keys** — your own tools at the mouse, one menu per sketch / Part Studio / assembly /
   drawing; P, Y, Shift+I, Shift+H and many more, all in a searchable list (`?`).
 - **Direction arrows like Onshape's** — Up to face / next turn towards their target, click the arrow to flip.
-- **Separate** — Extrude / Revolve / Sweep areas that touch into one part each, instead of one fused part.
+- **Separate** — Extrude, Revolve or Sweep sketch areas that touch into one part each, instead of one fused part.
 - **Resizable planes** — drag the dots at a selected plane's corners.
 - **Export as Python script** — a whole project (model, assembly, drawing) as a script that builds it again, with
   your variables at the top.
@@ -79,9 +80,9 @@ progress against Onshape is tracked in [FEATURE_PARITY.md](FEATURE_PARITY.md).
 ## Honest limits
 
 FreeShape is a capable tool for hobby, prototyping and small-business work, not a drop-in Onshape replacement:
-no FeatureScript (Python plugins instead), no flexible sub-assemblies or mate limits yet, no real-time collaboration or cloud (on
-purpose), and references are re-found by geometry, so a drastic upstream change can occasionally make a later
-feature need re-picking. The full list is in the [user guide](docs/USER_GUIDE.md#honest-limits).
+no FeatureScript (Python plugins and scripts instead), no flexible sub-assemblies or mate limits yet, no real-time
+collaboration or cloud (on purpose), and references are re-found by geometry, so a drastic upstream change can
+occasionally make a later feature need re-picking. The full list is in the [user guide](docs/USER_GUIDE.md#honest-limits).
 
 ## Licence
 

@@ -836,7 +836,7 @@ def keep_piece_from(long_body, tool, seed) -> object:
         raise KernelError("Couldn't find where the extrude meets that")
     pieces = solids(sp.Shape())
     if len(pieces) < 2:
-        raise KernelError("It never reaches that — check the direction (Opposite direction) or pick another")
+        raise KernelError("It never reaches that — check the direction (click the arrow to flip it) or pick another")
     for sol in pieces:
         cl = BRepClass3d_SolidClassifier(sol, _pnt(seed), 1e-7)
         if cl.State() == TopAbs_IN:
@@ -857,7 +857,7 @@ def keep_sheet_from(long_sheet, tool, start):
         raise KernelError("Couldn't find where the surface meets that")
     pieces = faces(sp.Shape())
     if len(pieces) <= len(faces(long_sheet)):
-        raise KernelError("It never reaches that — check the direction (Opposite direction) or pick another")
+        raise KernelError("It never reaches that — check the direction (click the arrow to flip it) or pick another")
     keep = []
     for f in pieces:
         dd = BRepExtrema_DistShapeShape(f, start)

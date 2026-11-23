@@ -316,7 +316,7 @@ def rib_body(a, b, normal, thickness, direction, targets, flip=False):
         pieces = [s for s in pieces if (_min_dist(s, target) or (1e9,))[0] < 1e-6]
         if pieces:
             return K.combine(pieces)
-    raise K.KernelError("The rib doesn't reach the part (try Opposite direction or the other rib direction)")
+    raise K.KernelError("The rib doesn't reach the part (flip the direction arrow, or try the other rib direction)")
 
 
 def run_rib(state, f):

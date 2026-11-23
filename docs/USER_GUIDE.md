@@ -13,19 +13,24 @@ The **⌂ Home** button at the top goes back to it (and back to your work again)
 
 **Navigation** — right-drag to rotate (around the point under the cursor, or the centre of the model when you
 start over empty space — a small blue marker shows the centre of rotation; View → *Rotate around* can make it
-always the model centre or always the origin), middle-drag or Ctrl+right-drag to pan, wheel to zoom at the cursor. The arrow keys turn the view 15° at a time. The view cube works like Onshape's: click a face, edge or corner for that view, the arrows turn the view 90°, the curved arrows roll it, and ▾ opens the view options (see *View options* below). `F` (or double-clicking the middle button) zooms to fit,
-`Shift+1…7` = Front, Back, Left, Right, Top, Bottom, Isometric. `Alt+Left` = previous view, `Shift+Z` = zoom to window.
+always the model centre or always the origin), middle-drag or Ctrl+right-drag to pan, wheel to zoom at the cursor.
+The arrow keys turn the view 15° at a time (`Shift+arrow` 90°, `Ctrl+arrow` 5°, `Ctrl+Shift+arrow` pans). The view
+cube works like Onshape's: click a face, edge or corner for that view, the arrows turn the view 90°, the curved
+arrows roll it, and ▾ opens the view options (see *View options* below). `F` (or double-clicking the middle
+button) zooms to fit, `Z` zooms out, `W` or `Shift+Z` zooms to a box you drag. `Shift+1…7` = Front, Back, Left,
+Right, Top, Bottom, Isometric; `Alt+Left` = previous view.
 
 **Selecting** — hover pre-highlights vertices, faces, edges, sketch regions and planes; click to add to the
 selection, click empty space (or press `Space`) to clear. Drag a box on empty space to box-select (left-to-right:
 only what is fully inside; right-to-left: also what it touches), and use the **Select** menu in the top bar to
 choose what can be picked (vertices and sketch points, edges, faces, solids, sketches, planes — all but solids are
-on by default). `Ctrl+Space` opens **Search tools**. With one or two things selected, the bottom-right shows the
+on by default). `Alt+C` or `Ctrl+Space` opens **Search tools**. With one or two things selected, the bottom-right shows the
 main measurement (area, length, diameter or the minimum distance between them) and **(x)** to make it a variable.
 
 **Select other / Tab** — press `Tab` with the mouse over the model to step through everything under it (the face
 you see, the one behind it, edges, sketch geometry, planes …): each lights up in turn, drawn through the model if
-it's hidden, and a click selects the one shown; `Shift+Tab` goes back, moving the mouse starts over. Press `` ` ``
+it's hidden, and a click selects the one shown; `Shift+Tab` goes back, moving the mouse starts over (in the 3D view;
+not while editing a sketch). Press `` ` ``
 (back quote) or right-click → **Select other…** for the same as a list: hover an entry to see it, click to add it to
 the selection. Right-click a face for **tangent-connected faces**, **adjacent faces**, **faces of the same size**
 (every hole of one size, say) and **edges of this face**; right-click an edge for **tangent-connected edges**, its
@@ -33,17 +38,19 @@ the selection. Right-click a face for **tangent-connected faces**, **adjacent fa
 
 **Keys** — as Onshape's: `P` planes on / off, `Shift+P` hide (or show) all planes and sketches, `Shift+H` sketches,
 `Y` hide the selected part (or the one under the mouse), `Shift+Y` show hidden parts, `Shift+I` isolate, `Shift+X`
-section view, `Shift+V` named views, `Shift+R` high quality, `Z` zoom out, `W` zoom to window, `Shift+arrow` turn
-90°, `Ctrl+arrow` 5°, `Shift+N` rename, `Shift+Enter` accept and start another of the same, `?` the full list. In a
-sketch the letters pick sketch tools (as in Onshape: `M` trim, `X` extend, `B` parallel, `Shift+L` perpendicular …;
-the hexagon moved to `Shift+X`).
+section view, `Shift+V` named views, `Shift+R` high quality, `Shift+N` rename, `Shift+Enter` accept and start another
+of the same. In a sketch the letters pick sketch tools (as in Onshape: `M` trim, `X` extend, `B` parallel, `Shift+L`
+perpendicular … — see the table below; the hexagon moved to `Shift+X`). **Document → Keyboard shortcuts** (or `?`)
+lists every key in a table you can search.
 
 **Planes** come last when you click, as in Onshape: you get a plane only where nothing else is under the mouse, so a
 face, sketch or edge in front of (or with a plane running through it) is what gets picked. Click a plane where it
 sticks out past the parts, or in the feature list. What's hidden behind a face (sketch lines, edges) can't be picked
-through it either. **Resize a plane**: select it (or several: each selected plane gets its dots, as in Onshape) and drag one of the four dots at its corners (hold Shift for
-unsnapped sizes); the size is kept in the file, undoes with `Ctrl+Z`, and right-click → *Reset plane size* puts it
-back.
+through it either.
+
+**Resize a plane** — select it (or several: each selected plane gets its dots, as in Onshape) and drag one of the
+four dots at its corners; the opposite corner stays put (hold Shift for unsnapped sizes). The size is kept in the
+file, undoes with `Ctrl+Z`, and right-click → *Reset plane size* puts it back.
 
 **The S menu** — press `S` over the model for a grid of your favourite tools at the mouse; click one, or press its
 number (`1`–`9`). There's a separate menu for sketches, Part Studios, assemblies and drawings, and each is yours to
@@ -54,46 +61,45 @@ set. (In a sketch, `S` used to pick Select; `Esc` does that.)
 **Sketching** — select a plane or flat face (or not — the dialog will ask) and press **Sketch** (`Shift+S`).
 The view turns to face the sketch plane (unless *Orient normal to sketch on edit* is off in the view options).
 
+The table follows the sketch toolbar from left to right; tools that share a ▾ button are listed together.
+
 | Tool | Key | Notes |
 |---|---|---|
+| Select | `Esc` | click to select, drag points or curves to move them, drag a box to select several |
 | Line | `L` | click-click; lines chain until `Esc` or you click an existing point. Hover a point or midpoint then move level / plumb for a yellow guide; start from an arc's end or hover a circle to snap tangent |
 | Midpoint line | | click the middle, then one end — the other end mirrors it (a line centred on the origin, say) |
-| Corner / centre rectangle | `R` | adds horizontal/vertical constraints automatically |
+| Corner / centre rectangle | `R` (corner) | adds horizontal / vertical constraints automatically |
 | Aligned rectangle | | two corners for one side at any angle, then click to set the width; the corners stay square |
 | Hexagon | `Shift+X` | centre, then a corner — a regular hexagon (corners on a construction circle, equal sides). Snaps flat-top or point-top; size it across flats |
 | Inscribed / circumscribed polygon | | centre, then a corner (inscribed) or the middle of a side (circumscribed); type the number of sides. Inscribed: the corners sit on a construction circle. Circumscribed: the sides touch it, so its diameter is the size across flats — handy for nut pockets |
-| Circle | `C` | centre, then radius |
+| Circle / ellipse | `C` | circle: centre, then radius; ellipse: centre, end of the long axis, then the width |
 | 3-point arc / centre-point arc | `A` | |
 | Tangent arc | `Shift+A` | click the end of a line or arc, then where it should finish — it carries on smoothly and stays tangent |
 | Elliptical arc | | centre, end of the long axis, width, then where the arc starts and ends (anticlockwise) |
 | Conic | | start, end, then the shoulder point the curve heads towards; type its rho (below 0.5 an ellipse, 0.5 a parabola, above a hyperbola). Double-click it later to change rho |
-| Point | `P` | used for hole centres |
+| Spline | | click the points the curve passes through; double-click or Enter to finish, or click the first point to close it |
+| Control-point spline | | the same, but the points are control points (Bézier style): the curve starts and ends on the end ones and is pulled towards the others; its control polygon shows dashed |
+| Point | `P`, `Shift+S` | used for hole centres |
+| Text | | click where it starts and type; choose font, size, bold / italic and angle. Letters are real outlines you can extrude, cut or engrave |
 | Construction toggle | `Q` | toggles selected geometry, or the mode for new geometry |
 | Dimension | `D` | click a line (length), circle (Ø), arc (R), two points (distance — horizontal/vertical depending on where you place it), point + line, or two lines (distance or angle). You can also click a **part's edge or corner** to dimension to it, like Onshape. Type the value; expressions and units work: `25/2`, `1 in`, `10 cm` |
-| Constraints | `I` `H` `V` `E` `T` `B` … | coincident, horizontal, vertical, equal, tangent, parallel (`B`), perpendicular (`Shift+L`), midpoint (`Shift+M`), concentric (`Shift+O`), symmetric (`Shift+Q`), fix (`Shift+J`). Select geometry then click the constraint, or click the constraint then the geometry |
-| Use (project) | `U` | project part edges into the sketch (edges seen side-on, like a cylinder's rim, become straight lines) |
-| Intersect | | click part faces that cut through the sketch plane: where they cross it comes in as fixed construction geometry |
-| Trim | `M` | removes a line segment up to its intersections |
-| Split | | click a line or arc where it should be cut in two; the halves stay in line and keep its constraints |
-| Extend | `X` | click near the end of a line or arc to lengthen it to the next curve; the new end stays on that curve |
-| Sketch fillet | `Shift+F` | click a corner where two lines meet, type the radius — the shape keeps its dimensions |
-| Sketch chamfer | | click a corner where two lines meet, type the distance back along each line |
-| Offset | `O` | click a line, arc or circle to offset its whole connected outline; type the distance (negative = inside) |
-| Slot | | click the two end centres, type the width |
+| Constraints | `I` `H` `V` `E` `T` `B` … | coincident (`I`), horizontal (`H`), vertical (`V`), equal (`E`), tangent (`T`), parallel (`B`), perpendicular (`Shift+L`), midpoint (`Shift+M`), concentric (`Shift+O`), symmetric (`Shift+Q`), fix (`Shift+J`). Select geometry then click the constraint, or click the constraint then the geometry |
+| Sketch fillet / chamfer | `Shift+F` (fillet) | click a corner where two lines meet, type the radius (or, for a chamfer, the distance back along each line) — the shape keeps its dimensions |
+| Offset / slot | `O` (offset) | offset: click a line, arc or circle to offset its whole connected outline; type the distance (negative = inside). Slot: click the two end centres, type the width |
 | Mirror | | select geometry, then click the line to mirror about — the copy stays linked to the original |
 | Transform / Copy | | select geometry, then click the point to turn about; type the move along X, along Y and the angle. Copy leaves the original where it was |
 | Linear / circular pattern | | select geometry, then click a direction line (copies go towards where you click) or a centre point; type the count and spacing / angle |
-| Spline | | click the points the curve passes through; double-click or Enter to finish, or click the first point to close it |
-| Control-point spline | | the same, but the points are control points (Bézier style): the curve starts and ends on the end ones and is pulled towards the others; its control polygon shows dashed |
-| Insert DXF | | bring a DXF's lines, arcs, circles, polylines, ellipses, splines and points into the sketch, in its units, ends joined so outlines make areas. Blocks are exploded; text and dimensions are skipped |
-| Insert image | | a picture to trace over, 100 mm wide at first: dimension between its bottom corners to set its real size |
-| Ellipse | | centre, end of the long axis, then the width |
-| Text | | click where it starts and type; choose font, size, bold / italic and angle. Letters are real outlines you can extrude, cut or engrave |
+| Use (project) / Intersect | `U` (use) | use: project part edges into the sketch (edges seen side-on, like a cylinder's rim, become straight lines). Intersect: click part faces that cut through the sketch plane; where they cross it comes in as fixed construction geometry |
+| Trim / split / extend | `M` (trim), `X` (extend) | trim: removes a line segment up to its intersections. Split: click a line or arc where it should be cut in two; the halves stay in line and keep its constraints. Extend: click near the end of a line or arc to lengthen it to the next curve; the new end stays on that curve |
+| Delete | `Del` | deletes what's selected |
+| Insert DXF / image | | DXF: lines, arcs, circles, polylines, ellipses, splines and points come into the sketch in the file's units, ends joined so outlines make areas; blocks are exploded, text and dimensions skipped. Image: a picture to trace over, 100 mm wide at first — dimension between its bottom corners to set its real size |
+| Extrude ▾ (Revolve, Sweep) | `Shift+E`, `Shift+W` | finish the sketch and start that feature with the sketch's areas picked |
 
-**Typing sizes as you draw:** right after you finish a line, rectangle, hexagon, circle or arc, a dimension box pops up — type a value (e.g. `25`, `1/2 in`) and press Enter and the shape snaps to it. For a rectangle you get width, then height; for a hexagon, the size across flats. Just keep drawing (or press Esc) to skip it.
-
-**Straight to 3D:** the Extrude, Revolve and Sweep buttons at the right of the sketch toolbar (or `Shift+E` /
-`Shift+W`) finish the sketch and open that feature with the sketch's areas already picked.
+**Typing sizes as you draw:** right after you finish a line, rectangle, polygon, circle or arc, a dimension box
+pops up — type a value (e.g. `25`, `1/2 in`) and press Enter and the shape snaps to it. For a rectangle you get width,
+then height; for a hexagon, the size across flats; for a polygon, its circle's diameter. Just keep drawing (or press
+Esc) to skip it. Polygons, conics, fillets, chamfers, offsets, slots, patterns and Transform ask for their numbers
+the same way, and the shape follows as you type.
 
 Drawing snaps to existing points and curves (adding coincident constraints) and infers horizontal/vertical.
 Geometry is **blue while under-defined and black when fully defined**; conflicting constraints turn red.
@@ -121,10 +127,16 @@ through and use them in later features.
 (`extrude.svg`, `fillet.png`; a plugin feature is `plugin_<id>`) replaces the built-in icon. *Save the built-in
 icons there* writes them all as PNGs with the right names to start from; *Reload icons* applies changes. [ICONS.md](ICONS.md) lists every icon name.
 
-**Part features** — each opens a floating dialog with a live preview; ✓ (Enter) accepts, ✕ (Esc) cancels.
-Things selected before opening a feature are pre-filled. Extrude and Plane show a **blue arrow you can drag** to set the depth/offset (drag back past the start to flip direction; hold Shift for finer, unsnapped values). **Click the arrow** to flip the direction; Revolve shows one too, pointing the way it turns. In the dialogs the direction is an **arrow button** (at the right of the end type or distance): it points down when flipped, click it to flip.
+**Part features** — each opens a floating dialog with a live preview; ✓ (Enter) accepts, ✕ (Esc) cancels, and
+`Shift+Enter` accepts and starts another of the same. Things selected before opening a feature are pre-filled.
 
-**Up to next / face / part / vertex** turn the direction towards what they go up to by themselves, as Onshape does: pick a face below the sketch and the extrude turns down to it. This works for the second end too (the first end turns away so the second, which always runs opposite, can reach its target). Click the arrow to turn it back if you want.
+**Direction** — Extrude and Plane show a **blue arrow you can drag** to set the depth / offset (drag back past the
+start to flip the direction; hold Shift for finer, unsnapped values). **Click the arrow** to flip the direction;
+Revolve shows one too, pointing the way it turns. In the dialogs the direction is an **arrow button** at the right of
+the end type or distance: it points down when flipped; click it to flip. **Up to next / face / part / vertex** turn
+the direction towards what they go up to by themselves, as Onshape does: pick a face below the sketch and the
+extrude turns down to it. This works for the second end too (the first end turns away so the second, which always
+runs opposite, can reach its target). Click the arrow to turn it back if you want.
 
 - **Solid, Surface or Thin** — Extrude, Revolve, Sweep and Loft can make a solid from regions and faces, a
   **surface** from sketch curves, edges or region outlines, or a **thin** wall by thickening them (both sides
@@ -211,12 +223,12 @@ measurement and those picks: a `#variable` that is re-measured whenever the mode
 so dimensions and features using it follow along.
 
 **View options** — the menu under the view cube has Onshape's options: isometric, dimetric and trimetric
-views, previous view (Alt+Left), zoom to window (Shift+Z), named views saved in the file, perspective view,
+views, previous view (Alt+Left), zoom to window (W or Shift+Z), named views saved in the file, perspective view,
 orient normal to sketch on edit, and how parts are drawn — shaded with or without edges, unshaded or translucent;
 hidden edges removed or dashed; tangent edges shown, hidden or as phantom lines; high quality; highlighted
 boundary edges of surfaces. *Graphics preferences…* gathers them in one window.
 
-**Section view** — the section button (or Ctrl+Shift+X) slices the model so you can see inside. Pick the Top / Front /
+**Section view** — the section button (or `Shift+X` / `Ctrl+Shift+X`) slices the model so you can see inside. Pick the Top / Front /
 Right plane, or select a face first to cut exactly there; drag the slider or type an offset, and tick *Flip* for the
 other side.
 
@@ -264,7 +276,7 @@ tab puts parts together and lets them move the way the real thing would — like
 
   | Mate | Key | Motion left |
   |---|---|---|
-  | Fastened | `Shift+F` | none |
+  | Fastened | `M`, `Shift+F` | none |
   | Revolute | `Shift+R` | rotation about the axis |
   | Slider | `Shift+L` | sliding along the axis |
   | Cylindrical | | sliding and rotation along the axis |
@@ -329,7 +341,7 @@ plan, side and isometric views at the biggest standard scale that fits, with a b
   set decimal places, or change its direction.
 - **Dimensions follow the model**: change the part in its Part Studio and the drawing updates with the new
   sizes when you come back to it. If an edge disappears, its dimension turns red.
-- **Notes** (`N`), and **Sheet** for the size, scale, projection and title block (title, drawing number,
+- **Projected view** also has a key: `P`. **Notes** (`N`), and **Sheet** for the size, scale, projection and title block (title, drawing number,
   revision, drawn by, date, company, material, general tolerances).
 - **Export DXF** — AutoCAD DXF with real AutoCAD dimensions (grip-edit or restyle them in AutoCAD), Arial
   text and layers (VISIBLE, HIDDEN, CENTER, DIM, NOTE, BORDER, TITLE …), at paper size or with the views at
@@ -351,7 +363,9 @@ version. Sketches are written one point, curve and dimension per line; other fea
 corner or sketch area a feature uses has a comment saying what it is (`# face of Bracket — flat, facing +Z, 1200 mm²,
 centre (20, 15, 10)`) above the fingerprint FreeShape finds it by.
 
-**Run Python script…** (Document menu) runs such a script and opens what it builds as new tabs. From a terminal,
+**Run Python script…** (Document menu) runs such a script and opens what it builds as new tabs (either Run command
+works for both kinds of script: an exported project opens as tabs, a plugin-style script runs on the open Part
+Studio). From a terminal,
 `python my_model.py [folder]` saves the files instead (needs FreeShape's source on the Python path). A script is a
 Python program, so only run ones you trust. A script keeps working as long as a saved file would: it goes through
 the same loader. Parts an assembly uses from a Part Studio that wasn't exported with it, imported STEP files and
@@ -375,6 +389,8 @@ This is a capable hobby/prototyping tool, not a replacement for Onshape:
   regions by position and shape. That handles resizing and most edits well, but a drastic topology change can
   make a later feature lose its reference (it turns red and you re-pick it). Onshape's persistent naming is
   more robust here.
+- Exported Python scripts refer to picked faces and edges by the same geometric fingerprint (labelled in plain
+  English), not by readable selectors, so they are best edited through their variables at the top.
 - The sketch solver is a numerical least-squares solver: it is fine for typical sketches (tens of entities),
   not for huge ones.
 - Drawings are in millimetres whatever the document unit.

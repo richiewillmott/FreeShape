@@ -931,11 +931,11 @@ def _sweep_up_to(state, p, face, kind, how):
         if kind == "extrude":
             depth = float((q - start) @ d) - offset
             if depth <= 1e-9:
-                raise K.KernelError("That vertex is behind the profile — tick Opposite direction")
+                raise K.KernelError("That vertex is behind the profile — click the direction arrow to flip it")
             return K.extrude([face], d, depth)
         ang = K.angle_about(start, q, ap, ad)
         if ang <= 1e-6:
-            raise K.KernelError("That vertex is behind the profile — tick Opposite direction")
+            raise K.KernelError("That vertex is behind the profile — click the direction arrow to flip it")
         return K.revolve([face], ap, ad, ang)
 
     if end == "up_to_face":
