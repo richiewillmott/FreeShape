@@ -26,7 +26,7 @@ from . import theme
 from . import filedlg
 from .icons import icon
 from .menus import submenu
-from .viewport import Viewport, Pick
+from .viewport import Viewport, Pick, plane_corners
 from .panels import LeftPanel, STD_PLANES, DocTabBar
 from .dialogs import FeatureDialog, SketchDialog, pick_to_item
 from .section import SectionPanel
@@ -290,6 +290,9 @@ class MainWindow(QMainWindow):
         lp.parts.contextRequested.connect(self._part_context)
         self.viewport.selectionChanged.connect(self._selection_changed)
         self.viewport.contextRequested.connect(self._viewport_context)
+        self.viewport.on_plane_resized = self._plane_resized
+        self.viewport.can_resize_planes = lambda: (self.mode == "idle" and not self.is_asm and not self.is_dwg
+                                                  and hasattr(self.doc, "set_plane_rect"))
         self.viewport.doubleClicked.connect(self._viewport_double)
         self.viewport.hoverChanged.connect(self._hover_changed)
 
@@ -1105,12 +1108,19 @@ class MainWindow(QMainWindow):
         if self.act_planes.isChecked():
             for name in STD_PLANES:
                 if name not in self.doc.hidden_features:
-                    planes.append((("std", name), K.std_plane(name), name, half))
+                    planes.append((("std", name), K.std_plane(name), name,
+                                   self.doc.plane_rect(("std", name), half)))
         for fid, pl in state.planes.items():
             if fid not in self.doc.hidden_features:
                 f = self.doc.feature(fid)
-                planes.append((("plane", fid), pl, f["name"] if f else "", half * 0.6))
+                planes.append((("plane", fid), pl, f["name"] if f else "",
+                               self.doc.plane_rect(("plane", fid), half * 0.6)))
         return planes
+
+    def _plane_resized(self, key, rect):
+        """A plane's corner handle was dragged: keep its new size in the document (undoable, saved)."""
+        if self.doc is not None and hasattr(self.doc, "set_plane_rect"):
+            self.doc.set_plane_rect(key, rect)
 
     def _show_state(self, state, active_sketch=None, also_show=()):
         if self.is_dwg:
@@ -2486,7 +2496,7 @@ class MainWindow(QMainWindow):
     def _feature_geometry(self, fid):
         """(faces by part in the model shown now, world polylines) for one feature — cached per model state."""
         doc = self.doc
-        key = (fid, id(doc.state), doc.active_count())
+        key = (fid, id(doc.state), doc.active_count(), tuple(getattr(doc, "plane_sizes", {}).get(fid, ())))
         hit = self._hl_cache.get(key)
         if hit is not None:
             return hit
@@ -2505,7 +2515,8 @@ class MainWindow(QMainWindow):
                 pass                                    # shown: it lights up like a hovered plane (above)
             else:                                       # hidden: just its outline
                 pl = K.std_plane(fid[4:])
-                polys.append(np.array([pl.to_world(u, v) for u, v in ((-h, -h), (h, -h), (h, h), (-h, h), (-h, -h))]))
+                cs = plane_corners(doc.plane_rect(("std", fid[4:]), h))
+                polys.append(np.array([pl.to_world(u, v) for u, v in cs + cs[:1]]))
             return faces, polys                          # (not cached: it depends on the plane being shown)
         f = doc.feature(fid)
         idx = doc.feature_index(fid)
@@ -2523,7 +2534,8 @@ class MainWindow(QMainWindow):
             pl = doc.state.planes.get(fid)
             if pl is not None:
                 h = self.viewport.plane_half() * 0.6
-                polys.append(np.array([pl.to_world(u, v) for u, v in ((-h, -h), (h, -h), (h, h), (-h, h), (-h, -h))]))
+                cs = plane_corners(doc.plane_rect(("plane", fid), h))
+                polys.append(np.array([pl.to_world(u, v) for u, v in cs + cs[:1]]))
         elif f["type"] not in ("variable", "measure_value"):
             before = doc.state_before(idx)
             after = doc.state_before(idx + 1)
@@ -2841,6 +2853,8 @@ class MainWindow(QMainWindow):
                         except K.KernelError:
                             pass
                     m.addAction("Normal to", nt)
+                if pk.kind == "plane" and self.doc.plane_sizes.get(self.doc.plane_key(pk.key)):
+                    m.addAction("Reset plane size", lambda: self.doc.set_plane_rect(pk.key, None))
             if pk.kind in ("face", "edge", "part", "vertex"):
                 pid = pk.key[0]
                 ids = self._menu_parts(pid)

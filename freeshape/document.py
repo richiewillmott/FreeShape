@@ -50,6 +50,9 @@ class Document:
         self.part_overrides: dict = {}            # part id -> {"name":..., "color":...}
         self.hidden_parts: set = set()
         self.hidden_features: set = set()         # sketches / planes hidden in the view
+        # how big each plane is drawn, if you've resized it (its corner handles): "std:Top" / plane feature id ->
+        # [u0, u1, v0, v1] in the plane's own axes, mm
+        self.plane_sizes: dict = {}
         # feature-list folders: id -> {"name": str, "open": bool}; a feature in one has f["folder"] = that id.
         # A folder groups a run of features that sit next to each other in the list (like Onshape).
         self.folders: dict = {}
@@ -115,7 +118,7 @@ class Document:
         return json.dumps({"features": feats, "rollback": self.rollback,
                            "overrides": self.part_overrides, "hidden": sorted(self.hidden_parts),
                            "hidden_features": sorted(self.hidden_features), "folders": self.folders,
-                           "configs": self.configs})
+                           "configs": self.configs, "plane_sizes": self.plane_sizes})
 
     def _restore(self, snap: str):
         d = json.loads(snap)
@@ -133,6 +136,7 @@ class Document:
         self.hidden_features = set(d.get("hidden_features", []))
         self.folders = d.get("folders", {})
         self.configs = d.get("configs", {"rows": [], "active": 0})
+        self.plane_sizes = dict(d.get("plane_sizes", {}))
 
     def checkpoint(self):
         """Call before any user-visible change."""
@@ -287,6 +291,29 @@ class Document:
         """Hide (or show) several parts at once — one redraw for the whole selection."""
         pids = set(pids)
         self.hidden_parts = (self.hidden_parts | pids) if hidden else (self.hidden_parts - pids)
+        self.notify()
+
+    @staticmethod
+    def plane_key(key) -> str:
+        """The plane_sizes key for a plane pick key: ("std", "Top") -> "std:Top", ("plane", fid) -> fid."""
+        return f"std:{key[1]}" if key[0] == "std" else str(key[1])
+
+    def plane_rect(self, key, half: float) -> tuple:
+        """(u0, u1, v0, v1) a plane is drawn over: the size you gave it, else ±half."""
+        r = self.plane_sizes.get(self.plane_key(key))
+        return tuple(r) if r else (-half, half, -half, half)
+
+    def set_plane_rect(self, key, rect):
+        """Resize a plane (its corner handles); None goes back to the default size. Undoable."""
+        k = self.plane_key(key)
+        new = None if rect is None else [float(x) for x in rect]
+        if self.plane_sizes.get(k) == new:
+            return
+        self.checkpoint()
+        if new is None:
+            self.plane_sizes.pop(k, None)
+        else:
+            self.plane_sizes[k] = new
         self.notify()
 
     def set_features_hidden(self, fids, hidden: bool):
@@ -619,7 +646,7 @@ class Document:
                            "features": self.features, "rollback": self.rollback,
                            "overrides": self.part_overrides, "hidden": sorted(self.hidden_parts),
                            "hidden_features": sorted(self.hidden_features), "folders": self.folders,
-                           "configs": self.configs, "versions": self.versions,
+                           "configs": self.configs, "versions": self.versions, "plane_sizes": self.plane_sizes,
                            "named_views": self.named_views, "units": self.units,
                            "version_blobs": self.version_blobs}, indent=1)
 
@@ -689,6 +716,8 @@ class Document:
         doc.part_overrides = d.get("overrides", {})
         doc.hidden_parts = set(d.get("hidden", []))
         doc.hidden_features = set(d.get("hidden_features", []))
+        doc.plane_sizes = {k: [float(x) for x in v] for k, v in d.get("plane_sizes", {}).items()
+                           if isinstance(v, list) and len(v) == 4}
         doc.folders = d.get("folders", {})
         doc.configs = d.get("configs", {"rows": [], "active": 0})
         doc.named_views = d.get("named_views", {})

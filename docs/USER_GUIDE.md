@@ -23,6 +23,13 @@ choose what can be picked (vertices and sketch points, edges, faces, solids, ske
 on by default). `Ctrl+Space` opens **Search tools**. With one or two things selected, the bottom-right shows the
 main measurement (area, length, diameter or the minimum distance between them) and **(x)** to make it a variable.
 
+**Planes** come last when you click, as in Onshape: you get a plane only where nothing else is under the mouse, so a
+face, sketch or edge in front of (or with a plane running through it) is what gets picked. Click a plane where it
+sticks out past the parts, or in the feature list. What's hidden behind a face (sketch lines, edges) can't be picked
+through it either. **Resize a plane**: select it and drag one of the four dots at its corners (hold Shift for
+unsnapped sizes); the size is kept in the file, undoes with `Ctrl+Z`, and right-click → *Reset plane size* puts it
+back.
+
 **The S menu** — press `S` over the model for a grid of your favourite tools at the mouse; click one, or press its
 number (`1`–`9`). There's a separate menu for sketches, Part Studios, assemblies and drawings, and each is yours to
 choose: *Customize…* at its top right (or View → *Customize the S menu…*) lists every tool on that toolbar, its ▾

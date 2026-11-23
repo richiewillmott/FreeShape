@@ -21,6 +21,20 @@ from .camera import Camera, STANDARD_VIEWS, basis
 PLANE_HALF = 75.0          # the default planes are 150 x 150 mm
 
 
+def plane_rect(size) -> tuple:
+    """(u0, u1, v0, v1) a plane is drawn over: from a half-size (a square about its origin) or a rectangle."""
+    if isinstance(size, (tuple, list)) and len(size) == 4:
+        return tuple(float(x) for x in size)
+    h = float(size)
+    return (-h, h, -h, h)
+
+
+def plane_corners(size):
+    """The four corners (u, v) of a plane's rectangle, anticlockwise from (u0, v0)."""
+    u0, u1, v0, v1 = plane_rect(size)
+    return [(u0, v0), (u1, v0), (u1, v1), (u0, v1)]
+
+
 @dataclass(frozen=True)
 class Pick:
     kind: str           # face | edge | vertex | region | plane | sketch_line | part | sketch_point
@@ -119,7 +133,13 @@ class Viewport(QOpenGLWidget):
         self.cam = Camera()
         self.parts = []          # list of (pid, mesh, color)
         self.part_shapes = {}    # pid -> shape
-        self.planes = []         # list of (key_tuple, Plane, label, half_size)
+        self.planes = []         # list of (key_tuple, Plane, label, half size or (u0, u1, v0, v1))
+        # resizing a selected plane by its corner handles, like Onshape: on_plane_resized(key, rect) is called
+        # when a corner is let go; can_resize_planes() says whether that's allowed now
+        self.on_plane_resized = None
+        self.can_resize_planes = lambda: True
+        self._plane_drag = None
+        self._plane_handle_hover = None
         self.sketches = []       # list of (fid, SketchResult, region_meshes)
         self.hidden_sketch_regions = False
         self.preview_tool = None  # mesh of a translucent tool body
@@ -1216,7 +1236,7 @@ class Viewport(QOpenGLWidget):
             for key, pl, label, half in self.planes:
                 pk = Pick("plane", key)
                 col = self._sel_color(pk)
-                corners = [pl.to_world(u, v) for u, v in ((-half, -half), (half, -half), (half, half), (-half, half))]
+                corners = [pl.to_world(u, v) for u, v in plane_corners(half)]
                 GL.glColor4f(*(col or theme.PLANE), 0.45 if col else 0.14)
                 GL.glBegin(GL.GL_QUADS)
                 for c in corners:
@@ -1351,7 +1371,8 @@ class Viewport(QOpenGLWidget):
             for key, pl, label, half in self.planes:
                 if not label:
                     continue
-                corner = pl.to_world(-half, half)
+                u0, _u1, _v0, v1 = plane_rect(half)
+                corner = pl.to_world(u0, v1)
                 s = self.cam.to_screen(corner)
                 col = QColor(theme.PLANE_LABEL)
                 hidden_cache = self.__dict__.setdefault("_label_hidden", {})
@@ -1366,6 +1387,14 @@ class Viewport(QOpenGLWidget):
                     col.setAlpha(55)            # the label is behind a part: just a hint of it
                 p.setPen(col)
                 p.drawText(QPointF(s[0] + 4, s[1] + 14), label)
+        # corner handles of the one selected plane: drag one to resize it
+        for i, (sx, sy) in enumerate(self._plane_handles()):
+            big = self._plane_handle_hover == i or (self._plane_drag is not None and self._plane_drag["corner"] == i)
+            p.setPen(QPen(QColor(theme.ACCENT), 1.5))
+            p.setBrush(QColor(theme.ACCENT) if big else QColor("white"))
+            r = 6.0 if big else 4.5
+            p.drawEllipse(QPointF(sx, sy), r, r)
+            p.setBrush(Qt.NoBrush)
         # view cube
         self.cube.hover = getattr(self, "_cube_hover", None)
         self.cube.draw(p, self.cam, self.width())
@@ -1621,6 +1650,81 @@ class Viewport(QOpenGLWidget):
             self._spts = (np.array(P, float).reshape(-1, 3), owner)
         return self._spts
 
+    # ------------------------------------------------------------------ plane corner handles
+    def _handle_plane(self):
+        """(index in self.planes) of the plane whose corner handles show: the only thing selected, and a plane."""
+        if self.sketcher is not None or not self.show_planes or self.on_plane_resized is None:
+            return None
+        if self._plane_drag is not None:
+            return self._plane_drag["i"]
+        if len(self.selection) != 1 or self.selection[0].kind != "plane" or not self.can_resize_planes():
+            return None
+        key = self.selection[0].key
+        return next((i for i, (k, *_r) in enumerate(self.planes) if k == key), None)
+
+    def _plane_handles(self):
+        """Screen positions of the selected plane's four corners (none when no handles show)."""
+        i = self._handle_plane()
+        if i is None or i >= len(self.planes):
+            return []
+        _key, pl, _label, size = self.planes[i]
+        return [tuple(self.cam.to_screen(pl.to_world(u, v))[:2]) for u, v in plane_corners(size)]
+
+    def _plane_handle_hit(self, x, y):
+        for i, (sx, sy) in enumerate(self._plane_handles()):
+            if math.hypot(sx - x, sy - y) < 9:
+                return i
+        return None
+
+    def _start_plane_drag(self, x, y):
+        c = self._plane_handle_hit(x, y)
+        if c is None:
+            return False
+        i = self._handle_plane()
+        key, pl, label, size = self.planes[i]
+        self._plane_drag = {"i": i, "key": key, "corner": c, "rect": list(plane_rect(size)), "moved": False}
+        return True
+
+    def _drag_plane(self, x, y, fine=False):
+        dr = self._plane_drag
+        key, pl, label, _size = self.planes[dr["i"]]
+        w = self.ray_plane(x, y, pl)
+        if w is None:
+            return
+        u, v = pl.to_local(w)
+        step = 0.0 if fine else self._nice_step()
+        if step:
+            u, v = round(u / step) * step, round(v / step) * step
+        u0, u1, v0, v1 = dr["rect"]
+        least = max(self.cam.scale * 12, 1e-3)               # never smaller than a few pixels across
+        c = dr["corner"]                                     # 0 (u0,v0) 1 (u1,v0) 2 (u1,v1) 3 (u0,v1)
+        if c in (0, 3):
+            u0 = min(u, u1 - least)
+        else:
+            u1 = max(u, u0 + least)
+        if c in (0, 1):
+            v0 = min(v, v1 - least)
+        else:
+            v1 = max(v, v0 + least)
+        dr["rect"] = [u0, u1, v0, v1]
+        dr["moved"] = True
+        self.planes[dr["i"]] = (key, pl, label, tuple(dr["rect"]))
+        self.update()
+
+    def _end_plane_drag(self):
+        dr, self._plane_drag = self._plane_drag, None
+        if dr and dr["moved"] and self.on_plane_resized is not None:
+            self.on_plane_resized(dr["key"], tuple(dr["rect"]))
+        self.update()
+
+    def _nice_step(self):
+        raw = self.cam.scale * 6                              # about 6 px a step
+        mag = 10 ** math.floor(math.log10(max(raw, 1e-9)))
+        for m in (1, 2, 5, 10):
+            if m * mag >= raw:
+                return float(m * mag)
+        return float(10 * mag)
+
     def pick(self, x, y, kinds=None) -> Pick | None:
         allowed = (lambda k: k in kinds) if kinds is not None else self._allowed
         o, d = self.cam.ray(x, y)
@@ -1660,6 +1764,7 @@ class Viewport(QOpenGLWidget):
             if len(P):
                 S = self.cam.to_screen(P)
                 dv = np.hypot(S[:, 0] - x, S[:, 1] - y)
+                dv[S[:, 2] < face_z - tol_z * 4] = np.inf          # hidden behind a face: not this one
                 i = int(np.argmin(dv))
                 if dv[i] < best_v[0]:
                     best_v = (float(dv[i]), Pick("sketch_point", owner[i]))
@@ -1688,8 +1793,8 @@ class Viewport(QOpenGLWidget):
                         continue
                     if kind == "sketch_line" and not want_sl:
                         continue
-                    if kind == "edge" and z[i] < face_z - tol_z * 4:
-                        continue      # hidden behind a face
+                    if z[i] < face_z - tol_z * 4:
+                        continue      # an edge or sketch line hidden behind a face
                     return Pick(kind, key)
 
         # sketch regions (they lie on top of faces when sketching on a face)
@@ -1716,10 +1821,11 @@ class Viewport(QOpenGLWidget):
                 if tt <= 0:
                     continue
                 u, v = pl.to_local(o + tt * d)
-                if abs(u) <= half and abs(v) <= half and tt < plane_hit[0]:
+                u0, u1, v0, v1 = plane_rect(half)
+                if u0 <= u <= u1 and v0 <= v <= v1 and tt < plane_hit[0]:
                     plane_hit = (tt, Pick("plane", key))
-        if plane_hit[1] is not None and plane_hit[0] <= best_face[0] + tol_z * 4:
-            return plane_hit[1]
+        # like Onshape, a plane is what you get only where there's nothing else: a face under the mouse wins even
+        # when a plane runs through (or in front of) it — so a part on the origin doesn't give you Front or Right
         if best_face[1] is not None and (allowed("face") or part_ok):
             return best_face[1]
         return plane_hit[1]
@@ -1889,6 +1995,9 @@ class Viewport(QOpenGLWidget):
                 self._nav = None
                 self._cube_click(cube)
                 return
+            if self._start_plane_drag(pos.x(), pos.y()):
+                self._nav = None
+                return
             mi = self._manip_hit(pos.x(), pos.y()) if self.manipulators else None
             if mi is not None:
                 m = self.manipulators[mi]
@@ -1904,6 +2013,8 @@ class Viewport(QOpenGLWidget):
             if cube is not None:
                 self._press = None
                 self._cube_click(cube)
+                return
+            if self._start_plane_drag(pos.x(), pos.y()):
                 return
             mi = self._manip_hit(pos.x(), pos.y()) if self.manipulators else None
             if mi is not None:
@@ -1946,6 +2057,11 @@ class Viewport(QOpenGLWidget):
             if abs(x - self._press[0]) + abs(y - self._press[1]) > 3:
                 self._moved = True
             btn = self._press[2]
+            if btn == Qt.LeftButton and self._plane_drag is not None:
+                if self._moved:
+                    self._drag_plane(x, y, fine=bool(e.modifiers() & Qt.ShiftModifier))
+                self._last = (x, y)
+                return
             if btn == Qt.LeftButton and self._manip_drag is not None:
                 md = self._manip_drag
                 m = self.manipulators[md["i"]]
@@ -2001,6 +2117,13 @@ class Viewport(QOpenGLWidget):
             self.update()
         if cube is not None:
             self.setCursor(Qt.PointingHandCursor)
+            return
+        ph = self._plane_handle_hit(x, y)
+        if ph != self._plane_handle_hover:
+            self._plane_handle_hover = ph
+            self.update()
+        if ph is not None:
+            self.setCursor(Qt.SizeFDiagCursor if ph in (0, 2) else Qt.SizeBDiagCursor)
             return
         mh = self._manip_hit(x, y) if self.manipulators else None
         if mh != self._manip_hover:
@@ -2114,6 +2237,9 @@ class Viewport(QOpenGLWidget):
             self._orbiting = False
             self.update()
         if press is None:
+            return
+        if self._plane_drag is not None:
+            self._end_plane_drag()
             return
         if self._manip_drag is not None:
             m = self.manipulators[self._manip_drag["i"]] if self._manip_drag["i"] < len(self.manipulators) else None
