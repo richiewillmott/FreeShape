@@ -4,6 +4,9 @@
 
 More sketch tools, and the sketch toolbar grouped more like other CAD programs.
 
+- **The S menu**: press S over the model for a grid of your own favourite tools at the mouse, with a separate
+  menu for sketches, Part Studios, assemblies and drawings. *Customize…* chooses and orders them from every tool
+  on that toolbar (plugins too). In a sketch, Esc now picks Select (S used to).
 - **Polygons with any number of sides**, inscribed (corners on a circle) or circumscribed (sides touching a circle,
   so you size it across flats, handy for nut pockets). They share a Polygon button with the hexagon, which used to
   sit under Rectangle.

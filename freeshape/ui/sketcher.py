@@ -928,7 +928,7 @@ class Sketcher:
             return False
         shortcuts = {Qt.Key_L: "line", Qt.Key_R: "rect", Qt.Key_C: "circle", Qt.Key_A: "arc3",
                      Qt.Key_D: "dimension", Qt.Key_I: "coincident", Qt.Key_H: "horizontal",
-                     Qt.Key_V: "vertical", Qt.Key_E: "equal", Qt.Key_T: "tangent", Qt.Key_S: "select",
+                     Qt.Key_V: "vertical", Qt.Key_E: "equal", Qt.Key_T: "tangent",
                      Qt.Key_P: "point", Qt.Key_U: "use", Qt.Key_O: "offset", Qt.Key_X: "hexagon"}
         if k == Qt.Key_Q:
             self.toggle_construction()

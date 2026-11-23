@@ -419,6 +419,8 @@ class MainWindow(QMainWindow):
             grp.addAction(a)
             tm.addAction(a)
             self.theme_actions[mode] = a
+        vm.addSeparator()
+        self._add_action(vm, "Customize the S menu…", self.customize_s_menu)
         im = submenu(vm, "Icons")
         im.addAction("Open my icons folder…", self.open_icons_folder)
         im.addAction("Save the built-in icons there (to start from)", self.export_icons)
@@ -589,6 +591,19 @@ class MainWindow(QMainWindow):
             from .palette import CommandPalette
             self._palette = CommandPalette(self.viewport, self._palette_commands)
         self._palette.open()
+
+    def open_s_menu(self):
+        """S: a grid of your favourite tools for where you are (sketch, Part Studio, assembly, drawing) at the
+        mouse."""
+        if self.main_stack.currentWidget() is getattr(self, "home", None):
+            return                                         # on the Home page: no tools to offer
+        from .shortcut_menu import ShortcutPopup, current_context
+        self._s_popup = ShortcutPopup(self, current_context(self))
+        self._s_popup.popup_at()
+
+    def customize_s_menu(self):
+        from .shortcut_menu import CustomizeDialog, current_context
+        CustomizeDialog(self, current_context(self)).exec()
 
     SELECT_DEFAULTS = {"vertex": True, "edge": True, "face": True, "part": False, "sketch": True, "plane": True}
 
@@ -866,7 +881,7 @@ class MainWindow(QMainWindow):
         self._tb(h, "undo", "Undo (Ctrl+Z)", lambda: self._sk("undo"))
         self._tb(h, "redo", "Redo (Ctrl+Y)", lambda: self._sk("redo"))
         h.addWidget(_sep())
-        b = self._tb(h, "point", "Select (S)", lambda: self._sk_tool("select"), checkable=True)
+        b = self._tb(h, "point", "Select (Esc)", lambda: self._sk_tool("select"), checkable=True)
         b.setIcon(self._arrow_icon())
         b.setProperty("icon_name", "__arrow")
         self._sketch_buttons["select"] = b
@@ -1023,6 +1038,7 @@ class MainWindow(QMainWindow):
         sc("Shift+F", lambda: self.asm.start_mate("fastened") if self.is_asm else self.start_feature("fillet"))
 
         sc("N", lambda: self.dwg.set_tool("note") if self.is_dwg else self._normal_key())
+        sc("S", self.open_s_menu)
         sc("Delete", self._delete_key)
         sc("Escape", self._escape)
 
@@ -3992,7 +4008,7 @@ class MainWindow(QMainWindow):
             "<b>Selecting</b><br>Space: deselect all · Drag a box: left-to-right selects what is fully inside, "
             "right-to-left also what it touches · Shift / Ctrl: add<br><br>"
             "<b>Features</b><br>Alt+C or Ctrl+Space: search tools · "
-            "Shift+S: sketch · Shift+E: extrude · Shift+W: revolve · Shift+F: fillet<br>"
+            "S: your tools menu · Shift+S: sketch · Shift+E: extrude · Shift+W: revolve · Shift+F: fillet<br>"
             "Ctrl+Z / Ctrl+Y: undo / redo · Enter: accept dialog · Esc: cancel<br><br>"
             "<b>Sketch</b><br>L line · R rectangle · C circle · A arc · P point · D dimension · Q construction<br>"
             "I coincident · H horizontal · V vertical · E equal · T tangent · U use edges · Del delete · Esc stop tool<br><br>"

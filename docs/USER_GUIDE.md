@@ -23,6 +23,12 @@ choose what can be picked (vertices and sketch points, edges, faces, solids, ske
 on by default). `Ctrl+Space` opens **Search tools**. With one or two things selected, the bottom-right shows the
 main measurement (area, length, diameter or the minimum distance between them) and **(x)** to make it a variable.
 
+**The S menu** — press `S` over the model for a grid of your favourite tools at the mouse; click one, or press its
+number (`1`–`9`). There's a separate menu for sketches, Part Studios, assemblies and drawings, and each is yours to
+choose: *Customize…* at its top right (or View → *Customize the S menu…*) lists every tool on that toolbar, its ▾
+menus and plugins included; add, remove and drag them into order. *Reset to default* goes back to the starting
+set. (In a sketch, `S` used to pick Select; `Esc` does that.)
+
 **Sketching** — select a plane or flat face (or not — the dialog will ask) and press **Sketch** (`Shift+S`).
 The view turns to face the sketch plane (unless *Orient normal to sketch on edit* is off in the view options).
 

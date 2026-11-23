@@ -689,6 +689,12 @@ def draw(name: str, p: QPainter):
         p.setPen(_pen(ORANGE, 2.2))
         p.drawLine(QPointF(27, 18), QPointF(27, 28))
         p.drawLine(QPointF(22, 23), QPointF(32, 23))
+    elif name == "finish_sketch":
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor("#1e8e3e"))
+        p.drawEllipse(QPointF(16, 16), 12, 12)
+        p.setPen(_pen(QColor("white"), 3))
+        p.drawPolyline(QPolygonF([QPointF(10, 16.5), QPointF(14.5, 21), QPointF(22.5, 11.5)]))
     elif name == "trim":
         p.setPen(_pen(INK, 1.8))
         p.drawLine(QPointF(4, 16), QPointF(28, 16))
