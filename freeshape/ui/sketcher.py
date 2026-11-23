@@ -926,17 +926,36 @@ class Sketcher:
                 self.selection = list(self.sk.entities)
                 return True
             return False
-        shortcuts = {Qt.Key_L: "line", Qt.Key_R: "rect", Qt.Key_C: "circle", Qt.Key_A: "arc3",
-                     Qt.Key_D: "dimension", Qt.Key_I: "coincident", Qt.Key_H: "horizontal",
-                     Qt.Key_V: "vertical", Qt.Key_E: "equal", Qt.Key_T: "tangent",
-                     Qt.Key_P: "point", Qt.Key_U: "use", Qt.Key_O: "offset", Qt.Key_X: "hexagon"}
-        if k == Qt.Key_Q:
+        tool = self.key_tool(k, e.modifiers())
+        if k == Qt.Key_Q and not e.modifiers():
             self.toggle_construction()
             return True
-        if k in shortcuts and not e.modifiers():
-            self.set_tool(shortcuts[k])
+        if tool:
+            self.set_tool(tool)
             return True
         return False
+
+    # Onshape's sketch keys (as far as FreeShape has the tool); R stays the corner rectangle, X is Extend as in
+    # Onshape (the hexagon moved to Shift+X)
+    KEYS = {"L": "line", "R": "rect", "C": "circle", "A": "arc3", "D": "dimension", "I": "coincident",
+            "H": "horizontal", "V": "vertical", "E": "equal", "T": "tangent", "P": "point", "U": "use",
+            "O": "offset", "B": "parallel", "M": "trim", "X": "sk_extend"}
+    SHIFT_KEYS = {"L": "perpendicular", "O": "concentric", "J": "fix", "M": "midpoint", "Q": "symmetric",
+                  "A": "arc_tan", "F": "sk_fillet", "S": "point", "X": "hexagon"}
+
+    @classmethod
+    def key_tool(cls, key, mods) -> str | None:
+        """The sketch tool a key (with Shift or nothing) starts, or None."""
+        try:
+            ch = chr(int(key))
+        except (ValueError, TypeError, OverflowError):
+            return None
+        m = mods & (Qt.ShiftModifier | Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier)
+        if m == Qt.ShiftModifier:
+            return cls.SHIFT_KEYS.get(ch)
+        if not m:
+            return cls.KEYS.get(ch)
+        return None
 
     # ================================================================== editing commands
     def delete_selection(self):

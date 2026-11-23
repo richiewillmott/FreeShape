@@ -71,6 +71,29 @@ def _ray_tris(o, d, V, T):
     return float(t[k]), int(k)
 
 
+def _ray_tris_all(o, d, V, T):
+    """Every triangle the ray passes through: (t, tri_index) arrays, nearest first."""
+    if len(T) == 0:
+        return np.zeros(0), np.zeros(0, int)
+    v0 = V[T[:, 0]].astype(np.float64)
+    e1 = V[T[:, 1]] - v0
+    e2 = V[T[:, 2]] - v0
+    p = np.cross(d, e2)
+    det = np.einsum("ij,ij->i", e1, p)
+    ok = np.abs(det) > 1e-12
+    inv = np.zeros_like(det)
+    inv[ok] = 1.0 / det[ok]
+    s = o - v0
+    u = np.einsum("ij,ij->i", s, p) * inv
+    q = np.cross(s, e1)
+    v = (q @ d) * inv
+    t = np.einsum("ij,ij->i", e2, q) * inv
+    hit = ok & (u >= -1e-9) & (v >= -1e-9) & (u + v <= 1 + 1e-9) & (t > 0)
+    idx = np.where(hit)[0]
+    order = np.argsort(t[idx])
+    return t[idx][order], idx[order]
+
+
 def _ray_tris_kept(o, d, V, T, kept):
     """Nearest ray hit whose point survives the section cut."""
     if len(T) == 0:
@@ -137,6 +160,8 @@ class Viewport(QOpenGLWidget):
         # resizing a selected plane by its corner handles, like Onshape: on_plane_resized(key, rect) is called
         # when a corner is let go; can_resize_planes() says whether that's allowed now
         self.on_plane_resized = None
+        self._cycle = None              # Tab cycling: {"xy", "items", "i"}
+        self.hover_xray = False         # the hover came from Tab / Select other…: draw it through the model
         self.can_resize_planes = lambda: True
         self._plane_drag = None
         self._plane_handle_hover = None
@@ -385,6 +410,13 @@ class Viewport(QOpenGLWidget):
 
     def set_perspective(self, on):
         self.cam.perspective = bool(on)
+        self.update()
+
+    def zoom_step(self, factor=1.4):
+        """Z: zoom out a step about the middle of the view (a factor below 1 zooms in)."""
+        self.remember_view()
+        self._anim = None
+        self.cam.zoom(factor, self.width() / 2, self.height() / 2)
         self.update()
 
     def start_zoom_window(self):
@@ -1059,6 +1091,24 @@ class Viewport(QOpenGLWidget):
                 self._draw_polyline(poly)
             GL.glDepthRange(0, 1)
             GL.glLineWidth(1.4)
+        # Tab / Select other… may point at something hidden behind a face: show it through the model, dashed
+        if self.hover_xray and self.hover is not None and self.hover.kind in ("face", "part", "edge"):
+            polys = outline
+            if self.hover.kind == "edge":
+                m = next((m for pid, m, _ in self.parts if pid == self.hover.key[0]), None)
+                ei = self.hover.key[1]
+                polys = [m.edge_polys[ei]] if m is not None and ei < len(m.edge_polys) else None
+            if polys:
+                GL.glDisable(GL.GL_DEPTH_TEST)
+                GL.glEnable(GL.GL_LINE_STIPPLE)
+                GL.glLineStipple(2, 0x0F0F)
+                GL.glLineWidth(3.0)
+                GL.glColor3f(*theme.HOVER)
+                for poly in polys:
+                    self._draw_polyline(poly)
+                GL.glDisable(GL.GL_LINE_STIPPLE)
+                GL.glEnable(GL.GL_DEPTH_TEST)
+                GL.glLineWidth(1.4)
 
         # ---- hovered / selected vertices as dots
         hv = [pk for pk in list(self.selection) + ([self.hover] if self.hover is not None else [])
@@ -1837,6 +1887,119 @@ class Viewport(QOpenGLWidget):
             return best_face[1]
         return plane_hit[1]
 
+    def pick_all(self, x, y, kinds=None) -> list:
+        """Everything selectable under the mouse, for Select other… and Tab: what a click would pick first, then
+        points, edges and sketch lines near it, the faces the ray passes through (front to back, hidden ones
+        too), sketch regions, and planes."""
+        allowed = (lambda k: k in kinds) if kinds is not None else self._allowed
+        o, d = self.cam.ray(x, y)
+        out = []
+
+        def add(pk):
+            if pk is not None and pk not in out:
+                out.append(pk)
+        add(self.pick(x, y, kinds))
+        near = []                                         # (screen distance, pick) of points
+        if allowed("vertex"):
+            for pid, m in self._ray_parts(o, d, self.cam.scale * 10):
+                V = getattr(m, "vertices", None)
+                if V is None or len(V) == 0:
+                    continue
+                S = self.cam.to_screen(np.asarray(V, float))
+                dv = np.hypot(S[:, 0] - x, S[:, 1] - y)
+                near += [(float(dv[i]), Pick("vertex", (pid, int(i)))) for i in np.nonzero(dv < 9)[0]]
+        if allowed("sketch_point"):
+            P, owner = self._sketch_points()
+            if len(P):
+                S = self.cam.to_screen(P)
+                dv = np.hypot(S[:, 0] - x, S[:, 1] - y)
+                near += [(float(dv[i]), Pick("sketch_point", owner[i])) for i in np.nonzero(dv < 9)[0]]
+        for _dist, pk in sorted(near, key=lambda q: q[0]):
+            add(pk)
+        if allowed("edge") or allowed("sketch_line"):
+            A, B, owner = self._segments_near(o, d)
+            if len(owner):
+                sa, sb = self.cam.to_screen(A), self.cam.to_screen(B)
+                dist, _t = _seg_dist(x, y, sa[:, :2], sb[:, :2])
+                for i in np.argsort(dist):
+                    if dist[i] > 7:
+                        break
+                    kind, key = owner[i]
+                    if allowed(kind):
+                        add(Pick(kind, key))
+        hits = []                                         # (t, pick) of faces along the ray
+        if allowed("face") or allowed("part"):
+            for pid, m in self._ray_parts(o, d):
+                ts, tris = _ray_tris_all(o, d, m.verts, m.tris)
+                seen = set()
+                for t, ti in zip(ts, tris):
+                    fi = int(m.tri_face[ti])
+                    if fi in seen:
+                        continue
+                    seen.add(fi)
+                    hits.append((float(t), Pick("face", (pid, fi)) if allowed("face") else Pick("part", (pid,))))
+        if allowed("region"):
+            for fid, sr, meshes in self.sketches:
+                if self.sketcher and self.sketcher.fid == fid:
+                    continue
+                for ri, m in enumerate(meshes):
+                    tt, _ = _ray_tris(o, d, m.verts, m.tris)
+                    if np.isfinite(tt):
+                        hits.append((float(tt), Pick("region", (fid, ri))))
+        for _t, pk in sorted(hits, key=lambda q: q[0]):
+            add(pk)
+        if allowed("part"):
+            for _t, pk in sorted(hits, key=lambda q: q[0]):
+                if pk.kind == "face":
+                    add(Pick("part", (pk.key[0],)))
+        if allowed("plane") and self.show_planes and self.sketcher is None:
+            ph = []
+            for key, pl, _label, half in self.planes:
+                den = d @ pl.normal
+                if abs(den) < 1e-9:
+                    continue
+                tt = ((pl.origin - o) @ pl.normal) / den
+                if tt <= 0:
+                    continue
+                u, v = pl.to_local(o + tt * d)
+                u0, u1, v0, v1 = plane_rect(half)
+                if u0 <= u <= u1 and v0 <= v <= v1:
+                    ph.append((float(tt), Pick("plane", key)))
+            for _t, pk in sorted(ph, key=lambda q: q[0]):
+                add(pk)
+        return out
+
+    # ------------------------------------------------------------------ Tab: cycle what's under the mouse
+    def cycle_at_cursor(self, step=1):
+        """Tab (Shift+Tab back): step through everything under the mouse, highlighting each; a click then selects
+        the one shown, like Select other… without the list."""
+        xy = getattr(self, "_cursor_xy", None)
+        if xy is None or self.sketcher is not None:
+            return None
+        cyc = self._cycle
+        if cyc is None or math.hypot(cyc["xy"][0] - xy[0], cyc["xy"][1] - xy[1]) > 3:
+            items = self.pick_all(*xy)
+            if not items:
+                return None
+            # the first Tab goes to the second thing: the first is what a click picks anyway
+            cyc = self._cycle = {"xy": xy, "items": items, "i": 0}
+        cyc["i"] = (cyc["i"] + step) % len(cyc["items"])
+        pk = cyc["items"][cyc["i"]]
+        self.hover = pk
+        self.hover_xray = True
+        self.hoverChanged.emit(pk)
+        self.status_text = (f"Tab {cyc['i'] + 1} of {len(cyc['items'])}: click to select it "
+                            "(Tab / Shift+Tab for the next / previous, move the mouse to stop)")
+        self.update()
+        return pk
+
+    def _cycle_pick(self, x, y):
+        """The item Tab has chosen, if the mouse is still where Tab was pressed."""
+        cyc = self._cycle
+        if cyc and math.hypot(cyc["xy"][0] - x, cyc["xy"][1] - y) <= 3:
+            return cyc["items"][cyc["i"]]
+        return None
+
     def _pick_overlay(self, x, y, o, d):
         best_poly = (6.0, None)
         best_mesh = (np.inf, None)
@@ -2164,6 +2327,12 @@ class Viewport(QOpenGLWidget):
         xy = getattr(self, "_hover_xy", None)
         if xy is None or self._press is not None or self.sketcher:
             return
+        if self._cycle is not None:
+            if self._cycle_pick(*xy) is not None:
+                return                                   # Tab chose what to highlight: keep it
+            self._cycle = None
+            self.status_text = ""
+        self.hover_xray = False
         h = self.pick(*xy)
         if h != self.hover:
             self.hover = h
@@ -2287,7 +2456,10 @@ class Viewport(QOpenGLWidget):
         if self._moved:
             return
         self.last_click = (pos.x(), pos.y())
-        pk = self.pick(pos.x(), pos.y())
+        pk = self._cycle_pick(pos.x(), pos.y()) or self.pick(pos.x(), pos.y())
+        if self._cycle is not None:
+            self._cycle = None
+            self.status_text = ""
         if self.pick_handler is not None:
             if pk is not None:
                 self.pick_handler(pk)
@@ -2384,6 +2556,10 @@ class Viewport(QOpenGLWidget):
             self.rotate_step(*self.ARROW_KEYS[k])
             return
         mods = e.modifiers() & (Qt.ControlModifier | Qt.ShiftModifier | Qt.AltModifier | Qt.MetaModifier)
+        if k in self.ARROW_KEYS and not self.sketcher and mods in (Qt.ShiftModifier, Qt.ControlModifier):
+            # as Onshape: Shift+arrow turns the view 90°, Ctrl+arrow 5°
+            self.rotate_step(*self.ARROW_KEYS[k], deg=90 if mods == Qt.ShiftModifier else 5)
+            return
         if k in self.ARROW_KEYS and mods == (Qt.ControlModifier | Qt.ShiftModifier):
             # Ctrl+Shift+arrow pans, as in Onshape: the model moves the way the arrow points, a tenth of the view
             sx, sy = {Qt.Key_Right: (1, 0), Qt.Key_Left: (-1, 0), Qt.Key_Up: (0, -1), Qt.Key_Down: (0, 1)}[k]
@@ -2396,6 +2572,11 @@ class Viewport(QOpenGLWidget):
     def event(self, e):
         # touchpad pinch zooms at the fingers
         from PySide6.QtCore import QEvent
+        if e.type() == QEvent.KeyPress and e.key() in (Qt.Key_Tab, Qt.Key_Backtab) and self.sketcher is None \
+                and not (e.modifiers() & (Qt.ControlModifier | Qt.AltModifier)):
+            # Tab steps through what's under the mouse (instead of moving keyboard focus off the view)
+            self.cycle_at_cursor(-1 if e.key() == Qt.Key_Backtab or e.modifiers() & Qt.ShiftModifier else 1)
+            return True
         if e.type() == QEvent.NativeGesture:
             try:
                 if e.gestureType() == Qt.ZoomNativeGesture:
@@ -2408,6 +2589,7 @@ class Viewport(QOpenGLWidget):
         return super().event(e)
 
     def set_hover_none(self):
+        self.hover_xray = False
         if self.hover is not None:
             self.hover = None
             self.hoverChanged.emit(None)

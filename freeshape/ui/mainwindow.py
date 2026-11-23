@@ -7,7 +7,7 @@ import os
 import sys
 
 import numpy as np
-from PySide6.QtCore import Qt, QSize, QTimer
+from PySide6.QtCore import Qt, QSize, QTimer, QPoint
 from PySide6.QtGui import QAction, QKeySequence, QShortcut, QColor
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QToolButton, QLabel, QFrame, QSplitter, QMenu,
@@ -893,18 +893,18 @@ class MainWindow(QMainWindow):
                            ("line_mid", "Midpoint line — click the middle, then one end")])
         self._sk_group(h, [("rect", "Corner rectangle (R)"), ("center_rect", "Center rectangle"),
                            ("rect3", "Aligned rectangle — two corners for one side, then the width")])
-        self._sk_group(h, [("hexagon", "Hexagon — click the centre, then a corner (X)"),
+        self._sk_group(h, [("hexagon", "Hexagon — click the centre, then a corner (Shift+X)"),
                            ("polygon", "Inscribed polygon — corners on a circle; type the number of sides"),
                            ("polygon_out", "Circumscribed polygon — sides touch a circle (size across flats); "
                                            "type the number of sides")])
         self._sk_group(h, [("circle", "Circle (C)"), ("ellipse", "Ellipse")])
         self._sk_group(h, [("arc3", "3-point arc (A)"), ("arc_center", "Center-point arc"),
-                           ("arc_tan", "Tangent arc — carry on smoothly from the end of a line or arc"),
+                           ("arc_tan", "Tangent arc (Shift+A) — carry on smoothly from the end of a line or arc"),
                            ("ellipse_arc", "Elliptical arc — centre, long axis, width, then start and end"),
                            ("conic", "Conic — start, end, shoulder point, then rho")])
         self._sk_group(h, [("spline", "Spline — through the points you click; double-click or Enter to finish"),
                            ("spline_cp", "Control-point spline — the points pull the curve (Bézier style)")])
-        self._sketch_buttons["point"] = self._tb(h, "point", "Point (P)", lambda: self._sk_tool("point"),
+        self._sketch_buttons["point"] = self._tb(h, "point", "Point (P or Shift+S)", lambda: self._sk_tool("point"),
                                                  checkable=True)
         self._sketch_buttons["text"] = self._tb(h, "sk_text", "Text", lambda: self._sk_tool("text"), checkable=True)
         h.addWidget(_sep())
@@ -916,12 +916,14 @@ class MainWindow(QMainWindow):
         for name in ("coincident", "horizontal", "vertical", "parallel", "perpendicular", "tangent",
                      "equal", "midpoint", "concentric", "symmetric", "fix"):
             label = name.capitalize()
-            keys = {"coincident": " (I)", "horizontal": " (H)", "vertical": " (V)", "equal": " (E)", "tangent": " (T)"}
+            keys = {"coincident": " (I)", "horizontal": " (H)", "vertical": " (V)", "equal": " (E)", "tangent": " (T)",
+                    "parallel": " (B)", "perpendicular": " (Shift+L)", "concentric": " (Shift+O)",
+                    "midpoint": " (Shift+M)", "symmetric": " (Shift+Q)", "fix": " (Shift+J)"}
             b = self._tb(h, name, label + keys.get(name, "") + " — " + CONSTRAINT_TOOLS[name],
                          lambda _=False, n=name: self._sk_tool(n), checkable=True)
             self._sketch_buttons[name] = b
         h.addWidget(_sep())
-        self._sk_group(h, [("sk_fillet", "Sketch fillet — round a corner"),
+        self._sk_group(h, [("sk_fillet", "Sketch fillet (Shift+F) — round a corner"),
                            ("sk_chamfer", "Sketch chamfer — cut a corner straight")])
         self._sk_group(h, [("offset", "Offset (O)"), ("slot", "Slot — two end centres, then the width")])
         self._sketch_buttons["sk_mirror"] = self._tb(h, "sk_mirror", "Mirror — select geometry, then the mirror line",
@@ -933,8 +935,8 @@ class MainWindow(QMainWindow):
         h.addWidget(_sep())
         self._sk_group(h, [("use", "Use (project) part edges (U)"),
                            ("use_intersect", "Intersect — where part faces cross the sketch plane")])
-        self._sk_group(h, [("trim", "Trim"), ("sk_split", "Split — cut a line or arc in two where you click"),
-                           ("sk_extend", "Extend — lengthen a line or arc to the next curve")])
+        self._sk_group(h, [("trim", "Trim (M)"), ("sk_split", "Split — cut a line or arc in two where you click"),
+                           ("sk_extend", "Extend (X) — lengthen a line or arc to the next curve")])
         self._tb(h, "delete", "Delete selected (Del)", lambda: self._sk("delete_selection"))
         self._tb_group(h, [("insert_dxf", "Insert DXF — bring a drawing's lines, arcs and curves into the sketch",
                             self._sketch_insert_dxf),
@@ -1035,15 +1037,231 @@ class MainWindow(QMainWindow):
         sc("Ctrl+Z", self.undo)
         sc("Ctrl+Y", self.redo)
         sc("Ctrl+Shift+Z", self.redo)
-        sc("Shift+S", lambda: self.start_sketch() if self.mode == "idle" and not self.is_dwg else None)
+        sc("Shift+S", lambda: self._sk_key("Shift+S") or (
+            self.start_sketch() if self.mode == "idle" and not self.is_dwg else None))
         sc("Shift+E", lambda: self._feature_from_sketch("extrude"))
         sc("Shift+W", lambda: self._feature_from_sketch("revolve"))
-        sc("Shift+F", lambda: self.asm.start_mate("fastened") if self.is_asm else self.start_feature("fillet"))
+        sc("Shift+F", lambda: self._sk_key("Shift+F") or (
+            self.asm.start_mate("fastened") if self.is_asm else self.start_feature("fillet")))
+        # ---- Onshape's 3D view keys (in a sketch, letters the sketch uses go to its tools instead)
+        sc("P", lambda: self._sk_key("P") or (self.dwg.set_tool("projected") if self.is_dwg
+                                               else self.act_planes.trigger() if not self.is_asm else None))
+        sc("Shift+P", lambda: self._sk_key("Shift+P") or self.toggle_construction_geometry())
+        sc("Shift+H", lambda: self._sk_key("Shift+H") or self.toggle_sketches())
+        sc("Y", lambda: self._sk_key("Y") or self.hide_selected_parts())
+        sc("Shift+Y", lambda: None if self.is_dwg or self.is_asm else self._show_all_parts())
+        sc("Shift+I", lambda: self._sk_key("Shift+I") or self.isolate_selected_parts())
+        sc("Shift+V", self.named_views_dialog)
+        sc("Shift+X", lambda: self._sk_key("Shift+X") or (
+            self.toggle_section() if not self.is_dwg and not self.is_asm else None))
+        sc("Shift+R", lambda: (self.asm.start_mate("revolute") if self.mode == "idle" else None) if self.is_asm
+           else self.set_display("high_quality", not self.viewport.high_quality))
+        sc("Z", lambda: self.viewport.zoom_step(1.4))
+        sc("W", lambda: self.viewport.start_zoom_window())
+        sc("Shift+N", self.rename_selected)
+        sc("?", self.show_shortcuts)
+        sc("Shift+?", self.show_shortcuts)
+        sc("`", self.select_other_at_cursor)
+        sc("M", lambda: self._sk_key("M") or (self.asm.start_mate("fastened") if self.is_asm else None))
+        sc("B", lambda: self._sk_key("B"))
+        sc("X", lambda: self._sk_key("X"))
 
         sc("N", lambda: self.dwg.set_tool("note") if self.is_dwg else self._normal_key())
         sc("S", self.open_s_menu)
         sc("Delete", self._delete_key)
         sc("Escape", self._escape)
+
+    # ------------------------------------------------------------------ keys (Onshape's set)
+    def _sk_key(self, seq: str) -> bool:
+        """In a sketch, a key the sketch uses picks its tool (P point, M trim, Shift+F fillet …). True if it did."""
+        if self.mode != "sketch" or not self.sketcher:
+            return False
+        from .sketcher import Sketcher
+        mods = Qt.ShiftModifier if seq.startswith("Shift+") else Qt.NoModifier
+        tool = Sketcher.key_tool(ord(seq[-1]), mods)
+        if tool:
+            self._sk_tool(tool)
+        return True                                      # in a sketch, never the 3D meaning
+
+    def _target_parts(self):
+        """Parts a key acts on: the selected ones, else the one under the mouse."""
+        vp = self.viewport
+        ids = []
+        for pk in vp.selection:
+            if pk.kind in ("face", "edge", "part", "vertex") and pk.key[0] in self.doc.state.parts \
+                    and pk.key[0] not in ids:
+                ids.append(pk.key[0])
+        if not ids and vp.hover is not None and vp.hover.kind in ("face", "edge", "part", "vertex") \
+                and vp.hover.key[0] in self.doc.state.parts:
+            ids = [vp.hover.key[0]]
+        return ids
+
+    def hide_selected_parts(self):
+        """Y: hide the selected parts (or the one under the mouse)."""
+        if self.is_dwg or self.is_asm or self.mode == "sketch":
+            return
+        ids = self._target_parts()
+        if ids:
+            self.viewport.clear_selection()
+            self.doc.set_parts_hidden(ids, True)
+
+    def isolate_selected_parts(self):
+        """Shift+I: show only the selected parts (or the one under the mouse); Shift+Y shows the rest again."""
+        if self.is_dwg or self.is_asm or self.mode == "sketch":
+            return
+        ids = self._target_parts()
+        if ids:
+            self._isolate(ids)
+
+    def _construction_ids(self, kinds=("sketch", "plane")):
+        if self.is_dwg or self.is_asm or self.doc is None:
+            return []
+        return [f["id"] for f in self.doc.features if f.get("type") in kinds]
+
+    def toggle_sketches(self):
+        """Shift+H: hide every sketch, or show them all again if they're all hidden."""
+        fids = self._construction_ids(("sketch",))
+        if fids:
+            shown = any(f not in self.doc.hidden_features for f in fids)
+            self.doc.set_features_hidden(fids, shown)
+
+    def toggle_construction_geometry(self):
+        """Shift+P: hide all construction geometry — the default planes, your planes and sketches — or show it all
+        again if it's all hidden."""
+        if self.is_dwg or self.is_asm:
+            return
+        fids = self._construction_ids()
+        shown = self.act_planes.isChecked() or any(f not in self.doc.hidden_features for f in fids)
+        self.act_planes.setChecked(not shown)
+        if fids:
+            self.doc.set_features_hidden(fids, shown)
+        else:
+            self._toggle_planes()
+
+    def rename_selected(self):
+        """Shift+N: rename the feature selected in the list, else the selected part."""
+        if self.is_dwg or self.is_asm or self.mode != "idle":
+            return
+        fids = self.left.features.selected_feature_ids()
+        if len(fids) == 1:
+            self._rename_feature(fids[0])
+            return
+        ids = self._target_parts()
+        if len(ids) == 1:
+            self._rename_part(ids[0])
+
+    # ------------------------------------------------------------------ Select other…, selection tools
+    def _pick_label(self, pk) -> str:
+        """A readable name for anything that can be picked, for Select other…"""
+        st = self.doc.state if hasattr(self.doc, "state") else None
+        vp = self.viewport
+
+        def part_name(pid):
+            p = st.parts.get(pid) if st else None
+            return p.name if p else str(pid)
+        try:
+            if pk.kind in ("face", "edge", "vertex"):
+                shape = vp.part_shapes.get(pk.key[0])
+                where = part_name(pk.key[0])
+                if pk.kind == "face":
+                    info = K.face_info(K.faces(shape)[pk.key[1]])
+                    kind = {0: "flat", 1: f"cylinder Ø{U.num(2 * info.get('r', 0))}", 2: "cone", 3: "sphere",
+                            4: "torus"}.get(info.get("type"), "curved")
+                    n = info.get("n")
+                    if n is not None:                    # which way a flat face looks, to tell them apart
+                        n = np.asarray(n, float)
+                        i = int(np.argmax(np.abs(n)))
+                        kind += (f", facing {'-' if n[i] < 0 else '+'}{'XYZ'[i]}" if abs(n[i]) > 0.999
+                                 else f", facing ({n[0]:.2f}, {n[1]:.2f}, {n[2]:.2f})")
+                    return f"Face — {kind} — {where}"
+                if pk.kind == "edge":
+                    info = K.edge_info(K.edges(shape)[pk.key[1]])
+                    kind = {0: f"line {U.length(info['len'])}", 1: f"circle Ø{U.num(2 * info.get('r', 0))}"}.get(
+                        info.get("type"), "curve")
+                    return f"Edge — {kind} — {where}"
+                return f"Vertex — {where}"
+            if pk.kind == "part":
+                return f"Part — {part_name(pk.key[0])}"
+            if pk.kind == "plane":
+                if pk.key[0] == "std":
+                    return f"Plane — {pk.key[1]}"
+                f = self.doc.feature(pk.key[1])
+                return f"Plane — {f['name'] if f else pk.key[1]}"
+            if pk.kind in ("region", "sketch_line", "sketch_point"):
+                f = self.doc.feature(pk.key[0])
+                what = {"region": "area", "sketch_line": "curve", "sketch_point": "point"}[pk.kind]
+                return f"{f['name'] if f else 'Sketch'} — {what}"
+        except Exception:
+            pass
+        return pk.label()
+
+    def _select_other_menu(self, x, y, parent=None):
+        """The menu of everything under (x, y); hovering an entry highlights it, choosing it adds it to the
+        selection. None if there is nothing (or only one thing) there."""
+        vp = self.viewport
+        items = vp.pick_all(x, y)
+        if not items:
+            return None
+        m = QMenu(parent or self)
+        m.setTitle("Select other…")
+        acts = {}
+        for pk in items:
+            a = m.addAction(self._pick_label(pk))
+            acts[id(a)] = pk
+
+        def hovered(a):
+            pk = acts.get(id(a))
+            if pk is not None and pk != vp.hover:
+                vp.hover = pk
+                vp.hover_xray = True
+                vp.hoverChanged.emit(pk)
+                vp.update()
+
+        def chosen(a):
+            pk = acts.get(id(a))
+            if pk is not None and pk not in vp.selection:
+                vp.set_selection(list(vp.selection) + [pk])
+        m.hovered.connect(hovered)
+        m.triggered.connect(chosen)
+        m.aboutToHide.connect(vp.set_hover_none)
+        return m
+
+    def select_other_at_cursor(self):
+        """` (back quote), as Onshape: list everything selectable under the mouse."""
+        if self.mode == "sketch" or self.is_dwg:
+            return
+        xy = getattr(self.viewport, "_cursor_xy", None)
+        if xy is None:
+            return
+        m = self._select_other_menu(*xy)
+        if m is not None:
+            m.exec(self.viewport.mapToGlobal(QPoint(int(xy[0]), int(xy[1]))))
+
+    def _add_selection_tools(self, m, pk):
+        """Right-click selection tools on a face or edge, as in Onshape: tangent-connected, loops, same size."""
+        from .. import selection_tools as ST
+        shape = self.viewport.part_shapes.get(pk.key[0])
+        if shape is None:
+            return
+        pid, i = pk.key
+
+        def add(kind, ids):
+            vp = self.viewport
+            sel = list(vp.selection)
+            for k in ids:
+                q = Pick(kind, (pid, int(k)))
+                if q not in sel:
+                    sel.append(q)
+            vp.set_selection(sel)
+        if pk.kind == "face":
+            m.addAction("Select tangent-connected faces", lambda: add("face", ST.tangent_faces(shape, i)))
+            m.addAction("Select adjacent faces", lambda: add("face", ST.connected_faces(shape, i)))
+            m.addAction("Select faces of the same size", lambda: add("face", ST.same_faces(shape, i)))
+            m.addAction("Select edges of this face", lambda: add("edge", ST.face_edges(shape, i)))
+        elif pk.kind == "edge":
+            m.addAction("Select tangent-connected edges", lambda: add("edge", ST.tangent_edges(shape, i)))
+            m.addAction("Select loop", lambda: add("edge", ST.edge_loop(shape, i)))
+            m.addAction("Select edges of the same size", lambda: add("edge", ST.same_edges(shape, i)))
 
     # ================================================================== doc → view
     def _on_doc_changed(self):
@@ -2842,6 +3060,13 @@ class MainWindow(QMainWindow):
         if self.mode != "idle":
             return
         if pk is not None:
+            lp = self.viewport.mapFromGlobal(gpos)
+            other = self._select_other_menu(lp.x(), lp.y(), m)
+            if other is not None:
+                m.addMenu(other)
+            if pk.kind in ("face", "edge") and pk.key[0] in self.doc.state.parts:
+                self._add_selection_tools(m, pk)
+            m.addSeparator()
             if pk.kind in ("plane", "face"):
                 item = pick_to_item(self.viewport, pk, {"plane"})
                 if item:
@@ -4015,19 +4240,33 @@ class MainWindow(QMainWindow):
 
     def show_shortcuts(self):
         QMessageBox.information(self, "Keyboard shortcuts", (
-            "<b>Navigation</b><br>Right-drag: rotate · Middle-drag or Ctrl+right-drag: pan · Wheel: zoom<br>"
-            "Arrow keys: turn the view 15° per tap · F: zoom to fit · "
-            "Shift+1…7: Front, Back, Left, Right, Top, Bottom, Isometric · N: normal to sketch<br>"
-            "Alt+Left: previous view · Shift+Z: zoom to window (drag a box; Esc cancels)<br><br>"
+            "<b>Navigation</b><br>Right-drag: rotate · Middle-drag or Ctrl+right-drag: pan · Wheel: zoom · "
+            "double-click the wheel: zoom to fit<br>"
+            "Arrow keys: turn 15° · Shift+arrow: 90° · Ctrl+arrow: 5° · Ctrl+Shift+arrow: pan<br>"
+            "F: zoom to fit · Z: zoom out · W or Shift+Z: zoom to window · Alt+Left: previous view<br>"
+            "Shift+1…7: Front, Back, Left, Right, Top, Bottom, Isometric · N: normal to · Shift+V: named views<br><br>"
+            "<b>Showing</b><br>P: planes on / off · Shift+P: hide (or show) all planes and sketches · "
+            "Shift+H: hide (or show) sketches<br>"
+            "Y: hide the selected part (or the one under the mouse) · Shift+Y: show hidden parts · "
+            "Shift+I: isolate<br>"
+            "Shift+X: section view · Shift+R: view in high quality<br><br>"
             "<b>Selecting</b><br>Space: deselect all · Drag a box: left-to-right selects what is fully inside, "
-            "right-to-left also what it touches · Shift / Ctrl: add<br><br>"
-            "<b>Features</b><br>Alt+C or Ctrl+Space: search tools · "
-            "S: your tools menu · Shift+S: sketch · Shift+E: extrude · Shift+W: revolve · Shift+F: fillet<br>"
-            "Ctrl+Z / Ctrl+Y: undo / redo · Enter: accept dialog · Esc: cancel<br><br>"
-            "<b>Sketch</b><br>L line · R rectangle · C circle · A arc · P point · D dimension · Q construction<br>"
-            "I coincident · H horizontal · V vertical · E equal · T tangent · U use edges · Del delete · Esc stop tool<br><br>"
-            "<b>Assembly</b><br>I insert · Shift+F fastened · Shift+R revolute · Shift+L slider · "
-            "left-drag a part to move it · Del delete"))
+            "right-to-left also what it touches · Shift / Ctrl: add<br>"
+            "Tab / Shift+Tab: step through everything under the mouse, then click to select the one shown · "
+            "` (back quote) or right-click → Select other…: list it all<br>"
+            "Right-click a face or edge: tangent-connected, loop, same size …<br><br>"
+            "<b>Features</b><br>Alt+C or Ctrl+Space: search tools · S: your tools menu · "
+            "Shift+S: sketch · Shift+E: extrude · Shift+W: revolve · Shift+F: fillet<br>"
+            "Enter: accept · Shift+Enter: accept and start another of the same · Esc: cancel · "
+            "Shift+N: rename · Ctrl+Z / Ctrl+Y: undo / redo · ?: this list<br><br>"
+            "<b>Sketch</b><br>L line · R rectangle · C circle · A arc · Shift+A tangent arc · P or Shift+S point · "
+            "D dimension · Q construction · U use · O offset · M trim · X extend · Shift+X hexagon · "
+            "Shift+F fillet<br>"
+            "I coincident · H horizontal · V vertical · E equal · T tangent · B parallel · Shift+L perpendicular · "
+            "Shift+O concentric · Shift+M midpoint · Shift+Q symmetric · Shift+J fix · Del delete · Esc stop tool<br><br>"
+            "<b>Assembly</b><br>I insert · M or Shift+F fastened · Shift+R revolute · Shift+L slider · "
+            "left-drag a part to move it · Del delete<br><br>"
+            "<b>Drawing</b><br>P projected view · N note"))
 
     def closeEvent(self, e):
         self._leave_modes()

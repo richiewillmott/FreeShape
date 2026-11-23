@@ -8,6 +8,15 @@ More sketch tools, and the sketch toolbar grouped more like other CAD programs.
   target by themselves, for the second end as well. **Click the arrow** in the view to flip the direction
   (Revolve now has an arrow too). In the dialogs, *Opposite direction* tick boxes are now a clear **arrow button**
   at the right of the end type or distance.
+- **Select other and Tab**: Tab steps through everything under the mouse (hidden faces too, drawn through the
+  model), a click selects the one shown; `` ` `` or right-click → *Select other…* lists it all. Right-click
+  **selection tools**: tangent-connected faces / edges, adjacent faces, edge loop, edges of a face, faces or edges
+  of the same size.
+- **Many more Onshape keys**: P planes, Shift+P construction, Shift+H sketches, Y / Shift+Y hide / show parts,
+  Shift+I isolate, Shift+X section, Shift+V named views, Shift+R high quality, Z zoom out, W zoom window,
+  Shift / Ctrl+arrow 90° / 5°, Shift+N rename, Shift+Enter, ? for the list; in sketches M trim, X extend, B parallel,
+  Shift+L / O / M / Q / J / A / F / S for perpendicular, concentric, midpoint, symmetric, fix, tangent arc, fillet,
+  point. The hexagon moved from X to Shift+X.
 - **Planes come last when picking**, as in Onshape: a face (or sketch, edge …) under the mouse now wins over a
   plane running through it, so a part centred on the origin no longer gives you Front or Right; sketch lines and
   points hidden behind a face can't be picked through it either.

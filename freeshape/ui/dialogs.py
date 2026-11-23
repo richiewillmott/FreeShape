@@ -1570,7 +1570,13 @@ class FeatureDialog(_ResizableFrame):
 
     def keyPressEvent(self, e):
         if e.key() in (Qt.Key_Return, Qt.Key_Enter):
-            self.accept()
+            if e.modifiers() & Qt.ShiftModifier and self.is_new:
+                # Shift+Enter, as Onshape: keep this one and start another of the same kind straight away
+                main, ftype = self.main, self.ftype
+                self.accept()
+                QTimer.singleShot(0, lambda: main.start_feature(ftype))
+            else:
+                self.accept()
         elif e.key() == Qt.Key_Escape:
             self.reject()
         else:

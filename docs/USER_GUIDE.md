@@ -23,6 +23,21 @@ choose what can be picked (vertices and sketch points, edges, faces, solids, ske
 on by default). `Ctrl+Space` opens **Search tools**. With one or two things selected, the bottom-right shows the
 main measurement (area, length, diameter or the minimum distance between them) and **(x)** to make it a variable.
 
+**Select other / Tab** — press `Tab` with the mouse over the model to step through everything under it (the face
+you see, the one behind it, edges, sketch geometry, planes …): each lights up in turn, drawn through the model if
+it's hidden, and a click selects the one shown; `Shift+Tab` goes back, moving the mouse starts over. Press `` ` ``
+(back quote) or right-click → **Select other…** for the same as a list: hover an entry to see it, click to add it to
+the selection. Right-click a face for **tangent-connected faces**, **adjacent faces**, **faces of the same size**
+(every hole of one size, say) and **edges of this face**; right-click an edge for **tangent-connected edges**, its
+**loop** and **edges of the same size**. They add to what's selected.
+
+**Keys** — as Onshape's: `P` planes on / off, `Shift+P` hide (or show) all planes and sketches, `Shift+H` sketches,
+`Y` hide the selected part (or the one under the mouse), `Shift+Y` show hidden parts, `Shift+I` isolate, `Shift+X`
+section view, `Shift+V` named views, `Shift+R` high quality, `Z` zoom out, `W` zoom to window, `Shift+arrow` turn
+90°, `Ctrl+arrow` 5°, `Shift+N` rename, `Shift+Enter` accept and start another of the same, `?` the full list. In a
+sketch the letters pick sketch tools (as in Onshape: `M` trim, `X` extend, `B` parallel, `Shift+L` perpendicular …;
+the hexagon moved to `Shift+X`).
+
 **Planes** come last when you click, as in Onshape: you get a plane only where nothing else is under the mouse, so a
 face, sketch or edge in front of (or with a plane running through it) is what gets picked. Click a plane where it
 sticks out past the parts, or in the feature list. What's hidden behind a face (sketch lines, edges) can't be picked
@@ -45,23 +60,23 @@ The view turns to face the sketch plane (unless *Orient normal to sketch on edit
 | Midpoint line | | click the middle, then one end — the other end mirrors it (a line centred on the origin, say) |
 | Corner / centre rectangle | `R` | adds horizontal/vertical constraints automatically |
 | Aligned rectangle | | two corners for one side at any angle, then click to set the width; the corners stay square |
-| Hexagon | `X` | centre, then a corner — a regular hexagon (corners on a construction circle, equal sides). Snaps flat-top or point-top; size it across flats |
+| Hexagon | `Shift+X` | centre, then a corner — a regular hexagon (corners on a construction circle, equal sides). Snaps flat-top or point-top; size it across flats |
 | Inscribed / circumscribed polygon | | centre, then a corner (inscribed) or the middle of a side (circumscribed); type the number of sides. Inscribed: the corners sit on a construction circle. Circumscribed: the sides touch it, so its diameter is the size across flats — handy for nut pockets |
 | Circle | `C` | centre, then radius |
 | 3-point arc / centre-point arc | `A` | |
-| Tangent arc | | click the end of a line or arc, then where it should finish — it carries on smoothly and stays tangent |
+| Tangent arc | `Shift+A` | click the end of a line or arc, then where it should finish — it carries on smoothly and stays tangent |
 | Elliptical arc | | centre, end of the long axis, width, then where the arc starts and ends (anticlockwise) |
 | Conic | | start, end, then the shoulder point the curve heads towards; type its rho (below 0.5 an ellipse, 0.5 a parabola, above a hyperbola). Double-click it later to change rho |
 | Point | `P` | used for hole centres |
 | Construction toggle | `Q` | toggles selected geometry, or the mode for new geometry |
 | Dimension | `D` | click a line (length), circle (Ø), arc (R), two points (distance — horizontal/vertical depending on where you place it), point + line, or two lines (distance or angle). You can also click a **part's edge or corner** to dimension to it, like Onshape. Type the value; expressions and units work: `25/2`, `1 in`, `10 cm` |
-| Constraints | `I` `H` `V` `E` `T` | coincident, horizontal, vertical, equal, tangent; plus parallel, perpendicular, midpoint, concentric, fix on the toolbar. Select geometry then click the constraint, or click the constraint then the geometry |
+| Constraints | `I` `H` `V` `E` `T` `B` … | coincident, horizontal, vertical, equal, tangent, parallel (`B`), perpendicular (`Shift+L`), midpoint (`Shift+M`), concentric (`Shift+O`), symmetric (`Shift+Q`), fix (`Shift+J`). Select geometry then click the constraint, or click the constraint then the geometry |
 | Use (project) | `U` | project part edges into the sketch (edges seen side-on, like a cylinder's rim, become straight lines) |
 | Intersect | | click part faces that cut through the sketch plane: where they cross it comes in as fixed construction geometry |
-| Trim | | removes a line segment up to its intersections |
+| Trim | `M` | removes a line segment up to its intersections |
 | Split | | click a line or arc where it should be cut in two; the halves stay in line and keep its constraints |
-| Extend | | click near the end of a line or arc to lengthen it to the next curve; the new end stays on that curve |
-| Sketch fillet | | click a corner where two lines meet, type the radius — the shape keeps its dimensions |
+| Extend | `X` | click near the end of a line or arc to lengthen it to the next curve; the new end stays on that curve |
+| Sketch fillet | `Shift+F` | click a corner where two lines meet, type the radius — the shape keeps its dimensions |
 | Sketch chamfer | | click a corner where two lines meet, type the distance back along each line |
 | Offset | `O` | click a line, arc or circle to offset its whole connected outline; type the distance (negative = inside) |
 | Slot | | click the two end centres, type the width |
