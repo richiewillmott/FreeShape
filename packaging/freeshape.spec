@@ -49,6 +49,8 @@ except Exception:
     pass
 
 hidden = collect_submodules("freeshape")
+# DXF import into sketches reads files (explodes blocks and polylines): all of ezdxf's core, not its add-ons
+hidden += collect_submodules("ezdxf", filter=lambda name: not name.startswith("ezdxf.addons"))
 if sys.platform.startswith("linux"):
     hidden += ["OpenGL.platform.egl", "OpenGL.raw.GLX._types"]
 if sys.platform == "darwin":

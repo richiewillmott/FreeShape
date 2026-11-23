@@ -19,7 +19,7 @@ from .icons import CONSTRAINT_GLYPHS
 from .numparse import parse_number, fmt, has_vars
 from .. import sketch_ops as OPS
 
-DRAW_TOOLS = {"line", "rect", "center_rect", "hexagon", "circle", "arc3", "arc_center", "point", "spline", "ellipse", "text"}
+DRAW_TOOLS = {"line", "line_mid", "rect", "center_rect", "rect3", "hexagon", "polygon", "polygon_out", "circle", "arc3", "arc_center", "arc_tan", "conic", "point", "spline", "spline_cp", "ellipse", "ellipse_arc", "text"}
 
 # constraint tool -> (description, list of acceptable selection signatures)
 CONSTRAINT_TOOLS = {
@@ -39,10 +39,15 @@ CONSTRAINT_TOOLS = {
 TOOL_HINTS = {
     "select": "Click to select; drag points or curves to move them. Double-click a dimension to edit it.",
     "line": "Click to start a line, click again to finish it. Lines chain — press Esc to stop.",
+    "line_mid": "Click the line's midpoint, then one end; the other end mirrors it.",
     "rect": "Click two opposite corners.",
     "center_rect": "Click the centre, then a corner.",
+    "rect3": "Click two corners for the first side (at any angle), then click to set the width.",
     "hexagon": "Click the centre, then a corner. It snaps level near flat-top or point-top; type the size "
                "across flats.",
+    "polygon": "Click the centre, then a corner; type the number of sides. Corners sit on a construction circle.",
+    "polygon_out": "Click the centre, then the middle of a side; type the number of sides. The sides touch a "
+                   "construction circle (its diameter is the size across flats).",
     "circle": "Click the centre, then click to set the radius.",
     "arc3": "Click the start point, the end point, then a point on the arc.",
     "arc_center": "Click the centre, the start point, then sweep to the end point.",
@@ -50,18 +55,33 @@ TOOL_HINTS = {
     "spline": "Click points for the curve to pass through. Double-click or press Enter to finish; click the first "
               "point again to close it into a loop.",
     "ellipse": "Click the centre, then the end of the long axis, then click to set the width.",
+    "ellipse_arc": "Click the centre, the end of the long axis and the width, then where the arc starts and ends "
+                   "(it runs anticlockwise).",
+    "arc_tan": "Click the end of a line or arc, then where the arc should finish; it carries on smoothly.",
+    "conic": "Click the start, the end, then the shoulder point the curve heads towards; type its rho (0–1).",
+    "spline_cp": "Click control points: the curve starts and ends on the first and last and is pulled towards the "
+                 "others. Double-click or press Enter to finish; click the first point again to close it.",
     "text": "Click where the text should start (its bottom-left), then type the text.",
     "dimension": "Click a line, circle or two items, then click to place the dimension.",
     "use": "Click part edges to project them into the sketch.",
     "trim": "Click a segment of a line to remove it up to the nearest intersections.",
     "sk_fillet": "Click a corner where two lines meet, then type the radius.",
+    "sk_chamfer": "Click a corner where two lines meet, then type the distance back along each line.",
+    "sk_split": "Click a line or arc where it should be cut in two.",
+    "sk_extend": "Click near the end of a line or arc to lengthen it to the next curve.",
+    "sk_transform": "Select geometry, then click the point to turn it about; type the move along X and Y, then "
+                    "the angle.",
+    "sk_copy": "Select geometry, then click the point to turn the copy about; type the move along X and Y, then "
+               "the angle.",
+    "use_intersect": "Click part faces that cut through the sketch plane: where they cross it comes into the "
+                     "sketch as fixed construction geometry.",
     "offset": "Click a line, arc or circle to offset its whole chain; type the distance (negative = other side).",
     "slot": "Click the two end centres of the slot, then type its width.",
     "sk_mirror": "Select geometry, then click the line to mirror it about.",
     "sk_lpattern": "Select geometry, then click a line for the direction; type the count and spacing.",
     "sk_cpattern": "Select geometry, then click the centre point; type the count and angle.",
 }
-PICK_FIRST_TOOLS = {"sk_mirror", "sk_lpattern", "sk_cpattern"}   # keep the selection when chosen
+PICK_FIRST_TOOLS = {"sk_mirror", "sk_lpattern", "sk_cpattern", "sk_transform", "sk_copy"}   # keep the selection when chosen
 
 
 def _hexagon_angle(d, snap_deg=4.0):
@@ -105,6 +125,7 @@ class Sketcher:
         self.variables = {}          # #name -> value, from the features before this sketch
         self.undo_stack: list = []
         self.redo_stack: list = []
+        self.poly_sides = 6         # the polygon tools' number of sides (the last one typed)
         self._reset_tool_state()
         self._dim_rects = {}
         self._glyph_rects = []
@@ -642,9 +663,39 @@ class Sketcher:
             if h:
                 self._trim(h[1], self.uv(vp, x, y))
             return True
+        if t == "use_intersect":
+            pk = vp.pick(x, y, kinds={"face"})
+            if pk:
+                self._intersect_face(vp, pk)
+            return True
+        if t == "sk_extend":
+            h = self.hit(vp, x, y, kinds=("entity",))
+            if h:
+                self.push_undo()
+                try:
+                    OPS.extend(self.sk, h[1], self.uv(vp, x, y))
+                except ValueError as err:
+                    self.undo_stack.pop()
+                    self._flash(vp, str(err))
+                    return True
+                self.changed(True)
+            return True
+        if t == "sk_split":
+            h = self.hit(vp, x, y, kinds=("entity",))
+            if h:
+                self.push_undo()
+                try:
+                    OPS.split(self.sk, h[1], self.uv(vp, x, y))
+                except ValueError as err:
+                    self.undo_stack.pop()
+                    self._flash(vp, str(err))
+                    return True
+                self.changed(True)
+            return True
         if t in DRAW_TOOLS:
             return self._draw_click(vp, x, y)
-        if t in ("sk_fillet", "offset", "slot", "sk_mirror", "sk_lpattern", "sk_cpattern"):
+        if t in ("sk_fillet", "sk_chamfer", "offset", "slot", "sk_mirror", "sk_lpattern", "sk_cpattern",
+                 "sk_transform", "sk_copy"):
             return self._ops_click(vp, x, y, e)
         return False
 
@@ -754,7 +805,8 @@ class Sketcher:
             # click-drag-release drawing
             self._draw_click(vp, x, y)
 
-    PASSIVE_TOOLS = ("select", "sk_fillet", "offset", "sk_mirror", "sk_lpattern", "sk_cpattern")
+    PASSIVE_TOOLS = ("select", "sk_fillet", "sk_chamfer", "offset", "sk_split", "sk_extend", "sk_mirror",
+                     "sk_lpattern", "sk_cpattern", "sk_transform", "sk_copy")
 
     def mouse_move(self, vp, x, y, e):
         """Track the mouse. Returns False when nothing on screen changed (just moving over empty space or
@@ -771,6 +823,7 @@ class Sketcher:
             anchor = self.sk.P(self.chain_anchor) if isinstance(self.chain_anchor, str) else self.chain_anchor
         if self.tool == "slot" and self.temp:
             anchor = self.temp[0][0]
+        anchor = self._draw_anchor(anchor)
         uv, snap = (self.snap(vp, x, y, anchor) if self.tool in DRAW_TOOLS or self.tool in ("dimension", "slot")
                     else (self.uv(vp, x, y), None))
         self.cursor_uv = uv
@@ -783,12 +836,16 @@ class Sketcher:
                 self.arc_sweep += da
             self._last_ang = ang
         if self.tool == "select" or self.tool in CONSTRAINT_TOOLS or self.tool in (
-                "sk_fillet", "offset", "sk_mirror", "sk_lpattern", "sk_cpattern"):
+                "sk_fillet", "sk_chamfer", "offset", "sk_split", "sk_extend", "sk_mirror", "sk_lpattern",
+                "sk_cpattern", "sk_transform", "sk_copy"):
             kinds = ("point", "entity", "constraint") if self.tool == "select" else (
-                ("point",) if self.tool == "sk_fillet" else ("entity",) if self.tool == "offset" else ("point", "entity"))
+                ("point",) if self.tool in ("sk_fillet", "sk_chamfer") else
+                ("entity",) if self.tool in ("offset", "sk_split", "sk_extend") else ("point", "entity"))
             self.hover = self._id_of(self.hit(vp, x, y, kinds))
         else:
             self.hover = None
+        if self.tool == "use_intersect":
+            vp.hover = vp.pick(x, y, kinds={"face"})
         if self.tool in ("dimension", "use"):
             # show which part edge a click would pick up
             pk = None
@@ -800,12 +857,22 @@ class Sketcher:
             self._dim_over_item = sh is not None or pk is not None
 
     def double_click(self, vp, x, y, e):
-        if self.tool == "spline" and self.temp:
+        if self.tool in ("spline", "spline_cp") and self.temp:
             self._finish_spline(vp)
             return
         h = self.hit(vp, x, y, kinds=("entity",)) if self.tool == "select" else None
         if h and self.sk.entities.get(h[1], {}).get("type") == "text":
             self.edit_text(vp, h[1])
+            return
+        if h and "rho" in self.sk.entities.get(h[1], {}):
+            eid = h[1]
+
+            def set_rho(rho, eid=eid):
+                w = OPS.conic_weight(rho)
+                self.sk.entities[eid]["weights"] = [1.0, w, 1.0]
+                self.sk.entities[eid]["rho"] = float(rho)
+            self._prompt(vp, self.uv(vp, x, y), "Conic rho (a number from 0 to 1)", self.sk.entities[eid]["rho"],
+                         set_rho, minimum=1e-6)
             return
         h = self.hit(vp, x, y, kinds=("constraint",))
         if h:
@@ -820,7 +887,7 @@ class Sketcher:
     def escape(self):
         had_editor = self._editor is not None
         self._end_editor()
-        if self.tool == "spline" and len(self.temp) >= 2:
+        if self.tool in ("spline", "spline_cp") and len(self.temp) >= 2:
             self._finish_spline()             # Esc keeps the curve drawn so far, like the line chain
             return
         if self.temp or self.chain_anchor is not None or self.dim_first or self.cons_picks:
@@ -838,7 +905,7 @@ class Sketcher:
         if k == Qt.Key_Escape:
             self.escape()
             return True
-        if k in (Qt.Key_Return, Qt.Key_Enter) and self.tool == "spline" and self.temp:
+        if k in (Qt.Key_Return, Qt.Key_Enter) and self.tool in ("spline", "spline_cp") and self.temp:
             self._finish_spline(vp)
             return True
         if k in (Qt.Key_Delete, Qt.Key_Backspace):
@@ -1029,11 +1096,21 @@ class Sketcher:
         return frozenset(refs[:2])
 
     # ------------------------------------------------------------------ drawing tools
+    def _draw_anchor(self, anchor):
+        """The point a straight edge is being drawn from, for horizontal / vertical inference: the midpoint of
+        a midpoint line, the first corner of a 3-point rectangle."""
+        if self.tool == "line_mid" and len(self.temp) == 1:
+            return self.temp[0][0]
+        if self.tool == "rect3" and len(self.temp) == 1:
+            return self.temp[0][0]
+        return anchor
+
     def _draw_click(self, vp, x, y):
         t = self.tool
         anchor = None
         if t == "line" and self.chain_anchor is not None:
             anchor = self.sk.P(self.chain_anchor)
+        anchor = self._draw_anchor(anchor)
         uv, snap = self.snap(vp, x, y, anchor)
         if uv is None:
             return True
@@ -1160,6 +1237,175 @@ class Sketcher:
             self._offer_dims(vp, [("distance", [pts[0], sides[3]], flats,
                                    np.asarray(c_uv, float) + out * (r + 14 * vp.cam.scale))])
             return True
+        if t == "line_mid":
+            if not self.temp:
+                self.temp = [(uv, snap)]
+                self._first_cons = icons
+                return True
+            m_uv, ms = self.temp[0]
+            if np.linalg.norm(uv - m_uv) < 1e-9:
+                return True
+            self.temp = []
+            self.push_undo()
+            mid = self._point_at(m_uv, ms, self._first_cons)
+            b = self._point_at(uv, snap, icons)
+            a = sk.add_point(*(2 * np.asarray(m_uv, float) - uv))
+            lid = sk.add_line(a, b, cons)
+            sk.add_constraint("midpoint", mid, lid)
+            if self.infer == "H":
+                sk.add_constraint("horizontal", lid)
+            elif self.infer == "V":
+                sk.add_constraint("vertical", lid)
+            self.changed(True)
+            pa, pb = sk.P(a), sk.P(b)
+            d = pb - pa
+            n = np.array([-d[1], d[0]]) / max(np.linalg.norm(d), 1e-12)
+            self._offer_dims(vp, [("distance", [lid], float(np.linalg.norm(d)), (pa + pb) / 2 + n * 14 * vp.cam.scale)])
+            return True
+        if t == "rect3":
+            if len(self.temp) < 2:
+                if self.temp and np.linalg.norm(uv - self.temp[0][0]) < 1e-9:
+                    return True
+                if not self.temp:
+                    self._first_cons = icons
+                else:
+                    self._rect3_level = self.infer       # the first side snapped horizontal / vertical
+                self.temp.append((uv, snap))
+                return True
+            (u0, s0), (u1, s1) = self.temp
+            side = u1 - u0
+            L = float(np.linalg.norm(side))
+            nrm = np.array([-side[1], side[0]]) / L
+            w = float((uv - u1) @ nrm)
+            if abs(w) < 1e-9:
+                return True
+            self.temp = []
+            self.push_undo()
+            a = self._point_at(u0, s0, self._first_cons)
+            b = self._point_at(u1, s1)
+            c = sk.add_point(*(u1 + nrm * w))
+            d = sk.add_point(*(u0 + nrm * w))
+            l1, l2, l3, l4 = (sk.add_line(a, b, cons), sk.add_line(b, c, cons), sk.add_line(c, d, cons),
+                              sk.add_line(d, a, cons))
+            for p_, q_ in ((l1, l2), (l2, l3), (l3, l4)):     # three right angles make the fourth
+                sk.add_constraint("perpendicular", p_, q_)
+            level = getattr(self, "_rect3_level", None)
+            if level == "H":
+                sk.add_constraint("horizontal", l1)
+            elif level == "V":
+                sk.add_constraint("vertical", l1)
+            self.changed(True)
+            gap = 14 * vp.cam.scale
+            out = -nrm if w > 0 else nrm
+            self._offer_dims(vp, [
+                ("distance", [l1], L, (u0 + u1) / 2 + out * gap),
+                ("distance", [l2], abs(w), u1 + nrm * w / 2 + side / L * gap * 2),
+            ])
+            return True
+        if t == "arc_tan":
+            if not self.temp:
+                if not (snap and snap[0] == "point" and OPS.end_direction(sk, snap[1])):
+                    self._flash(vp, "Click the end of a line or arc to carry on from")
+                    return True
+                self.temp = [(uv, snap)]
+                return True
+            start = self.temp[0][1][1]
+            if np.linalg.norm(uv - sk.P(start)) < 1e-9:
+                return True
+            self.temp = []
+            self.push_undo()
+            end_pid = self._point_at(uv, snap, icons)
+            try:
+                aid = OPS.tangent_arc(sk, start, uv, end_pid, cons)
+            except ValueError as err:
+                self._rollback(vp, str(err))
+                return True
+            self.changed(True)
+            self._offer_arc(vp, aid)
+            return True
+        if t == "conic":
+            self.temp.append((uv, snap))
+            if len(self.temp) == 1:
+                self._first_cons = icons
+            if len(self.temp) < 3:
+                return True
+            (au, as_), (bu, bs), (su, _ss) = self.temp
+            self.temp = []
+            if np.linalg.norm(bu - au) < 1e-9:
+                return True
+            first_cons = self._first_cons
+            made = {}
+
+            def make(rho, au=au, as_=as_, bu=bu, bs=bs, su=su):
+                pa = self._point_at(au, as_, first_cons)
+                pb = self._point_at(bu, bs)
+                made["id"] = OPS.conic(self.sk, au, bu, su, rho, cons, pa, pb)
+            self._prompt(vp, su, "Conic rho (a number from 0 to 1)", 0.5, make, minimum=1e-6)
+            return True
+        if t == "ellipse_arc":
+            if len(self.temp) == 1 and np.linalg.norm(uv - self.temp[0][0]) < 1e-9:
+                return True
+            self.temp.append((uv, snap))
+            if len(self.temp) == 1:
+                self._first_cons = icons
+            if len(self.temp) < 5:
+                return True
+            (cu, cs), (au, as_), (wu, _ws), (s1u, s1), (s2u, s2) = self.temp
+            self.temp = []
+            ax = au - cu
+            A = float(np.linalg.norm(ax))
+            nrm = np.array([-ax[1], ax[0]]) / max(A, 1e-12)
+            r = abs(float((wu - cu) @ nrm))
+            if A < 1e-9 or r < 1e-9:
+                return True
+            self.push_undo()
+
+            def on_ellipse(q):
+                tq = Sketch.ellipse_param(cu, ax, r, q)
+                return cu + math.cos(tq) * ax + math.sin(tq) * r * nrm
+            q1, q2 = on_ellipse(s1u), on_ellipse(s2u)
+            if np.linalg.norm(q1 - q2) < 1e-9:
+                self.undo_stack.pop()
+                return True
+            c = self._point_at(cu, cs, self._first_cons)
+            a = self._point_at(au, as_)
+            p1 = self._point_at(q1, s1 if s1 and s1[0] == "point" else None)
+            p2 = self._point_at(q2, s2 if s2 and s2[0] == "point" else None)
+            eid = sk.add_ellipse_arc(c, a, r, p1, p2, cons)
+            sk.add_line(c, a, True)                 # the long axis, as construction (as the Ellipse tool)
+            self.changed(True)
+            self._offer_dims(vp, [("radius", [eid], r, sk.P(c) + nrm * r * 1.15)])
+            return True
+        if t in ("polygon", "polygon_out"):
+            if not self.temp:
+                self.temp = [(uv, snap)]
+                self._first_cons = icons
+                return True
+            c_uv, cs = self.temp[0]
+            c_uv = np.asarray(c_uv, float)
+            size = float(np.linalg.norm(uv - c_uv))
+            if size < 1e-6:
+                return True
+            self.temp = []
+            inscribed = t == "polygon"
+            first_cons = self._first_cons
+            made = {}
+
+            def make(n, c_uv=c_uv, cs=cs, d=uv - c_uv):
+                if n > 64:
+                    raise ValueError("At most 64 sides")
+                self.poly_sides = int(n)
+                ang, level = OPS.polygon_angle(d, n, inscribed)
+                ctr = self._point_at(c_uv, cs, first_cons)
+                made.update(OPS.polygon(self.sk, c_uv, ang, size, n, inscribed, cons, ctr, level))
+
+            def offer():
+                circ = made.get("circle")
+                if circ in self.sk.entities:
+                    r = self.sk.radius(circ)
+                    self._offer_dims(vp, [("diameter", [circ], 2 * r, c_uv + np.array([r, r]) * 0.9)])
+            self._prompt(vp, uv, "Number of sides", self.poly_sides, make, minimum=3, integer=True, done=offer)
+            return True
         if t == "circle":
             if not self.temp:
                 self.temp = [(uv, snap)]
@@ -1203,7 +1449,7 @@ class Sketcher:
                         sk.add_point_entity(m)
             self.changed(True)           # no radius prompt: the arc stays defined by its three points
             return True
-        if t == "spline":
+        if t in ("spline", "spline_cp"):
             if self.temp:
                 first = self.scr(vp, self.temp[0][0])
                 if len(self.temp) >= 3 and math.hypot(first[0] - x, first[1] - y) < 9:
@@ -1275,6 +1521,31 @@ class Sketcher:
             return True
         return True
 
+    def _rollback(self, vp, msg):
+        """Undo a change that turned out not to work, and say why."""
+        if self.undo_stack:
+            self._replace(Sketch.from_dict(self.undo_stack.pop()))
+        self._flash(vp, msg)
+
+    def _tangent_preview(self, cur):
+        """Points along the tangent arc from the clicked start to `cur`, or None."""
+        start = self.temp[0][1][1] if self.temp and self.temp[0][1] else None
+        if start not in self.sk.points:
+            return None
+        found = OPS.end_direction(self.sk, start)
+        if found is None:
+            return None
+        T = found[1]
+        P = self.sk.P(start)
+        v = np.asarray(cur, float) - P
+        nrm = np.array([-T[1], T[0]])
+        k = float(v @ nrm)
+        if abs(k) < 1e-9:
+            return None
+        r = float(v @ v) / (2 * abs(k))
+        C = P + (1 if k > 0 else -1) * nrm * r
+        return _arc_pts(C, P, cur) if k > 0 else _arc_pts(C, cur, P)[::-1]
+
     def _finish_spline(self, vp=None, closed=False):
         """Make the spline from the points clicked so far (at least two; three for a loop)."""
         pts = self.temp
@@ -1290,7 +1561,9 @@ class Sketcher:
         if len(ids) < (3 if closed else 2):
             self.undo()
             return False
-        self.sk.add_spline(ids, closed, self.construction)
+        eid = self.sk.add_spline(ids, closed, self.construction)
+        if self.tool == "spline_cp":
+            self.sk.entities[eid]["poles"] = True
         self.changed(True)
         return True
 
@@ -1472,7 +1745,7 @@ class Sketcher:
                 ctype, refs, val = "diameter", [a], 2 * sk.radius(a)
             elif ta == "arc":
                 ctype, refs, val = "radius", [a], sk.radius(a)
-            elif ta == "ellipse":           # half its width; the length is set with its dashed axis line
+            elif ta in ("ellipse", "ellipse_arc"):           # half its width; the length is set with its dashed axis line
                 ctype, refs, val = "radius", [a], sk.radius(a)
             else:
                 return None
@@ -1480,7 +1753,7 @@ class Sketcher:
             def ptof(i, t):
                 if t == "point":
                     return self._as_point(i)
-                if t in ("circle", "arc", "ellipse"):
+                if t in ("circle", "arc", "ellipse", "ellipse_arc"):
                     return sk.entities[i]["c"]
                 if t == "text":
                     return sk.entities[i]["p"]          # where the text starts
@@ -1551,6 +1824,22 @@ class Sketcher:
             r0 = min(self._nice(vp, 30), short * 0.3)
             self._prompt(vp, sk.P(pid), "Fillet radius", r0, lambda r: OPS.fillet_corner(self.sk, pid, r),
                          expr_target=lambda: self._last_radius_constraint())
+            return True
+        if t == "sk_chamfer":
+            h = self.hit(vp, x, y, kinds=("point",))
+            if not h:
+                return True
+            pid = h[1]
+            lines = [k for k in OPS._users(sk, pid) if sk.entities[k]["type"] == "line"]
+            short = min((np.linalg.norm(sk.P(sk.entities[k]["p1"]) - sk.P(sk.entities[k]["p2"])) for k in lines),
+                        default=10.0)
+            d0 = min(self._nice(vp, 30), short * 0.3)
+
+            def last_distance():
+                ds = [c for c in self.sk.constraints if c["type"] == "distance"]
+                return ds[-1] if ds else None
+            self._prompt(vp, sk.P(pid), "Chamfer distance", d0, lambda d: OPS.chamfer_corner(self.sk, pid, d),
+                         expr_target=last_distance)
             return True
         if t == "offset":
             h = self.hit(vp, x, y, kinds=("entity",))
@@ -1625,6 +1914,23 @@ class Sketcher:
                                                             allow_negative=True,
                                                             done=lambda: self._finish_pick_tool()))
                 return True
+        if t in ("sk_transform", "sk_copy") and sel and (h is None or h[0] == "point"):
+            centre = sk.P(h[1]) if h else uv
+            vals = {"dx": 0.0, "dy": 0.0, "ang": 0.0}
+            copy_ = t == "sk_copy"
+
+            def run():
+                OPS.transform(self.sk, sel, vals["dx"], vals["dy"], vals["ang"], centre, copy=copy_)
+            self._prompt(vp, centre, "Move along X", 0.0, lambda v: (vals.update(dx=v), run()), allow_negative=True,
+                         then=lambda base: self._prompt(
+                             vp, centre, "Move along Y", 0.0, lambda v: (vals.update(dy=v), run()), base=base,
+                             allow_negative=True,
+                             then=lambda base2: self._prompt(
+                                 vp, centre, "Turn angle (degrees)", 0.0, lambda v: (vals.update(ang=v), run()),
+                                 base=base2, allow_negative=True, done=lambda: self._finish_pick_tool()),
+                             done=lambda: self._finish_pick_tool()),
+                         done=lambda: self._finish_pick_tool())
+            return True
         if h and h[0] == "entity":
             if h[1] in self.selection:
                 self.selection.remove(h[1])
@@ -1937,6 +2243,158 @@ class Sketcher:
             self.changed(True)
         return out
 
+    def _intersect_face(self, vp, pk):
+        """Intersect: bring in where a part face (or a whole part) crosses the sketch plane, as fixed construction
+        geometry: lines, circles / arcs, and splines for anything else."""
+        pid = pk.key[0]
+        shape = vp.part_shapes.get(pid)
+        if shape is None:
+            return 0
+        target = K.faces(shape)[pk.key[1]] if pk.kind == "face" else shape
+        found = K.plane_section(target, self.plane)
+        if not found:
+            self._flash(vp, "That face doesn't cross the sketch plane")
+            return 0
+        self.push_undo()
+        n = sum(1 for edge in found if self._add_fixed_curve(edge, True) is not None)
+        if not n:
+            self.undo_stack.pop()
+            self._flash(vp, "Nothing usable where that face crosses the sketch plane")
+            return 0
+        self.changed(True)
+        return n
+
+    def _add_fixed_curve(self, edge, construction):
+        """A part edge lying in the sketch plane, as fixed sketch geometry. Returns the entity id or None."""
+        sk = self.sk
+        info = K.edge_info(edge)
+        poly = np.asarray(K.discretize_edge(edge), float)
+        if len(poly) < 2:
+            return None
+        uvs = np.array([self.plane.to_local(q) for q in poly])
+        closed = np.linalg.norm(uvs[0] - uvs[-1]) < 1e-6
+        n = np.asarray(self.plane.normal, float)
+
+        def fixed(q):
+            p_ = sk.add_point(*q)
+            sk.add_constraint("fix", p_, value=[float(q[0]), float(q[1])])
+            return p_
+        if "r" in info and abs(abs(np.asarray(info["axis"]) @ n) - 1) < 1e-6:
+            c = np.array(self.plane.to_local(info["center"]))
+            pc = fixed(c)
+            if closed:
+                out = sk.add_circle(pc, info["r"], construction)
+                sk.add_constraint("radius", out, value=info["r"])
+                return out
+            a, b = uvs[0], uvs[-1]
+            if not _ccw_contains(c, a, b, uvs[len(uvs) // 2]):
+                a, b = b, a
+            return sk.add_arc(pc, fixed(a), fixed(b), construction)
+        ctr = uvs.mean(axis=0)
+        _u, _sv, vt = np.linalg.svd(uvs - ctr)
+        d = vt[0]
+        off = np.abs((uvs - ctr) @ np.array([-d[1], d[0]]))
+        size = max(float(np.ptp(uvs, axis=0).max()), 1e-9)
+        if float(off.max()) <= 1e-4 * max(size, 1.0) + 1e-7:
+            t = (uvs - ctr) @ d
+            a, b = ctr + d * t.min(), ctr + d * t.max()
+            if np.linalg.norm(b - a) < 1e-7:
+                return None
+            return sk.add_line(fixed(a), fixed(b), construction)
+        pts = uvs[:-1] if closed else uvs                     # anything else: a spline through points along it
+        keep = pts[np.unique(np.linspace(0, len(pts) - 1, min(len(pts), 24)).round().astype(int))]
+        if len(keep) < (3 if closed else 2):
+            return None
+        return sk.add_spline([fixed(q) for q in keep], closed, construction)
+
+    # ------------------------------------------------------------------ insert DXF / image
+    def insert_dxf(self, path, scale=None):
+        """Bring a DXF's geometry into the sketch. Returns the importer's report."""
+        from ..dxf_import import import_dxf
+        self.push_undo()
+        try:
+            rep = import_dxf(self.sk, path, scale, self.construction)
+        except Exception:
+            self.undo_stack.pop()
+            raise
+        if not rep["added"]:
+            self.undo_stack.pop()
+        self.changed(True)
+        return rep
+
+    def insert_image(self, path, width=None):
+        """Put a picture in the sketch to trace over, its bottom-left corner on the origin. Its corners are sketch
+        points, so dimension between the bottom two to set its size. Returns the entity id."""
+        import base64
+        from PySide6.QtCore import QBuffer, QByteArray, QIODevice
+        from PySide6.QtGui import QImage
+        img = QImage(path)
+        if img.isNull():
+            raise ValueError("That file isn't a picture FreeShape can read")
+        if max(img.width(), img.height()) > 1600:              # kept in the file: no bigger than it needs to be
+            img = img.scaled(1600, 1600, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        buf = QByteArray()
+        dev = QBuffer(buf)
+        dev.open(QIODevice.WriteOnly)
+        img.save(dev, "PNG")
+        data = base64.b64encode(bytes(buf.data())).decode("ascii")
+        w = float(width or 100.0)
+        self.push_undo()
+        a = self.sk.add_point(0.0, 0.0)
+        b = self.sk.add_point(w, 0.0)
+        eid = self.sk.add_image(a, b, data, img.height() / max(img.width(), 1))
+        self.changed(True)
+        return eid
+
+    def _image_texture(self, eid, e):
+        """An OpenGL texture for a sketch picture (made once per picture)."""
+        cache = self.__dict__.setdefault("_textures", {})
+        key = (eid, hash(e["data"]))
+        if key in cache:
+            return cache[key]
+        import base64
+        from PySide6.QtGui import QImage
+        img = QImage.fromData(base64.b64decode(e["data"]), "PNG")
+        if img.isNull():
+            cache[key] = None
+            return None
+        img = img.convertToFormat(QImage.Format_RGBA8888).mirrored(False, True)
+        tex = GL.glGenTextures(1)
+        GL.glBindTexture(GL.GL_TEXTURE_2D, tex)
+        GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR)
+        GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
+        GL.glPixelStorei(GL.GL_UNPACK_ALIGNMENT, 1)
+        GL.glTexImage2D(GL.GL_TEXTURE_2D, 0, GL.GL_RGBA, img.width(), img.height(), 0, GL.GL_RGBA,
+                        GL.GL_UNSIGNED_BYTE, bytes(img.constBits()))
+        GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
+        cache[key] = tex
+        return tex
+
+    def _draw_images_gl(self):
+        sk = self.sk
+        for eid, e in sk.entities.items():
+            if e["type"] != "image":
+                continue
+            try:
+                tex = self._image_texture(eid, e)
+            except Exception:
+                tex = None
+            if not tex:
+                continue
+            box = sk.image_box(eid)
+            GL.glEnable(GL.GL_TEXTURE_2D)
+            GL.glEnable(GL.GL_BLEND)
+            GL.glBlendFunc(GL.GL_SRC_ALPHA, GL.GL_ONE_MINUS_SRC_ALPHA)
+            GL.glBindTexture(GL.GL_TEXTURE_2D, tex)
+            GL.glColor4f(1, 1, 1, float(e.get("opacity", 0.6)))
+            GL.glBegin(GL.GL_QUADS)
+            for (u, v), (s_, t_) in zip(box[:4], ((0, 0), (1, 0), (1, 1), (0, 1))):
+                GL.glTexCoord2f(s_, t_)
+                GL.glVertex3f(*self.plane.to_world(float(u), float(v)))
+            GL.glEnd()
+            GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
+            GL.glDisable(GL.GL_TEXTURE_2D)
+
     def _trim(self, eid, uv):
         """Trim a line segment back to its neighbouring intersections with other curves."""
         sk = self.sk
@@ -2021,6 +2479,16 @@ class Sketcher:
             seg[:, 3] = np.stack([np.full_like(vv, u0 + span + step), vv], 1)
             _gl_draw(GL.GL_LINES, self.world_many(seg.reshape(-1, 2)))
         sk = self.sk
+        self._draw_images_gl()
+        for eid, e in sk.entities.items():
+            if e["type"] == "spline" and e.get("poles"):      # a control-point curve: show its control polygon
+                GL.glEnable(GL.GL_LINE_STIPPLE)
+                GL.glLineStipple(2, 0x3333)
+                GL.glLineWidth(1.0)
+                GL.glColor3f(*theme.SKETCH_CONSTRUCTION)
+                ctrl = [sk.P(q) for q in e["pts"]] + ([sk.P(e["pts"][0])] if e.get("closed") else [])
+                _gl_draw(GL.GL_LINE_STRIP, self.world_many(np.array(ctrl)))
+                GL.glDisable(GL.GL_LINE_STIPPLE)
         for eid, e in sk.entities.items():
             if e["type"] == "point":
                 continue
@@ -2098,6 +2566,29 @@ class Sketcher:
             ang, _level = _hexagon_angle(cur - c)
             a = ang + np.arange(6) * math.pi / 3
             strip(c + r * np.c_[np.cos(a), np.sin(a)], True)
+        elif t in ("polygon", "polygon_out") and self.temp:
+            c = np.asarray(self.temp[0][0], float)
+            n = self.poly_sides
+            size = np.linalg.norm(cur - c)
+            inscribed = t == "polygon"
+            ang, _level = OPS.polygon_angle(cur - c, n, inscribed)
+            R = size if inscribed else size / math.cos(math.pi / n)
+            a = ang + np.arange(n) * 2 * math.pi / n
+            strip(c + R * np.c_[np.cos(a), np.sin(a)], True)
+        elif t == "line_mid" and self.temp:
+            m = np.asarray(self.temp[0][0], float)
+            strip([2 * m - cur, cur])
+        elif t == "rect3" and self.temp:
+            p0 = np.asarray(self.temp[0][0], float)
+            if len(self.temp) == 1:
+                strip([p0, cur])
+            else:
+                p1 = np.asarray(self.temp[1][0], float)
+                side = p1 - p0
+                L = max(np.linalg.norm(side), 1e-12)
+                nrm = np.array([-side[1], side[0]]) / L
+                off = nrm * float((cur - p1) @ nrm)
+                strip([p0, p1, p1 + off, p0 + off], True)
         elif t == "circle" and self.temp:
             c = self.temp[0][0]
             r = np.linalg.norm(cur - c)
@@ -2106,9 +2597,52 @@ class Sketcher:
         elif t == "slot" and self.temp:
             a = self.temp[0][0]
             strip([a, cur])
-        elif t == "spline" and self.temp:
+        elif t in ("spline", "spline_cp") and self.temp:
             pts = [q for q, _s in self.temp] + [cur]
-            strip(K.spline_sample(pts, False, 48) if len(pts) >= 2 else pts)
+            strip(K.spline_sample(pts, False, 48, poles=t == "spline_cp") if len(pts) >= 2 else pts)
+            if t == "spline_cp":
+                GL.glEnable(GL.GL_LINE_STIPPLE)
+                GL.glLineStipple(2, 0x3333)
+                strip(pts)
+                GL.glDisable(GL.GL_LINE_STIPPLE)
+        elif t == "arc_tan" and self.temp:
+            arc = self._tangent_preview(cur)
+            strip(arc if arc is not None else [self.temp[0][0], cur])
+        elif t == "conic" and self.temp:
+            pts = [np.asarray(q, float) for q, _s in self.temp] + [cur]
+            if len(pts) == 2:
+                strip(pts)
+            else:
+                a, b, sh = pts
+                w = OPS.conic_weight(0.5)
+                strip(K.spline_sample([a, sh, b], False, 48, True, [1.0, w, 1.0]))
+                GL.glEnable(GL.GL_LINE_STIPPLE)
+                GL.glLineStipple(2, 0x3333)
+                strip([a, sh, b])
+                GL.glDisable(GL.GL_LINE_STIPPLE)
+        elif t == "ellipse_arc" and self.temp:
+            c = np.asarray(self.temp[0][0], float)
+            if len(self.temp) == 1:
+                strip([c, cur])
+            else:
+                ax = np.asarray(self.temp[1][0], float) - c
+                A = max(np.linalg.norm(ax), 1e-12)
+                nrm = np.array([-ax[1], ax[0]]) / A
+                r = abs(float(((self.temp[2][0] if len(self.temp) > 2 else cur) - c) @ nrm))
+                if len(self.temp) < 4:
+                    a = np.linspace(0, 2 * math.pi, 97)
+                    if len(self.temp) == 3:
+                        GL.glEnable(GL.GL_LINE_STIPPLE)
+                        GL.glLineStipple(2, 0x3333)
+                    strip(c + np.outer(np.cos(a), ax) + np.outer(np.sin(a), nrm * r))
+                    GL.glDisable(GL.GL_LINE_STIPPLE)
+                else:
+                    t1 = Sketch.ellipse_param(c, ax, r, self.temp[3][0])
+                    t2 = Sketch.ellipse_param(c, ax, r, cur)
+                    while t2 <= t1 + 1e-9:
+                        t2 += 2 * math.pi
+                    a = np.linspace(t1, t2, 97)
+                    strip(c + np.outer(np.cos(a), ax) + np.outer(np.sin(a), nrm * r))
         elif t == "ellipse" and self.temp:
             c = self.temp[0][0]
             if len(self.temp) == 1:
@@ -2251,6 +2785,14 @@ class Sketcher:
                 txt = "Ø" + U.num(2 * np.linalg.norm(self.cursor_uv - self.temp[0][0]))
             elif self.tool == "hexagon" and self.temp:
                 txt = U.num(math.sqrt(3) * np.linalg.norm(self.cursor_uv - self.temp[0][0])) + " A/F"
+            elif self.tool in ("polygon", "polygon_out") and self.temp:
+                size = 2 * np.linalg.norm(self.cursor_uv - self.temp[0][0])
+                txt = f"{self.poly_sides} sides · " + (("Ø" + U.num(size)) if self.tool == "polygon"
+                                                         else U.num(size) + " A/F")
+            elif self.tool == "line_mid" and self.temp:
+                txt = U.num(2 * np.linalg.norm(self.cursor_uv - self.temp[0][0]))
+            elif self.tool == "rect3" and len(self.temp) == 1:
+                txt = U.num(np.linalg.norm(self.cursor_uv - self.temp[0][0]))
             elif self.tool in ("rect", "center_rect") and self.temp:
                 d = np.abs(self.cursor_uv - self.temp[0][0]) * (2 if self.tool == "center_rect" else 1)
                 txt = f"{U.num(d[0])} × {U.num(d[1])}"

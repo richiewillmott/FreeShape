@@ -1,5 +1,27 @@
 # FreeShape revisions
 
+## Unreleased
+
+More sketch tools, and the sketch toolbar grouped more like other CAD programs.
+
+- **Polygons with any number of sides**, inscribed (corners on a circle) or circumscribed (sides touching a circle,
+  so you size it across flats, handy for nut pockets). They share a Polygon button with the hexagon, which used to
+  sit under Rectangle.
+- **Midpoint line**, **aligned 3-point rectangle** (at any angle), **sketch chamfer** and **split** (cut a line or
+  arc in two), each in a ▾ menu next to its relative (Line, Rectangle, Fillet, Trim).
+- **Tangent arc**, **elliptical arc** and **conic** (with rho; double-click to change it) under Arc ▾;
+  **control-point (Bézier-style) spline** under Spline ▾.
+- **Extend** (under Trim ▾): lengthen a line or arc to the next curve.
+- **Transform and Copy**: move and turn selected sketch geometry, or a copy of it.
+- **Intersect** (under Use ▾): bring in where part faces cross the sketch plane.
+- **Insert DXF** and **Insert image** on the sketch toolbar: a drawing's geometry in its own units, or a picture
+  to trace over, sized by dimensioning its corners.
+- **Offset and Slot** now share a button, and the sketch's **Extrude ▾** button (Revolve, Sweep) finishes the sketch
+  and starts the feature with its areas picked.
+- **Double-click the middle mouse button** to zoom to fit.
+- Fixed: with PySide6 6.11, submenus (the view cube's render and edge options, Open recent, Plugins …) could
+  come up empty.
+
 ## 2.3.1
 
 Fixes for fillets after threads and for the Extrude dialog, and clearer undo / redo icons.

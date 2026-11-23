@@ -303,6 +303,19 @@ def draw(name: str, p: QPainter):
         p.setPen(_pen(ORANGE, 1.4, Qt.DashLine))
         p.drawLine(QPointF(5, 5), QPointF(5, 14))
         p.drawLine(QPointF(5, 5), QPointF(14, 5))
+    elif name == "sk_chamfer":
+        p.setPen(_pen(INK, 2))
+        p.drawPolyline(QPolygonF([QPointF(5, 27), QPointF(5, 14), QPointF(14, 5), QPointF(27, 5)]))
+        p.setPen(_pen(ORANGE, 1.4, Qt.DashLine))
+        p.drawLine(QPointF(5, 5), QPointF(5, 12))
+        p.drawLine(QPointF(5, 5), QPointF(12, 5))
+    elif name == "sk_split":
+        p.setPen(_pen(INK, 2))
+        p.drawLine(QPointF(4, 22), QPointF(14, 14))
+        p.drawLine(QPointF(18, 11), QPointF(28, 4))
+        _dot(p, 16, 12.5)
+        p.setPen(_pen(RED, 1.5))
+        p.drawLine(QPointF(12, 6), QPointF(20, 19))
     elif name == "offset":
         p.setPen(_pen(INK, 2))
         p.drawRoundedRect(QRectF(10, 10, 12, 12), 2, 2)
@@ -508,6 +521,32 @@ def draw(name: str, p: QPainter):
         p.drawPolygon(QPolygonF(pts))
         _dot(p, 16, 16)
         _dot(p, 27, 16)
+    elif name in ("polygon", "polygon_out"):
+        R = 11 if name == "polygon" else 12.5
+        pts = [QPointF(16 + R * math.cos(math.radians(a)), 16.5 - R * math.sin(math.radians(a)))
+               for a in range(90, 450, 72)]
+        p.setPen(_pen(INK, 1, Qt.DashLine))
+        r = R if name == "polygon" else R * math.cos(math.pi / 5)
+        p.drawEllipse(QPointF(16, 16.5), r, r)
+        p.setPen(_pen(INK, 2))
+        p.drawPolygon(QPolygonF(pts))
+        _dot(p, 16, 16.5)
+        if name == "polygon":
+            _dot(p, pts[0].x(), pts[0].y())
+        else:
+            m = (pts[0] + pts[1]) / 2
+            _dot(p, m.x(), m.y())
+    elif name == "line_mid":
+        p.setPen(_pen(INK, 2))
+        p.drawLine(QPointF(5, 26), QPointF(27, 6))
+        _dot(p, 27, 6)
+        _dot(p, 16, 16, ORANGE, 3)
+    elif name == "rect3":
+        pts = [QPointF(4, 19), QPointF(17, 6), QPointF(28, 17), QPointF(15, 30)]
+        p.setPen(_pen(INK, 2))
+        p.drawPolygon(QPolygonF([QPointF(q.x(), q.y() - 2) for q in pts]))
+        for q in pts[:3]:
+            _dot(p, q.x(), q.y() - 2)
     elif name == "circle":
         p.setPen(_pen(INK, 2))
         p.drawEllipse(QPointF(16, 16), 10, 10)
@@ -540,6 +579,42 @@ def draw(name: str, p: QPainter):
         _dot(p, 26.3, 15.2)
         _dot(p, 5.7, 15.2)
         _dot(p, 16, 8)
+    elif name == "arc_tan":
+        p.setPen(_pen(INK, 2))
+        p.drawLine(QPointF(3, 24), QPointF(14, 24))
+        p.drawArc(QRectF(4, 6, 20, 20), 270 * 16, 180 * 16)
+        _dot(p, 14, 24, ORANGE, 2.8)
+        _dot(p, 14, 6)
+    elif name == "ellipse_arc":
+        p.setPen(_pen(INK, 1, Qt.DashLine))
+        p.drawEllipse(QRectF(3, 9, 26, 14))
+        p.setPen(_pen(INK, 2))
+        p.drawArc(QRectF(3, 9, 26, 14), 0, 180 * 16)
+        _dot(p, 29, 16)
+        _dot(p, 3, 16)
+    elif name == "conic":
+        p.setPen(_pen(INK, 1, Qt.DashLine))
+        p.drawPolyline(QPolygonF([QPointF(4, 26), QPointF(16, 4), QPointF(28, 26)]))
+        p.setPen(_pen(INK, 2))
+        path = QPainterPath(QPointF(4, 26))
+        path.quadTo(QPointF(16, 2), QPointF(28, 26))
+        p.drawPath(path)
+        _dot(p, 4, 26)
+        _dot(p, 28, 26)
+        _dot(p, 16, 4, ORANGE)
+    elif name == "spline_cp":
+        p.setPen(_pen(INK, 1, Qt.DashLine))
+        ctrl = [QPointF(4, 26), QPointF(10, 4), QPointF(22, 28), QPointF(28, 6)]
+        p.drawPolyline(QPolygonF(ctrl))
+        p.setPen(_pen(INK, 2))
+        path = QPainterPath(ctrl[0])
+        path.cubicTo(ctrl[1], ctrl[2], ctrl[3])
+        p.drawPath(path)
+        for q in ctrl:
+            p.setPen(_pen(BLUE, 1.4))
+            p.setBrush(QColor("white"))
+            p.drawRect(QRectF(q.x() - 2.2, q.y() - 2.2, 4.4, 4.4))
+        p.setBrush(Qt.NoBrush)
     elif name == "arc_center":
         p.setPen(_pen(INK, 2))
         p.drawArc(QRectF(5, 6, 22, 22), 0, 120 * 16)
@@ -567,6 +642,53 @@ def draw(name: str, p: QPainter):
         p.setPen(_pen(ORANGE, 2.4))
         p.drawLine(QPointF(5, 14), QPointF(20, 14))
         p.drawLine(QPointF(20, 14), QPointF(26, 8))
+    elif name == "use_intersect":
+        _box(p, 5, 14, 15, 12, 6)
+        p.setPen(_pen(BLUE, 1.2, Qt.DashLine))
+        p.drawLine(QPointF(2, 20), QPointF(30, 20))
+        p.setPen(_pen(ORANGE, 2.4))
+        p.drawLine(QPointF(5, 20), QPointF(20, 20))
+        p.drawLine(QPointF(20, 20), QPointF(23.5, 16.5))
+    elif name == "sk_extend":
+        p.setPen(_pen(INK, 2))
+        p.drawLine(QPointF(4, 18), QPointF(15, 18))
+        p.drawLine(QPointF(26, 5), QPointF(26, 28))
+        p.setPen(_pen(ORANGE, 1.6, Qt.DashLine))
+        p.drawLine(QPointF(15, 18), QPointF(25, 18))
+        _dot(p, 15, 18)
+    elif name in ("sk_transform", "sk_copy"):
+        p.setPen(_pen(INK, 1.4, Qt.DashLine) if name == "sk_transform" else _pen(INK, 2))
+        p.drawRect(QRectF(4, 14, 12, 12))
+        p.setPen(_pen(INK, 2))
+        p.save()
+        p.translate(21, 11)
+        p.rotate(-20)
+        p.drawRect(QRectF(-6, -6, 12, 12))
+        p.restore()
+        p.setPen(_pen(ORANGE, 1.6))
+        p.drawLine(QPointF(12, 17), QPointF(17, 13))
+        p.drawLine(QPointF(17, 13), QPointF(14, 13))
+        p.drawLine(QPointF(17, 13), QPointF(17, 16))
+    elif name in ("insert_dxf", "insert_image"):
+        p.setPen(_pen(INK, 1.6))
+        p.setBrush(QColor("white"))
+        p.drawRect(QRectF(5, 4, 19, 24))
+        if name == "insert_dxf":
+            _text(p, "DXF", BLUE, 7, True, QRectF(5, 7, 19, 10))
+            p.setPen(_pen(INK, 1.4))
+            p.drawLine(QPointF(8, 23), QPointF(20, 23))
+            p.drawArc(QRectF(8, 17, 8, 8), 0, 180 * 16)
+        else:
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor("#9cc3f0"))
+            p.drawPolygon(QPolygonF([QPointF(7, 25), QPointF(13, 15), QPointF(17, 21), QPointF(19, 18),
+                                     QPointF(22, 25)]))
+            p.setBrush(ORANGE)
+            p.drawEllipse(QPointF(18, 10), 2.4, 2.4)
+        p.setBrush(Qt.NoBrush)
+        p.setPen(_pen(ORANGE, 2.2))
+        p.drawLine(QPointF(27, 18), QPointF(27, 28))
+        p.drawLine(QPointF(22, 23), QPointF(32, 23))
     elif name == "trim":
         p.setPen(_pen(INK, 1.8))
         p.drawLine(QPointF(4, 16), QPointF(28, 16))

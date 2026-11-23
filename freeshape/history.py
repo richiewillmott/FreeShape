@@ -255,7 +255,8 @@ def describe_params(ftype, old, new):
 
 
 _ENTITY_WORDS = {"line": "line", "circle": "circle", "arc": "arc", "point": "point", "spline": "spline",
-                 "ellipse": "ellipse", "text": "text"}
+                 "ellipse": "ellipse", "ellipse_arc": "elliptical arc", "text": "text",
+                 "image": "image"}
 
 
 def sketch_changes(old, new):

@@ -7,7 +7,11 @@ Geometry:
                   arc    {c, p1, p2}   counter-clockwise from p1 to p2
                   point  {p}
                   spline {pts: [point ids], closed}   smooth curve through its points
+                         (poles: True = the points are control points; weights: one each, for a conic)
                   ellipse {c, a, r}   centre, a point at the end of the major axis, minor radius
+                  ellipse_arc {c, a, r, p1, p2}   part of that ellipse, anticlockwise from p1 to p2
+                  image  {p1, p2, data, aspect}   a picture to trace over: bottom-left and bottom-right corners,
+                         a base64 PNG, height / width. Never part of a region.
                   text   {p, text, size, font, bold, italic, angle}   p = bottom-left of the text
   Every entity may carry "construction": True (ignored when building regions).
 
@@ -122,6 +126,20 @@ class Sketch:
         self.entities[eid] = {"type": "ellipse", "c": c, "a": a, "r": float(r), "construction": construction}
         return eid
 
+    def add_ellipse_arc(self, c, a, r, p1, p2, construction=False) -> str:
+        """Part of the ellipse (centre c, major axis out to a, minor radius r), anticlockwise from p1 to p2."""
+        eid = self._id("e")
+        self.entities[eid] = {"type": "ellipse_arc", "c": c, "a": a, "r": float(r), "p1": p1, "p2": p2,
+                              "construction": construction}
+        return eid
+
+    def add_image(self, p1, p2, data: str, aspect: float) -> str:
+        """A picture to trace over, its bottom edge from point p1 to p2; data is a base64 PNG."""
+        eid = self._id("im")
+        self.entities[eid] = {"type": "image", "p1": p1, "p2": p2, "data": data, "aspect": float(aspect),
+                              "construction": True}
+        return eid
+
     def add_text(self, p, text, size=10.0, font="Arial", bold=False, italic=False, angle=0.0, expr=None) -> str:
         """Text with its bottom-left at point p; size is the font size (mm), angle in degrees. expr: a text
         expression ("PN-" + #part) worked out from the variables on every rebuild; `text` is its last value."""
@@ -195,7 +213,7 @@ class Sketch:
 
     def radius(self, eid):
         e = self.entities[eid]
-        if e["type"] in ("circle", "ellipse"):
+        if e["type"] in ("circle", "ellipse", "ellipse_arc"):
             return e["r"]
         if e["type"] == "arc":
             return float(np.linalg.norm(self.P(e["p1"]) - self.P(e["c"])))
@@ -230,7 +248,16 @@ class Sketch:
             return np.array([self.P(e["p"])])
         if t == "spline":
             from . import kernel as K
-            return K.spline_sample([self.points[q] for q in e["pts"]], e.get("closed", False), max(n, 64))
+            return K.spline_sample([self.points[q] for q in e["pts"]], e.get("closed", False), max(n, 64),
+                                   e.get("poles", False), e.get("weights"))
+        if t == "ellipse_arc":
+            c, ax, r = self.ellipse_axes(eid)
+            t1, t2 = self.ellipse_arc_params(eid)
+            a = np.linspace(t1, t2, max(16, int(max(n, 64) * (t2 - t1) / (2 * math.pi)) + 2))
+            return c + np.outer(np.cos(a), ax) + np.outer(np.sin(a), r * np.array([-ax[1], ax[0]]) /
+                                                          (np.linalg.norm(ax) + 1e-12))
+        if t == "image":
+            return self.image_box(eid)
         if t == "ellipse":
             c, ax, r = self.ellipse_axes(eid)
             a = np.linspace(0, 2 * math.pi, max(n, 64) + 1)
@@ -254,6 +281,33 @@ class Sketch:
         e = self.entities[eid]
         c = self.P(e["c"])
         return c, self.P(e["a"]) - c, float(e["r"])
+
+    @staticmethod
+    def ellipse_param(c, ax, r, p) -> float:
+        """The parameter angle t of point p on the ellipse c + cos t·ax + sin t·r·n (n: ax turned a quarter)."""
+        A = float(np.linalg.norm(ax)) + 1e-12
+        u = np.asarray(ax, float) / A
+        w = np.asarray(p, float) - np.asarray(c, float)
+        x, y = w @ u, w[0] * -u[1] + w[1] * u[0]
+        return math.atan2(y / (abs(r) + 1e-12), x / A)
+
+    def ellipse_arc_params(self, eid):
+        """(t1, t2) of an ellipse arc, t2 > t1."""
+        e = self.entities[eid]
+        c, ax, r = self.ellipse_axes(eid)
+        t1 = self.ellipse_param(c, ax, r, self.P(e["p1"]))
+        t2 = self.ellipse_param(c, ax, r, self.P(e["p2"]))
+        while t2 <= t1 + 1e-9:
+            t2 += 2 * math.pi
+        return t1, t2
+
+    def image_box(self, eid):
+        """The picture's corners (closed): bottom-left, bottom-right, top-right, top-left, bottom-left."""
+        e = self.entities[eid]
+        a, b = self.P(e["p1"]), self.P(e["p2"])
+        w = b - a
+        up = np.array([-w[1], w[0]]) * float(e.get("aspect", 1.0))
+        return np.array([a, b, b + up, a + up, a])
 
     @staticmethod
     def _text_key(e):
@@ -293,7 +347,12 @@ class Sketch:
                             "p2": (c + r * np.array([math.cos(a2), math.sin(a2)])).tolist()})
             elif e["type"] == "spline":
                 out.append({"type": "spline", "pts": [self.points[q] for q in e["pts"]],
-                            "closed": bool(e.get("closed"))})
+                            "closed": bool(e.get("closed")), "poles": bool(e.get("poles")),
+                            "weights": e.get("weights")})
+            elif e["type"] == "ellipse_arc":
+                c, ax, r = self.ellipse_axes(eid)
+                t1, t2 = self.ellipse_arc_params(eid)
+                out.append({"type": "ellipse_arc", "c": c.tolist(), "major": ax.tolist(), "r": r, "t1": t1, "t2": t2})
             elif e["type"] == "ellipse":
                 c, ax, r = self.ellipse_axes(eid)
                 out.append({"type": "ellipse", "c": c.tolist(), "major": ax.tolist(), "r": r})
@@ -318,7 +377,7 @@ class Sketch:
             idx[(pid, 1)] = n + 1
             n += 2
         for eid, e in self.entities.items():
-            if e["type"] in ("circle", "ellipse"):
+            if e["type"] in ("circle", "ellipse", "ellipse_arc"):
                 idx[(eid, "r")] = n
                 n += 1
         return idx, n
@@ -346,7 +405,7 @@ class Sketch:
 
         def rad(get, eid):
             e = ents[eid]
-            if e["type"] in ("circle", "ellipse"):
+            if e["type"] in ("circle", "ellipse", "ellipse_arc"):
                 return get((eid, "r"))
             return float(np.linalg.norm(pt(get, e["p1"]) - pt(get, e["c"])))
 
@@ -356,7 +415,7 @@ class Sketch:
         def ekeys(eid):
             e = ents[eid]
             ks = pkeys(*([e[k] for k in POINT_KEYS if k in e] + list(e.get("pts", ()))))
-            if e["type"] in ("circle", "ellipse"):
+            if e["type"] in ("circle", "ellipse", "ellipse_arc"):
                 ks.append((eid, "r"))
             return ks
 
@@ -371,6 +430,10 @@ class Sketch:
                     c = pt(get, e["c"])
                     return [np.linalg.norm(pt(get, e["p1"]) - c) - np.linalg.norm(pt(get, e["p2"]) - c)]
                 eqs.append((None, f, pkeys(e["c"], e["p1"], e["p2"])))
+            elif e["type"] == "ellipse_arc":        # implicit: both ends on the ellipse
+                for k in ("p1", "p2"):
+                    f, keys = self._make_eq("point_on", [e[k], eid], 0.0, pt, rad, line_dir, pkeys, ekeys, ents)
+                    eqs.append((None, f, keys))
 
         for c in self.constraints:
             t, R = c["type"], c["refs"]
@@ -405,7 +468,7 @@ class Sketch:
             if typ(1) in ("circle", "arc"):
                 cc = ents[e]["c"]
                 return (lambda g: [np.linalg.norm(pt(g, p) - pt(g, cc)) - rad(g, e)]), pkeys(p) + ekeys(e)
-            if typ(1) == "ellipse":
+            if typ(1) in ("ellipse", "ellipse_arc"):
                 cc, aa = ents[e]["c"], ents[e]["a"]
 
                 def f(g):                   # (x/a)^2 + (y/b)^2 = 1 in the ellipse's own axes, scaled to mm

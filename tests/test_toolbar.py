@@ -39,12 +39,19 @@ def test_sketch_variants_share_a_button_that_remembers_the_last_one():
     from test_nav import _window
     app, w, vp = _window()
     rect = w._sketch_buttons["rect"]
-    assert w._sketch_buttons["center_rect"] is rect is w._sketch_buttons["hexagon"]
-    w._sketch_tool_changed("hexagon")
-    assert rect.isChecked() and rect.property("current") == "hexagon" and "Hexagon" in rect.toolTip()
+    assert w._sketch_buttons["center_rect"] is rect is w._sketch_buttons["rect3"]
+    poly = w._sketch_buttons["hexagon"]                       # polygons have their own button, not rectangle's
+    assert poly is not rect and w._sketch_buttons["polygon"] is poly is w._sketch_buttons["polygon_out"]
+    assert w._sketch_buttons["line"] is w._sketch_buttons["line_mid"]
+    assert w._sketch_buttons["sk_fillet"] is w._sketch_buttons["sk_chamfer"]
+    assert w._sketch_buttons["trim"] is w._sketch_buttons["sk_split"]
+    w._sketch_tool_changed("rect3")
+    assert rect.isChecked() and rect.property("current") == "rect3" and "Aligned" in rect.toolTip()
     w._sketch_tool_changed("line")
     assert not rect.isChecked() and w._sketch_buttons["line"].isChecked()
-    assert rect.property("current") == "hexagon"                             # clicking it again: a hexagon
+    assert rect.property("current") == "rect3"                               # clicking it again: the same kind
+    w._sketch_tool_changed("polygon_out")
+    assert poly.isChecked() and "Circumscribed" in poly.toolTip()
 
 
 def test_default_geometry_folds_away():

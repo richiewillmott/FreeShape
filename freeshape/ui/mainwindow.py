@@ -25,6 +25,7 @@ from ..sketch import Sketch
 from . import theme
 from . import filedlg
 from .icons import icon
+from .menus import submenu
 from .viewport import Viewport, Pick
 from .panels import LeftPanel, STD_PLANES, DocTabBar
 from .dialogs import FeatureDialog, SketchDialog, pick_to_item
@@ -322,7 +323,7 @@ class MainWindow(QMainWindow):
         self._add_action(m, "New Assembly", self.new_assembly, "Ctrl+Shift+N")
         self._add_action(m, "New Drawing…", lambda: self.new_drawing())
         self._add_action(m, "Open…", self.open_dialog, "Ctrl+O")
-        self.recent_menu = m.addMenu("Open recent")
+        self.recent_menu = submenu(m, "Open recent")
         self.recent_menu.aboutToShow.connect(self._fill_recent)
         self._add_action(m, "Close tab", lambda: self.close_tab(self.tabs.currentIndex()), "Ctrl+W")
         m.addSeparator()
@@ -338,7 +339,7 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         self._add_action(m, "Create version…", self.create_version)
         self._add_action(m, "Version history…", self.show_history, "Ctrl+Alt+H")
-        plm = m.addMenu("Plugins")
+        plm = submenu(m, "Plugins")
         from . import plugin_ui as _pui
         plm.aboutToShow.connect(lambda mm=plm: _pui.fill_menu(mm, self))
         m.addSeparator()
@@ -360,7 +361,7 @@ class MainWindow(QMainWindow):
         self.act_prev_view = self._add_action(vm, "Previous view", lambda: self.viewport.previous_view(), "Alt+Left")
         self._add_action(vm, "Zoom to window", lambda: self.viewport.start_zoom_window(), "Shift+Z")
         self._add_action(vm, "Named views…", self.named_views_dialog)
-        dm = vm.addMenu("Display")
+        dm = submenu(vm, "Display")
         dm.aboutToShow.connect(lambda: self._fill_display_menu(dm))
         vm.aboutToShow.connect(lambda: self.act_prev_view.setEnabled(self.viewport.has_previous_view()))
         vm.addSeparator()
@@ -373,7 +374,7 @@ class MainWindow(QMainWindow):
         self._add_action(vm, "Show all parts", self._show_all_parts)
         self.act_shiny = self._add_action(vm, "Shiny surfaces", lambda on: self.set_shiny(on))
         self.act_shiny.setCheckable(True)
-        rm = vm.addMenu("Rotate around")
+        rm = submenu(vm, "Rotate around")
         from PySide6.QtGui import QActionGroup as _AG
         rgrp = _AG(self)
         self.orbit_actions = {}
@@ -386,7 +387,7 @@ class MainWindow(QMainWindow):
             rm.addAction(a)
             self.orbit_actions[mode] = a
         from . import navstyles as NS
-        mm = vm.addMenu("Mouse style")
+        mm = submenu(vm, "Mouse style")
         mgrp = _AG(self)
         self.nav_actions = {}
         for key, st in NS.STYLES.items():
@@ -396,7 +397,7 @@ class MainWindow(QMainWindow):
             mgrp.addAction(a)
             mm.addAction(a)
             self.nav_actions[key] = a
-        zm = vm.addMenu("Zoom speed")
+        zm = submenu(vm, "Zoom speed")
         zgrp = _AG(self)
         self.zoom_actions = {}
         for key, label, _v in NS.ZOOM_SPEEDS:
@@ -407,7 +408,7 @@ class MainWindow(QMainWindow):
             zm.addAction(a)
             self.zoom_actions[key] = a
         vm.addSeparator()
-        tm = vm.addMenu("Theme")
+        tm = submenu(vm, "Theme")
         from PySide6.QtGui import QActionGroup
         grp = QActionGroup(self)
         self.theme_actions = {}
@@ -418,7 +419,7 @@ class MainWindow(QMainWindow):
             grp.addAction(a)
             tm.addAction(a)
             self.theme_actions[mode] = a
-        im = vm.addMenu("Icons")
+        im = submenu(vm, "Icons")
         im.addAction("Open my icons folder…", self.open_icons_folder)
         im.addAction("Save the built-in icons there (to start from)", self.export_icons)
         im.addAction("Reload icons", self.reload_icons)
@@ -869,14 +870,22 @@ class MainWindow(QMainWindow):
         b.setIcon(self._arrow_icon())
         b.setProperty("icon_name", "__arrow")
         self._sketch_buttons["select"] = b
-        self._sketch_buttons["line"] = self._tb(h, "line", "Line (L)", lambda: self._sk_tool("line"), checkable=True)
         # like Onshape, variants of a tool share a button: it shows (and repeats) the one used last, ▾ lists them
+        self._sk_group(h, [("line", "Line (L)"),
+                           ("line_mid", "Midpoint line — click the middle, then one end")])
         self._sk_group(h, [("rect", "Corner rectangle (R)"), ("center_rect", "Center rectangle"),
-                           ("hexagon", "Hexagon — click the centre, then a corner (X)")])
+                           ("rect3", "Aligned rectangle — two corners for one side, then the width")])
+        self._sk_group(h, [("hexagon", "Hexagon — click the centre, then a corner (X)"),
+                           ("polygon", "Inscribed polygon — corners on a circle; type the number of sides"),
+                           ("polygon_out", "Circumscribed polygon — sides touch a circle (size across flats); "
+                                           "type the number of sides")])
         self._sk_group(h, [("circle", "Circle (C)"), ("ellipse", "Ellipse")])
-        self._sk_group(h, [("arc3", "3-point arc (A)"), ("arc_center", "Center-point arc")])
-        self._sketch_buttons["spline"] = self._tb(h, "spline", "Spline — click points, double-click or Enter to "
-                                                  "finish", lambda: self._sk_tool("spline"), checkable=True)
+        self._sk_group(h, [("arc3", "3-point arc (A)"), ("arc_center", "Center-point arc"),
+                           ("arc_tan", "Tangent arc — carry on smoothly from the end of a line or arc"),
+                           ("ellipse_arc", "Elliptical arc — centre, long axis, width, then start and end"),
+                           ("conic", "Conic — start, end, shoulder point, then rho")])
+        self._sk_group(h, [("spline", "Spline — through the points you click; double-click or Enter to finish"),
+                           ("spline_cp", "Control-point spline — the points pull the curve (Bézier style)")])
         self._sketch_buttons["point"] = self._tb(h, "point", "Point (P)", lambda: self._sk_tool("point"),
                                                  checkable=True)
         self._sketch_buttons["text"] = self._tb(h, "sk_text", "Text", lambda: self._sk_tool("text"), checkable=True)
@@ -894,21 +903,32 @@ class MainWindow(QMainWindow):
                          lambda _=False, n=name: self._sk_tool(n), checkable=True)
             self._sketch_buttons[name] = b
         h.addWidget(_sep())
-        for name, tip in (("sk_fillet", "Sketch fillet — round a corner"), ("offset", "Offset (O)"),
-                          ("slot", "Slot"), ("sk_mirror", "Mirror — select geometry, then the mirror line")):
-            self._sketch_buttons[name] = self._tb(h, name, tip, lambda _=False, n=name: self._sk_tool(n),
-                                                  checkable=True)
+        self._sk_group(h, [("sk_fillet", "Sketch fillet — round a corner"),
+                           ("sk_chamfer", "Sketch chamfer — cut a corner straight")])
+        self._sk_group(h, [("offset", "Offset (O)"), ("slot", "Slot — two end centres, then the width")])
+        self._sketch_buttons["sk_mirror"] = self._tb(h, "sk_mirror", "Mirror — select geometry, then the mirror line",
+                                                     lambda: self._sk_tool("sk_mirror"), checkable=True)
+        self._sk_group(h, [("sk_transform", "Transform — select geometry, then move and turn it"),
+                           ("sk_copy", "Copy — select geometry, then place a moved / turned copy")])
         self._sk_group(h, [("sk_lpattern", "Linear pattern — select geometry, then a direction line"),
                            ("sk_cpattern", "Circular pattern — select geometry, then the centre point")])
         h.addWidget(_sep())
-        b = self._tb(h, "use", "Use (project) part edges (U)", lambda: self._sk_tool("use"), checkable=True)
-        self._sketch_buttons["use"] = b
-        b = self._tb(h, "trim", "Trim", lambda: self._sk_tool("trim"), checkable=True)
-        self._sketch_buttons["trim"] = b
+        self._sk_group(h, [("use", "Use (project) part edges (U)"),
+                           ("use_intersect", "Intersect — where part faces cross the sketch plane")])
+        self._sk_group(h, [("trim", "Trim"), ("sk_split", "Split — cut a line or arc in two where you click"),
+                           ("sk_extend", "Extend — lengthen a line or arc to the next curve")])
         self._tb(h, "delete", "Delete selected (Del)", lambda: self._sk("delete_selection"))
+        self._tb_group(h, [("insert_dxf", "Insert DXF — bring a drawing's lines, arcs and curves into the sketch",
+                            self._sketch_insert_dxf),
+                           ("insert_image", "Insert image — a picture to trace over", self._sketch_insert_image)])
         h.addStretch(1)
         self._tb(h, "normal_to", "Normal to sketch (N)", self._normal_to_sketch)
-        self._tb(h, "fit", "Zoom to fit (F)", lambda: self.viewport.fit())
+        self._tb(h, "fit", "Zoom to fit (F, or double-click the middle button)", lambda: self.viewport.fit())
+        h.addWidget(_sep())
+        # straight on to 3D: finish the sketch and start the feature with its regions already picked
+        self._tb_group(h, [(f, tip, lambda _=False, f=f: self._feature_from_sketch(f)) for f, tip in (
+            ("extrude", "Extrude this sketch (Shift+E)"), ("revolve", "Revolve this sketch (Shift+W)"),
+            ("sweep", "Sweep this sketch — then pick the path"))])
         done = QToolButton()
         done.setText("✓  Finish sketch")
         done.setStyleSheet("QToolButton { background:%s; color:white; font-weight:600; padding:5px 12px; border-radius:4px; }"
@@ -916,6 +936,38 @@ class MainWindow(QMainWindow):
         done.clicked.connect(self.finish_sketch)
         h.addWidget(done)
         return w
+
+    def _sketch_insert_dxf(self):
+        if not self.sketcher:
+            return
+        path, _ = filedlg.getOpenFileName(self, "Insert DXF into the sketch", "", "DXF drawings (*.dxf)")
+        if not path:
+            return
+        try:
+            rep = self.sketcher.insert_dxf(path)
+        except Exception as err:
+            QMessageBox.warning(self, APP_NAME, f"Couldn't read that DXF: {err}")
+            return
+        skipped = ", ".join(f"{n} {t.lower()}" for t, n in sorted(rep["skipped"].items()))
+        self.status.showMessage(f"Inserted {rep['added']} item(s) from {os.path.basename(path)}"
+                                + (f" (skipped {skipped})" if skipped else ""), 8000)
+        self.viewport.fit()
+
+    def _sketch_insert_image(self):
+        if not self.sketcher:
+            return
+        path, _ = filedlg.getOpenFileName(self, "Insert image into the sketch", "",
+                                          "Pictures (*.png *.jpg *.jpeg *.bmp *.gif *.webp)")
+        if not path:
+            return
+        try:
+            self.sketcher.insert_image(path)
+        except ValueError as err:
+            QMessageBox.warning(self, APP_NAME, str(err))
+            return
+        self.status.showMessage("Image inserted, 100 mm wide: dimension between its bottom corners to set its "
+                                "size", 8000)
+        self.viewport.fit()
 
     def _sk_group(self, layout, items):
         """Sketch tools that share one button (rectangle / centre rectangle / hexagon …): the button shows the
@@ -1448,8 +1500,8 @@ class MainWindow(QMainWindow):
         box.blockSignals(False)
 
     def _feature_from_sketch(self, ftype):
-        """Shift+E / Shift+W: in a sketch, finish it and open Extrude / Revolve with its areas picked; otherwise
-        just open the feature."""
+        """Shift+E / Shift+W and the Extrude / Revolve / Sweep buttons on the sketch toolbar: in a sketch, finish
+        it and open the feature with its areas picked; otherwise just open the feature."""
         if self.mode == "sketch" and self.sk_ctx:
             fid = self.sk_ctx["feature"]["id"]
             self.finish_sketch()
@@ -1599,6 +1651,8 @@ class MainWindow(QMainWindow):
         vp = self.viewport
         if clear:
             m.clear()
+            for old in m.findChildren(QMenu, options=Qt.FindDirectChildrenOnly):
+                old.deleteLater()          # submenus from the last fill (they're owned by m, so clear() keeps them)
 
         def check(menu, text, on, slot):
             a = menu.addAction(text)
@@ -1611,14 +1665,14 @@ class MainWindow(QMainWindow):
         check(m, "Orient normal to sketch on edit", self.orient_on_sketch,
               lambda: self.set_display("orient_on_sketch", not self.orient_on_sketch))
         m.addSeparator()
-        rm = m.addMenu(dict(RENDER_MODES)[vp.render_mode])
+        rm = submenu(m, dict(RENDER_MODES)[vp.render_mode])
         for key, label in RENDER_MODES:
             check(rm, label, vp.render_mode == key, lambda k=key: self.set_display("render_mode", k))
         if vp.render_mode != "translucent":          # (see-through already shows every edge)
-            hm = m.addMenu(dict(HIDDEN_EDGES)[vp.hidden_edges])
+            hm = submenu(m, dict(HIDDEN_EDGES)[vp.hidden_edges])
             for key, label in HIDDEN_EDGES:
                 check(hm, label, vp.hidden_edges == key, lambda k=key: self.set_display("hidden_edges", k))
-        tm = m.addMenu(dict(TANGENT_EDGES)[vp.tangent_edges])
+        tm = submenu(m, dict(TANGENT_EDGES)[vp.tangent_edges])
         for key, label in TANGENT_EDGES:
             check(tm, label, vp.tangent_edges == key, lambda k=key: self.set_display("tangent_edges", k))
         check(m, "View in high quality", vp.high_quality,
@@ -2796,7 +2850,7 @@ class MainWindow(QMainWindow):
                             lambda: self.doc.set_features_hidden(fids, True))
             m.addSeparator()
         m.addAction("Zoom to fit", lambda: self.viewport.fit())
-        vm = m.addMenu("Views")
+        vm = submenu(m, "Views")
         for name in ("Front", "Back", "Left", "Right", "Top", "Bottom", "Isometric"):
             vm.addAction(name, lambda _=False, n=name: self.viewport.set_standard_view(n))
         if self.doc.hidden_parts:
@@ -2967,7 +3021,7 @@ class MainWindow(QMainWindow):
             grp.addAction(a)
             a.triggered.connect(lambda _=False, uu=u: self.set_doc_units(uu))
         m.addSection("New documents")
-        dm = m.addMenu(f"Default: {U.NAMES[self.default_units()]}")
+        dm = submenu(m, f"Default: {U.NAMES[self.default_units()]}")
         for u in U.ORDER:
             a = dm.addAction(U.NAMES[u].capitalize())
             a.setCheckable(True)

@@ -13,7 +13,7 @@ The **⌂ Home** button at the top goes back to it (and back to your work again)
 
 **Navigation** — right-drag to rotate (around the point under the cursor, or the centre of the model when you
 start over empty space — a small blue marker shows the centre of rotation; View → *Rotate around* can make it
-always the model centre or always the origin), middle-drag or Ctrl+right-drag to pan, wheel to zoom at the cursor. The arrow keys turn the view 15° at a time. The view cube works like Onshape's: click a face, edge or corner for that view, the arrows turn the view 90°, the curved arrows roll it, and ▾ opens the view options (see *View options* below). `F` zooms to fit,
+always the model centre or always the origin), middle-drag or Ctrl+right-drag to pan, wheel to zoom at the cursor. The arrow keys turn the view 15° at a time. The view cube works like Onshape's: click a face, edge or corner for that view, the arrows turn the view 90°, the curved arrows roll it, and ▾ opens the view options (see *View options* below). `F` (or double-clicking the middle button) zooms to fit,
 `Shift+1…7` = Front, Back, Left, Right, Top, Bottom, Isometric. `Alt+Left` = previous view, `Shift+Z` = zoom to window.
 
 **Selecting** — hover pre-highlights vertices, faces, edges, sketch regions and planes; click to add to the
@@ -29,26 +29,43 @@ The view turns to face the sketch plane (unless *Orient normal to sketch on edit
 | Tool | Key | Notes |
 |---|---|---|
 | Line | `L` | click-click; lines chain until `Esc` or you click an existing point. Hover a point or midpoint then move level / plumb for a yellow guide; start from an arc's end or hover a circle to snap tangent |
+| Midpoint line | | click the middle, then one end — the other end mirrors it (a line centred on the origin, say) |
 | Corner / centre rectangle | `R` | adds horizontal/vertical constraints automatically |
+| Aligned rectangle | | two corners for one side at any angle, then click to set the width; the corners stay square |
 | Hexagon | `X` | centre, then a corner — a regular hexagon (corners on a construction circle, equal sides). Snaps flat-top or point-top; size it across flats |
+| Inscribed / circumscribed polygon | | centre, then a corner (inscribed) or the middle of a side (circumscribed); type the number of sides. Inscribed: the corners sit on a construction circle. Circumscribed: the sides touch it, so its diameter is the size across flats — handy for nut pockets |
 | Circle | `C` | centre, then radius |
 | 3-point arc / centre-point arc | `A` | |
+| Tangent arc | | click the end of a line or arc, then where it should finish — it carries on smoothly and stays tangent |
+| Elliptical arc | | centre, end of the long axis, width, then where the arc starts and ends (anticlockwise) |
+| Conic | | start, end, then the shoulder point the curve heads towards; type its rho (below 0.5 an ellipse, 0.5 a parabola, above a hyperbola). Double-click it later to change rho |
 | Point | `P` | used for hole centres |
 | Construction toggle | `Q` | toggles selected geometry, or the mode for new geometry |
 | Dimension | `D` | click a line (length), circle (Ø), arc (R), two points (distance — horizontal/vertical depending on where you place it), point + line, or two lines (distance or angle). You can also click a **part's edge or corner** to dimension to it, like Onshape. Type the value; expressions and units work: `25/2`, `1 in`, `10 cm` |
 | Constraints | `I` `H` `V` `E` `T` | coincident, horizontal, vertical, equal, tangent; plus parallel, perpendicular, midpoint, concentric, fix on the toolbar. Select geometry then click the constraint, or click the constraint then the geometry |
 | Use (project) | `U` | project part edges into the sketch (edges seen side-on, like a cylinder's rim, become straight lines) |
+| Intersect | | click part faces that cut through the sketch plane: where they cross it comes in as fixed construction geometry |
 | Trim | | removes a line segment up to its intersections |
+| Split | | click a line or arc where it should be cut in two; the halves stay in line and keep its constraints |
+| Extend | | click near the end of a line or arc to lengthen it to the next curve; the new end stays on that curve |
 | Sketch fillet | | click a corner where two lines meet, type the radius — the shape keeps its dimensions |
+| Sketch chamfer | | click a corner where two lines meet, type the distance back along each line |
 | Offset | `O` | click a line, arc or circle to offset its whole connected outline; type the distance (negative = inside) |
 | Slot | | click the two end centres, type the width |
 | Mirror | | select geometry, then click the line to mirror about — the copy stays linked to the original |
+| Transform / Copy | | select geometry, then click the point to turn about; type the move along X, along Y and the angle. Copy leaves the original where it was |
 | Linear / circular pattern | | select geometry, then click a direction line (copies go towards where you click) or a centre point; type the count and spacing / angle |
 | Spline | | click the points the curve passes through; double-click or Enter to finish, or click the first point to close it |
+| Control-point spline | | the same, but the points are control points (Bézier style): the curve starts and ends on the end ones and is pulled towards the others; its control polygon shows dashed |
+| Insert DXF | | bring a DXF's lines, arcs, circles, polylines, ellipses, splines and points into the sketch, in its units, ends joined so outlines make areas. Blocks are exploded; text and dimensions are skipped |
+| Insert image | | a picture to trace over, 100 mm wide at first: dimension between its bottom corners to set its real size |
 | Ellipse | | centre, end of the long axis, then the width |
 | Text | | click where it starts and type; choose font, size, bold / italic and angle. Letters are real outlines you can extrude, cut or engrave |
 
 **Typing sizes as you draw:** right after you finish a line, rectangle, hexagon, circle or arc, a dimension box pops up — type a value (e.g. `25`, `1/2 in`) and press Enter and the shape snaps to it. For a rectangle you get width, then height; for a hexagon, the size across flats. Just keep drawing (or press Esc) to skip it.
+
+**Straight to 3D:** the Extrude, Revolve and Sweep buttons at the right of the sketch toolbar (or `Shift+E` /
+`Shift+W`) finish the sketch and open that feature with the sketch's areas already picked.
 
 Drawing snaps to existing points and curves (adding coincident constraints) and infers horizontal/vertical.
 Geometry is **blue while under-defined and black when fully defined**; conflicting constraints turn red.

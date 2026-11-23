@@ -19,6 +19,7 @@ from .. import kernel as K
 from .. import assembly as A
 from . import filedlg
 from .icons import icon
+from .menus import submenu
 from .numparse import parse_number, fmt
 from .panels import swatch
 from .viewport import Pick
@@ -1765,7 +1766,7 @@ class AssemblyController:
         m = QMenu(self.w)
         m.addAction("Insert parts…", self.toggle_insert)
         m.addAction("Zoom to fit", lambda: self.vp.fit())
-        vm = m.addMenu("Views")
+        vm = submenu(m, "Views")
         for name in ("Front", "Back", "Left", "Right", "Top", "Bottom", "Isometric"):
             vm.addAction(name, lambda _=False, n=name: self.vp.set_standard_view(n))
         if any(i.get("hidden") for i in self.doc.instances):

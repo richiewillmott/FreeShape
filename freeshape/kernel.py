@@ -408,6 +408,46 @@ def _clean_pts2d(pts, closed):
     return out
 
 
+def pole_curve_2d(pts, closed=False, weights=None):
+    """A B-spline that uses the points as its control polygon (it starts and ends on the end points and is pulled
+    towards the others), cubic where there are enough points. weights: one per point for a rational curve: three
+    points weighted 1, w, 1 make an exact conic. None if there aren't enough points."""
+    from OCP.Geom2d import Geom2d_BSplineCurve
+    from OCP.OCP.collections import Array1_gp_Pnt2d, Array1_double, Array1_int
+    from OCP.gp import gp_Pnt2d
+    q = [(float(x), float(y)) for x, y in pts]
+    n = len(q)
+    if n < (3 if closed else 2):
+        return None
+    deg = min(3, n - 1)
+    poles = Array1_gp_Pnt2d(1, n)
+    for i, (x, y) in enumerate(q, 1):
+        poles.SetValue(i, gp_Pnt2d(x, y))
+    if closed:                          # periodic: n + 1 knots, each once
+        nk, mult_of = n + 1, (lambda i: 1)
+    else:                               # clamped: the ends repeated degree + 1 times
+        nk = n - deg + 1
+        mult_of = (lambda i: deg + 1 if i in (1, nk) else 1)
+    knots, mults = Array1_double(1, nk), Array1_int(1, nk)
+    for i in range(1, nk + 1):
+        knots.SetValue(i, float(i - 1))
+        mults.SetValue(i, mult_of(i))
+    try:
+        if weights is not None and len(weights) == n:
+            w = Array1_double(1, n)
+            for i, v in enumerate(weights, 1):
+                w.SetValue(i, max(float(v), 1e-6))
+            return Geom2d_BSplineCurve(poles, w, knots, mults, deg, bool(closed))
+        return Geom2d_BSplineCurve(poles, knots, mults, deg, bool(closed))
+    except Exception:
+        return None
+
+
+def sketch_spline_2d(pts, closed=False, poles=False, weights=None):
+    """The curve of a sketch spline: through its points, or (poles) using them as control points."""
+    return pole_curve_2d(pts, closed, weights) if poles else spline_curve_2d(pts, closed)
+
+
 def spline_curve_2d(pts, closed=False):
     """A smooth curve passing through the points (closed: a loop), as an OpenCascade 2D B-spline.
     None if there aren't enough points."""
@@ -427,9 +467,10 @@ def spline_curve_2d(pts, closed=False):
     return it.Curve()
 
 
-def spline_sample(pts, closed=False, n=64) -> np.ndarray:
-    """Points along the spline through `pts`, for drawing (n per span, so it stays smooth however long)."""
-    c = spline_curve_2d(pts, closed)
+def spline_sample(pts, closed=False, n=64, poles=False, weights=None) -> np.ndarray:
+    """Points along the spline through `pts` (or with them as control points), for drawing (n per span, so it
+    stays smooth however long)."""
+    c = sketch_spline_2d(pts, closed, poles, weights)
     if c is None:
         return np.array([[float(x), float(y)] for x, y in pts]).reshape(-1, 2)
     spans = max(1, len(pts) - (0 if closed else 1))
@@ -524,7 +565,7 @@ def make_sketch_edges(plane: Plane, curves) -> list:
                 out.append(BRepBuilderAPI_MakeEdge(arc).Edge())
             elif c["type"] == "spline":
                 from OCP.GeomAPI import GeomAPI
-                c2 = spline_curve_2d(c["pts"], c.get("closed", False))
+                c2 = sketch_spline_2d(c["pts"], c.get("closed", False), c.get("poles", False), c.get("weights"))
                 if c2 is None:
                     continue
                 c3 = GeomAPI.To3d_s(c2, gp_Pln(ax3))
@@ -545,6 +586,22 @@ def make_sketch_edges(plane: Plane, curves) -> list:
                     out.append(BRepBuilderAPI_MakeEdge(gp_Circ(ax2, A)).Edge())
                 else:
                     out.append(BRepBuilderAPI_MakeEdge(gp_Elips(ax2, A, B)).Edge())
+            elif c["type"] == "ellipse_arc":
+                from OCP.gp import gp_Elips
+                ax = np.asarray(c["major"], float)
+                A, B = float(np.linalg.norm(ax)), abs(float(c["r"]))
+                if A < 1e-7 or B < 1e-7:
+                    continue
+                u = ax / A
+                t1, t2 = float(c["t1"]), float(c["t2"])
+                if B > A:                       # longer axis first; the angles turn back a quarter with it
+                    A, B, u = B, A, np.array([-u[1], u[0]])
+                    t1, t2 = t1 - math.pi / 2, t2 - math.pi / 2
+                ctr = plane.to_world(*c["c"])
+                xd = plane.to_world(*(np.asarray(c["c"], float) + u)) - ctr
+                ax2 = gp_Ax2(_pnt(ctr), ax3.Direction(), _dir(xd))
+                curve = gp_Circ(ax2, A) if abs(A - B) < 1e-9 else gp_Elips(ax2, A, B)
+                out.append(BRepBuilderAPI_MakeEdge(curve, t1, t2).Edge())
             elif c["type"] == "text":
                 out.extend(edges(_place_text(plane, c)))
         except Exception:
@@ -1684,6 +1741,19 @@ def seam_edge_indices(shape) -> set:
 
 
 EDGE_ANGLE = 0.1      # radians: the most an outline may turn between two points (~63 segments per circle)
+
+
+def plane_section(shape, plane: "Plane") -> list:
+    """The edges where `shape` (a face, a part …) crosses the plane."""
+    from OCP.BRepAlgoAPI import BRepAlgoAPI_Section
+    try:
+        sec = BRepAlgoAPI_Section(shape, gp_Pln(plane.gp_ax3()))
+        sec.Build()
+        if not sec.IsDone():
+            return []
+        return edges(sec.Shape())
+    except Exception:
+        return []
 
 
 def discretize_edge(e, defl=0.01, ang_defl=EDGE_ANGLE) -> np.ndarray:

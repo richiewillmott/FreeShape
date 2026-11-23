@@ -1,4 +1,4 @@
-"""Sketch editing operations: fillet, offset, slot, mirror and patterns.
+"""Sketch editing operations: fillet, chamfer, polygon, split, offset, slot, mirror and patterns.
 
 Pure geometry on a Sketch (no Qt), so they can be tested headlessly and reused by scripts.
 Each raises ValueError with a user-readable message when it can't be done.
@@ -87,11 +87,383 @@ def fillet_corner(sk: Sketch, pid: str, r: float) -> str:
     return aid
 
 
+def _corner_lines(sk: Sketch, pid: str):
+    """The two lines meeting at corner `pid`, each as (line id, key of its end at pid, its other end)."""
+    users = _users(sk, pid)
+    lines = [u for u in users if sk.entities[u]["type"] == "line"]
+    if len(users) != 2 or len(lines) != 2:
+        raise ValueError("Click a corner where two lines meet")
+    out = []
+    for lid in lines:
+        e = sk.entities[lid]
+        k = "p1" if e["p1"] == pid else "p2"
+        out.append((lid, k, sk.P(e["p2" if k == "p1" else "p1"])))
+    return out
+
+
+def chamfer_corner(sk: Sketch, pid: str, d: float) -> str:
+    """Cut the corner where exactly two lines meet at `pid` with a straight line, `d` back along each line
+    (an equal-distance chamfer). Returns the new line id."""
+    if d <= 0:
+        raise ValueError("Distance must be positive")
+    (l1, k1, A), (l2, k2, B) = _corner_lines(sk, pid)
+    P = sk.P(pid)
+    la, lb = np.linalg.norm(A - P), np.linalg.norm(B - P)
+    if la < TOL or lb < TOL:
+        raise ValueError("Lines are too short")
+    u1, u2 = (A - P) / la, (B - P) / lb
+    if abs(float(u1[0] * u2[1] - u1[1] * u2[0])) < 1e-6:
+        raise ValueError("The two lines are in line with each other")
+    if d >= la - 1e-9 or d >= lb - 1e-9:
+        raise ValueError("Distance is too large for these lines")
+    t1, t2 = sk.add_point(*(P + u1 * d)), sk.add_point(*(P + u2 * d))
+    sk.entities[l1][k1] = t1
+    sk.entities[l2][k2] = t2
+    construction = sk.entities[l1].get("construction", False) and sk.entities[l2].get("construction", False)
+    cid = sk.add_line(t1, t2, construction)
+    # the old corner stays as a "virtual sharp" on both lines (as for a fillet), so length dimensions keep
+    # measuring to it; two hidden legs from it, kept equal, carry the one chamfer dimension
+    far = {l1: sk.entities[l1]["p2" if k1 == "p1" else "p1"], l2: sk.entities[l2]["p2" if k2 == "p1" else "p1"]}
+    for k in sk.constraints:
+        if k["type"] in ("distance", "hdistance", "vdistance") and len(k["refs"]) == 1 and k["refs"][0] in far:
+            k["refs"] = [far[k["refs"][0]], pid]
+    if not any(e["type"] == "point" and e["p"] == pid for e in sk.entities.values()):
+        vs = sk.add_point_entity(pid)
+        sk.entities[vs]["virtual"] = True
+    sk.add_constraint("point_on", pid, l1)
+    sk.add_constraint("point_on", pid, l2)
+    legs = []
+    for t in (t1, t2):
+        leg = sk.add_line(pid, t, True)
+        sk.entities[leg]["helper"] = True
+        legs.append(leg)
+    sk.add_constraint("equal", legs[0], legs[1])
+    dc = sk.add_constraint("distance", legs[0], value=d)
+    M = (sk.P(t1) + sk.P(t2)) / 2
+    dc["pos"] = (P + (P - M) * 0.8).tolist() if np.linalg.norm(P - M) > TOL else P.tolist()
+    sk.solve()
+    return cid
+
+
+# --------------------------------------------------------------------------- polygon
+
+def polygon(sk: Sketch, centre, first_corner_angle: float, size: float, sides: int, inscribed=True,
+            construction=False, centre_pid=None, level=None) -> dict:
+    """A regular polygon with `sides` sides about `centre`.
+
+    inscribed: `size` is the radius to the corners (the corners sit on a construction circle).
+    Otherwise circumscribed: `size` is the radius to the middle of the sides (the sides touch a construction
+    circle), so the circle's diameter is the across-flats size, handy for nut pockets.
+    level: "flat" (one side level), "point" (a corner straight up) or None, adds the constraint that keeps it so.
+    Returns {"points", "sides", "circle"}: "circle" is the construction circle to dimension."""
+    n = int(sides)
+    if n < 3:
+        raise ValueError("A polygon needs at least 3 sides")
+    if size <= TOL:
+        raise ValueError("Size must be positive")
+    c = np.asarray(centre, float)
+    step = 2 * math.pi / n
+    R = size if inscribed else size / math.cos(math.pi / n)
+    ctr = centre_pid or sk.add_point(*c)
+    angs = [first_corner_angle + k * step for k in range(n)]
+    pts = [sk.add_point(c[0] + R * math.cos(a), c[1] + R * math.sin(a)) for a in angs]
+    edges = [sk.add_line(pts[k], pts[(k + 1) % n], construction) for k in range(n)]
+    # regular: corners on a circle and all sides the same length
+    outer = sk.add_circle(ctr, R, True)
+    for pid in pts:
+        sk.add_constraint("point_on", pid, outer)
+    for k in range(1, n):
+        sk.add_constraint("equal", edges[0], edges[k])
+    circle = outer
+    if not inscribed:
+        sk.entities[outer]["helper"] = True          # only holds the corners; the inner circle is the one shown
+        circle = sk.add_circle(ctr, size, True)
+        sk.add_constraint("tangent", edges[0], circle)
+
+    def near(a, target):
+        return abs((a - target + math.pi) % (2 * math.pi) - math.pi) < 1e-6
+
+    if level == "flat":
+        k = next((k for k in range(n) if near(angs[k] + step / 2, math.pi / 2) or near(angs[k] + step / 2, -math.pi / 2)),
+                 None)
+        if k is not None:
+            sk.add_constraint("horizontal", edges[k])
+    elif level == "point":
+        k = next((k for k in range(n) if near(angs[k], math.pi / 2)), None)
+        if k is not None:
+            sk.add_constraint("vertical", ctr, pts[k])
+    sk.solve()
+    return {"points": pts, "sides": edges, "circle": circle}
+
+
+def polygon_angle(d, sides: int, inscribed=True, snap_deg=4.0):
+    """Angle of a polygon's first corner when the mouse is at offset `d` from the centre (on a corner when
+    inscribed, on the middle of a side when circumscribed), and whether it snapped level: "flat" (a side
+    level), "point" (a corner straight up) or None."""
+    step = 360.0 / int(sides)
+    deg = math.degrees(math.atan2(d[1], d[0])) - (0.0 if inscribed else step / 2)
+    for level, target in (("flat", 90.0 - step / 2), ("point", 90.0)):
+        k = (deg - target) % step
+        if min(k, step - k) < snap_deg:
+            return math.radians(deg - k if k < step / 2 else deg + step - k), level
+    return math.radians(deg), None
+
+
+# --------------------------------------------------------------------------- split
+
+def split(sk: Sketch, eid: str, at) -> list:
+    """Split a line or arc in two at the point nearest `at`. The halves share a new end point, stay in line
+    (or on the same circle) and keep the original's constraints. Returns [first half, second half]."""
+    e = sk.entities.get(eid)
+    if e is None or e["type"] not in ("line", "arc"):
+        raise ValueError("Split works on lines and arcs")
+    at = np.asarray(at, float)
+    cons = e.get("construction", False)
+    p2 = e["p2"]
+    if e["type"] == "line":
+        a, b = sk.P(e["p1"]), sk.P(p2)
+        d = b - a
+        L2 = float(d @ d)
+        if L2 < TOL:
+            raise ValueError("The line is too short")
+        t = float((at - a) @ d) / L2
+        if not (1e-3 < t < 1 - 1e-3):
+            raise ValueError("Click part-way along the line, not at an end")
+        q = sk.add_point(*(a + t * d))
+        # constraints that depend on the whole line's length or ends move to a hidden copy of the whole line
+        whole = None
+        for c in sk.constraints:
+            if eid not in c["refs"]:
+                continue
+            if (c["type"] in ("distance", "hdistance", "vdistance") and c["refs"] == [eid]) or \
+                    c["type"] in ("equal", "midpoint"):
+                if whole is None:
+                    whole = sk.add_line(e["p1"], p2, True)
+                    sk.entities[whole]["helper"] = True
+                c["refs"] = [whole if r == eid else r for r in c["refs"]]
+        e["p2"] = q
+        second = sk.add_line(q, p2, cons)
+        hv = [c["type"] for c in sk.constraints if c["refs"] == [eid] and c["type"] in ("horizontal", "vertical")]
+        for t_ in hv:
+            sk.add_constraint(t_, second)
+        if not hv:
+            sk.add_constraint("parallel", eid, second)
+    else:
+        C = sk.P(e["c"])
+        r = sk.radius(eid)
+        a1, a2 = sk.arc_angles(eid)
+        span = (a2 - a1) % (2 * math.pi)
+        ang = (math.atan2(at[1] - C[1], at[0] - C[0]) - a1) % (2 * math.pi)
+        if not (1e-3 < ang < span - 1e-3):
+            raise ValueError("Click part-way along the arc, not at an end")
+        q = sk.add_point(*(C + r * np.array([math.cos(a1 + ang), math.sin(a1 + ang)])))
+        e["p2"] = q
+        second = sk.add_arc(e["c"], q, p2, cons)
+    sk.solve()
+    return [eid, second]
+
+
+# --------------------------------------------------------------------------- tangent arc
+
+def end_direction(sk: Sketch, pid: str):
+    """(curve id, direction) of the open curve that ends at point `pid`, the direction pointing on out of the
+    curve past that end (the way a tangent arc started there would set off). None if no curve ends there."""
+    for eid in _users(sk, pid):
+        e = sk.entities[eid]
+        ends = _ends(e)
+        if not ends or pid not in ends:
+            continue
+        P = sk.P(pid)
+        if e["type"] == "line":
+            d = P - sk.P(e["p2"] if e["p1"] == pid else e["p1"])
+        elif e["type"] == "arc":
+            r = P - sk.P(e["c"])
+            ccw = np.array([-r[1], r[0]])            # the way the arc runs, p1 → p2
+            d = ccw if pid == e["p2"] else -ccw
+        else:                                        # spline, elliptical arc: the last bit of its outline
+            pts = sk.polyline(eid, 128)
+            if pid == ends[1]:
+                d = pts[-1] - pts[-2]
+            else:
+                d = pts[0] - pts[1]
+        n = float(np.linalg.norm(d))
+        if n > TOL:
+            return eid, d / n
+    return None
+
+
+def tangent_arc(sk: Sketch, start_pid: str, end, end_pid=None, construction=False) -> str:
+    """An arc that carries on smoothly (tangent) from the curve ending at `start_pid` and finishes at `end`
+    (sketch coords; end_pid: an existing point to finish on). Returns the arc id."""
+    found = end_direction(sk, start_pid)
+    if found is None:
+        raise ValueError("Start a tangent arc from the end of a line or arc")
+    src, T = found
+    P = sk.P(start_pid)
+    Q = sk.P(end_pid) if end_pid else np.asarray(end, float)
+    v = Q - P
+    nrm = np.array([-T[1], T[0]])
+    k = float(v @ nrm)
+    if abs(k) < 1e-9 * max(1.0, float(np.linalg.norm(v))) or float(v @ v) < TOL:
+        raise ValueError("The end is straight on from the start: use a line")
+    r = float(v @ v) / (2 * abs(k))
+    side = 1.0 if k > 0 else -1.0
+    C = P + side * nrm * r
+    c = sk.add_point(*C)
+    q = end_pid or sk.add_point(*Q)
+    aid = sk.add_arc(c, start_pid, q, construction) if side > 0 else sk.add_arc(c, q, start_pid, construction)
+    s = sk.entities[src]
+    if s["type"] == "line":
+        sk.add_constraint("tangent", aid, src)
+        sk.add_constraint("normal_at", aid, src, start_pid)
+    elif s["type"] == "arc":
+        dd = float(np.linalg.norm(C - sk.P(s["c"])))
+        rs = sk.radius(src)
+        internal = abs(dd - abs(r - rs)) < abs(dd - (r + rs))
+        sk.add_constraint("tangent", aid, src, value=-1.0 if internal else 1.0)
+    sk.solve()
+    return aid
+
+
+# --------------------------------------------------------------------------- extend
+
+def _seg_hits(path, poly):
+    """Where polyline `path` first crosses polyline `poly`: [(distance along path, point)]."""
+    out = []
+    path = np.asarray(path, float)
+    poly = np.asarray(poly, float)
+    if len(path) < 2 or len(poly) < 2:
+        return out
+    run = 0.0
+    for i in range(len(path) - 1):
+        a, d = path[i], path[i + 1] - path[i]
+        L = float(np.linalg.norm(d))
+        if L < 1e-15:
+            continue
+        c = poly[:-1]
+        f = poly[1:] - c
+        den = d[0] * f[:, 1] - d[1] * f[:, 0]
+        ok = np.abs(den) > 1e-15
+        w = c - a
+        t = np.where(ok, (w[:, 0] * f[:, 1] - w[:, 1] * f[:, 0]) / np.where(ok, den, 1), -1)
+        s = np.where(ok, (w[:, 0] * d[1] - w[:, 1] * d[0]) / np.where(ok, den, 1), -1)
+        hit = ok & (t > 1e-9) & (t <= 1 + 1e-12) & (s >= -1e-9) & (s <= 1 + 1e-9)
+        for tt in t[hit]:
+            out.append((run + tt * L, a + tt * d))
+        run += L
+    return out
+
+
+def _span(sk: Sketch) -> float:
+    pts = np.array(list(sk.points.values()), float)
+    return max(float(np.ptp(pts, axis=0).max()) if len(pts) > 1 else 0.0, 10.0)
+
+
+def extend(sk: Sketch, eid: str, at) -> str:
+    """Lengthen a line (straight on) or an arc (round its circle) from the end nearer `at` until it meets the
+    next curve; the new end stays on that curve. Returns the id of the end point moved."""
+    e = sk.entities.get(eid)
+    if e is None or e["type"] not in ("line", "arc"):
+        raise ValueError("Extend works on lines and arcs")
+    at = np.asarray(at, float)
+    end = "p1" if np.linalg.norm(sk.P(e["p1"]) - at) < np.linalg.norm(sk.P(e["p2"]) - at) else "p2"
+    E = sk.P(e[end])
+    if e["type"] == "line":
+        other = sk.P(e["p2" if end == "p1" else "p1"])
+        d = E - other
+        d = d / max(float(np.linalg.norm(d)), 1e-12)
+        path = np.array([E, E + d * _span(sk) * 20])
+    else:
+        C = sk.P(e["c"])
+        r = sk.radius(eid)
+        a0 = math.atan2(E[1] - C[1], E[0] - C[0])
+        a1, a2 = sk.arc_angles(eid)
+        room = 2 * math.pi - (a2 - a1)               # round to the arc's other end, no further
+        sgn = 1.0 if end == "p2" else -1.0           # p2 carries on anticlockwise, p1 clockwise
+        a = a0 + sgn * np.linspace(0, room, 720)
+        path = C + r * np.c_[np.cos(a), np.sin(a)]
+    best = None
+    for oid, o in sk.entities.items():
+        if oid == eid or o["type"] in ("point", "text", "image") or o.get("helper"):
+            continue
+        for dist, q in _seg_hits(path, sk.polyline(oid, 256)):
+            if dist > 1e-7 and (best is None or dist < best[0]):
+                best = (dist, q, oid)
+    if best is None:
+        raise ValueError("Nothing for it to reach: extend runs straight on (or round the arc) to the next curve")
+    _, q, target = best
+    old = e[end]
+    if old == ORIGIN or len(_users(sk, old)) > 1:
+        e[end] = sk.add_point(*q)                   # the end is shared: give this curve its own end
+    else:
+        sk.points[old] = [float(q[0]), float(q[1])]
+    if sk.entities[target]["type"] in ("line", "circle", "arc", "ellipse", "ellipse_arc"):
+        sk.add_constraint("point_on", e[end], target)
+    sk.solve()
+    return e[end]
+
+
+# --------------------------------------------------------------------------- transform
+
+def transform(sk: Sketch, ids, dx: float, dy: float, angle_deg: float = 0.0, centre=(0.0, 0.0), copy=False):
+    """Move (and turn by `angle_deg` about `centre`) the selected geometry, or with copy=True a copy of it,
+    keeping the copy's shape constraints. Returns the ids of the geometry moved / made."""
+    ents = [i for i in _geometry(sk, ids)]
+    c = np.asarray(centre, float)
+    a = math.radians(angle_deg)
+    R = np.array([[math.cos(a), -math.sin(a)], [math.sin(a), math.cos(a)]])
+    off = np.array([float(dx), float(dy)])
+
+    def T(p):
+        return c + R @ (np.asarray(p, float) - c) + off
+    if copy:
+        cons = SHAPE_CONS_LIN if abs(angle_deg) < 1e-12 else SHAPE_CONS_ROT
+        _, emap = _copy(sk, ents, T, copy_cons=cons)
+        sk.solve()
+        return list(emap.values())
+    pts = {p for i in ents for p in sk.entity_points(i)} - {ORIGIN}
+    weights = {}
+    for p in pts:
+        sk.points[p] = T(sk.P(p)).tolist()
+        weights[(p, 0)] = weights[(p, 1)] = 1e3
+    for i in ents:
+        if sk.entities[i]["type"] == "text":
+            sk.entities[i]["angle"] = float(sk.entities[i].get("angle", 0.0)) + angle_deg
+    sk.solve(weights=weights)
+    return ents
+
+
+# --------------------------------------------------------------------------- conic
+
+def conic_weight(rho: float) -> float:
+    """The middle weight of a conic drawn as a rational quadratic: rho < 0.5 ellipse, 0.5 parabola,
+    > 0.5 hyperbola (as in other CAD programs)."""
+    if not (0.0 < rho < 1.0):
+        raise ValueError("Rho must be between 0 and 1")
+    return rho / (1.0 - rho)
+
+
+def conic(sk: Sketch, a, b, shoulder, rho: float, construction=False, a_pid=None, b_pid=None) -> str:
+    """A conic from a to b, tangent at both ends to the lines towards the shoulder point."""
+    w = conic_weight(rho)
+    pa = a_pid or sk.add_point(*a)
+    pb = b_pid or sk.add_point(*b)
+    ps = sk.add_point(*shoulder)
+    if np.linalg.norm(sk.P(pa) - sk.P(pb)) < TOL:
+        raise ValueError("The ends are in the same place")
+    eid = sk.add_spline([pa, ps, pb], False, construction)
+    sk.entities[eid]["poles"] = True
+    sk.entities[eid]["weights"] = [1.0, w, 1.0]
+    sk.entities[eid]["rho"] = float(rho)
+    sk.solve()
+    return eid
+
+
 # --------------------------------------------------------------------------- offset
 
 def _ends(e, splines=True):
     """(start, end) point ids of an open curve: a line, arc or open spline; None for anything else."""
-    if e["type"] in ("line", "arc"):
+    if e["type"] in ("line", "arc", "ellipse_arc"):
         return e["p1"], e["p2"]
     if splines and e["type"] == "spline" and not e.get("closed") and len(e.get("pts", [])) >= 2:
         return e["pts"][0], e["pts"][-1]
@@ -187,7 +559,7 @@ def offset(sk: Sketch, eid: str, dist: float):
     if abs(dist) < TOL:
         raise ValueError("Offset distance can't be zero")
     e0 = sk.entities.get(eid)
-    if e0 is None or e0["type"] in ("point", "spline", "ellipse", "text"):
+    if e0 is None or e0["type"] in ("point", "spline", "ellipse", "ellipse_arc", "text", "image"):
         raise ValueError("Offset works on lines, arcs and circles")
     cons = e0.get("construction", False)
     if e0["type"] == "circle":
@@ -323,8 +695,19 @@ def _copy(sk: Sketch, ents, transform, keep=frozenset(), orient_flip=False, copy
             emap[eid] = sk.add_point_entity(P(e["p"]))
         elif t == "spline":
             emap[eid] = sk.add_spline([P(q) for q in e["pts"]], e.get("closed", False), c)
+            for k in ("poles", "weights"):
+                if k in e:
+                    sk.entities[emap[eid]][k] = list(e[k]) if k == "weights" else e[k]
         elif t == "ellipse":
             emap[eid] = sk.add_ellipse(P(e["c"]), P(e["a"]), e["r"], c)
+        elif t == "ellipse_arc":
+            p1, p2 = P(e["p1"]), P(e["p2"])
+            if orient_flip:
+                p1, p2 = p2, p1
+            emap[eid] = sk.add_ellipse_arc(P(e["c"]), P(e["a"]), e["r"], p1, p2, c)
+        elif t == "image":
+            p1, p2 = P(e["p1"]), P(e["p2"])
+            emap[eid] = sk.add_image(p1, p2, e["data"], e.get("aspect", 1.0))
         elif t == "text":
             # text keeps reading left to right: it moves and turns with the copy but is never mirrored
             o = np.asarray(sk.P(e["p"]), float)

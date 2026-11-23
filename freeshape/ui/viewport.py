@@ -2164,6 +2164,9 @@ class Viewport(QOpenGLWidget):
 
     def mouseDoubleClickEvent(self, e):
         pos = e.position()
+        if e.button() == Qt.MiddleButton:              # double-click the wheel: zoom to fit, as in most CAD
+            self.fit()
+            return
         if self.sketcher:
             self.sketcher.double_click(self, pos.x(), pos.y(), e)
             self.update()
