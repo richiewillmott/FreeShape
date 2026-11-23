@@ -341,6 +341,18 @@ Everything the UI does goes through a small Python API, so models can be generat
 See `examples/make_bracket.py`. Inside the app, **plugins** add features and commands, and **Document ▸ Plugins ▸
 Run a Python script…** runs a script against the open Part Studio — both are described in [PLUGINS.md](../PLUGINS.md).
 
+**Export as Python script** (Document menu) writes the tab you're on — and the tabs linked to it: the Part Studios
+an assembly uses, the drawings of them — as one Python script that builds it all again. It comes in three parts,
+*1. CAD model*, *2. Assembly*, *3. Drawing*, and your typed variables (Variable feature: a length, angle or number
+you entered) come first as plain Python values — change `wall = 3` to `wall = 4` and run it again for the thicker
+version. Sketches are written one point, curve and dimension per line; other features as their settings.
+
+**Run Python script…** (Document menu) runs such a script and opens what it builds as new tabs. From a terminal,
+`python my_model.py [folder]` saves the files instead (needs FreeShape's source on the Python path). A script is a
+Python program, so only run ones you trust. A script keeps working as long as a saved file would: it goes through
+the same loader. Parts an assembly uses from a Part Studio that wasn't exported with it, imported STEP files and
+pictures are kept inside the script (in its `DATA` section at the end).
+
 
 ## Honest limits
 

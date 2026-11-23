@@ -46,10 +46,23 @@ def run_command(main, cmd):
     main._after_plugin()
 
 
+def is_project_script(path) -> bool:
+    """A script made by Export as Python script (it has a build(ws) function that builds documents)."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    except OSError:
+        return False
+    return "def build(ws" in text and "freeshape import script" in text
+
+
 def run_script(main):
     from . import filedlg
     path, _ = filedlg.getOpenFileName(main, "Run a Python script", "", "Python scripts (*.py)")
     if not path:
+        return
+    if is_project_script(path):                     # an exported project: rebuild it as tabs instead
+        main.run_script(path)
         return
     try:
         P.run_script(path, main)

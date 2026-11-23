@@ -12,6 +12,12 @@ More sketch tools, and the sketch toolbar grouped more like other CAD programs.
   model), a click selects the one shown; `` ` `` or right-click → *Select other…* lists it all. Right-click
   **selection tools**: tangent-connected faces / edges, adjacent faces, edge loop, edges of a face, faces or edges
   of the same size.
+- **Export as Python script / Run Python script** (Document menu): a project — the Part Studios, assemblies and
+  drawings linked to the tab you're on — as one script in three parts (CAD model, assembly, drawing) that builds it
+  again, with your typed variables first as plain Python values. Run it in FreeShape to open it as tabs, or with
+  Python to save the files.
+- Tests no longer leave autosaved "Part Studio 1" documents in your FreeShape folder (they were offered for recovery
+  the next time FreeShape started).
 - **Keyboard shortcuts window** (Document menu, or ?) is now a table you can search: type *trim* or *Shift+X*.
 - Fixed: a resized plane picked in a feature dialog (Plane, Sketch …) was outlined at its default size; your own
   planes were outlined bigger than they're drawn.

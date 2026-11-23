@@ -1582,6 +1582,11 @@ class DrawingDoc:
     def load(path, resolver=None, hlr_async=None):
         with open(path) as fh:
             d = json.load(fh)
+        return DrawingDoc.from_dict(d, path, resolver, hlr_async)
+
+    @staticmethod
+    def from_dict(d, path=None, resolver=None, hlr_async=None, refresh=True):
+        """A drawing from its file contents (what load() reads, and what a FreeShape script builds)."""
         if d.get("format") != FILE_FORMAT:
             raise K.KernelError("Not a FreeShape drawing")
         g = DrawingDoc()
@@ -1595,7 +1600,7 @@ class DrawingDoc:
         g.bom = d.get("bom", [])
         g.path = path
         src = g.source or {}
-        if src.get("relpath") and not (src.get("path") and os.path.exists(src["path"])):
+        if path and src.get("relpath") and not (src.get("path") and os.path.exists(src["path"])):
             cand = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(path)), src["relpath"]))
             if os.path.exists(cand):
                 src["path"] = cand
@@ -1609,7 +1614,8 @@ class DrawingDoc:
         g._saved_views = d.get("_views")
         g.resolver = resolver
         g.hlr_async = hlr_async
-        g.refresh(notify=False)
+        if refresh:
+            g.refresh(notify=False)
         return g
 
     def _use_saved_views(self):

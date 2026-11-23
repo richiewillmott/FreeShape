@@ -340,6 +340,9 @@ class MainWindow(QMainWindow):
         self._add_action(m, "Export BREP…", lambda: self.export(None, "brep"))
         self._add_action(m, "Nest sheet metal for cutting…", self.nest_for_cutting)
         m.addSeparator()
+        self._add_action(m, "Export as Python script…", self.export_script)
+        self._add_action(m, "Run Python script…", self.run_script)
+        m.addSeparator()
         self._add_action(m, "Create version…", self.create_version)
         self._add_action(m, "Version history…", self.show_history, "Ctrl+Alt+H")
         plm = submenu(m, "Plugins")
@@ -2283,7 +2286,12 @@ class MainWindow(QMainWindow):
     @staticmethod
     def autosave_root():
         from PySide6.QtCore import QStandardPaths
-        # a fixed location (not tied to the app name Qt was given) so every start finds the same folder
+        # a fixed location (not tied to the app name Qt was given) so every start finds the same folder;
+        # FREESHAPE_AUTOSAVE_DIR moves it (the tests use their own, so they never touch yours)
+        d = os.environ.get("FREESHAPE_AUTOSAVE_DIR")
+        if d:
+            os.makedirs(d, exist_ok=True)
+            return d
         generic = QStandardPaths.writableLocation(QStandardPaths.GenericDataLocation)
         base = os.path.join(generic, "FreeShape") if generic else os.path.expanduser("~/.freeshape")
         d = os.path.join(base, "autosave")
@@ -4237,6 +4245,119 @@ class MainWindow(QMainWindow):
             "<p>Built on open-source libraries including the Open CASCADE Technology geometry kernel (LGPL 2.1) "
             "and Qt / PySide6 (LGPL 3) — see THIRD-PARTY-NOTICES.txt.</p>"
             "<p><a href='https://github.com/richiewillmott/FreeShape'>github.com/richiewillmott/FreeShape</a></p>"))
+
+    # ------------------------------------------------------------------ Python scripts
+    def _open_docs(self):
+        return [d for d in (self.docs.get(self.tabs.tabData(i)) for i in range(self.tabs.count())) if d is not None]
+
+    def export_script(self):
+        """Document → Export as Python script…: this tab and the tabs linked to it (the Part Studios its assembly
+        uses, its drawings …) as one script that builds them all again, variables first."""
+        from .. import script as S
+        if self.doc is None:
+            return
+        if self.mode == "sketch":
+            self.finish_sketch()
+        elif self.mode == "dialog":
+            self.status.showMessage("Finish or cancel the feature you're editing first", 5000)
+            return
+        docs = S.linked(self._open_docs(), self.doc)
+        base = self.doc.name.replace(" ", "_") + ".py"
+        if getattr(self.doc, "path", None):
+            base = os.path.join(os.path.dirname(self.doc.path), os.path.splitext(os.path.basename(self.doc.path))[0]
+                                + ".py")
+        path, _ = filedlg.getSaveFileName(self, "Export as Python script", base, "Python script (*.py)")
+        if not path:
+            return
+        if not path.lower().endswith(".py"):
+            path += ".py"
+        try:
+            text = S.dump(docs)
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(text)
+        except Exception as e:
+            QMessageBox.critical(self, APP_NAME, f"Couldn't write the script:\n{e}")
+            return
+        names = ", ".join(d.name for d in docs)
+        self.status.showMessage(f"Script saved: {os.path.basename(path)} ({names})", 8000)
+
+    def run_script(self, path=None):
+        """Document → Run Python script…: run a FreeShape script and open what it builds as new tabs."""
+        from .. import script as S
+        if not path:
+            path, _ = filedlg.getOpenFileName(self, "Run Python script", "", "Python script (*.py)")
+            if not path:
+                return
+            if not getattr(self, "_script_ok", False):
+                ok = QMessageBox.question(
+                    self, APP_NAME, "A script is a Python program: it can do anything a program on your computer can. "
+                    "Only run scripts you trust (ones you exported yourself, say).\n\nRun it?")
+                if ok != QMessageBox.Yes:
+                    return
+                self._script_ok = True
+        from .plugin_ui import is_project_script
+        if not is_project_script(path):
+            # an older-style script that works on the open Part Studio (see PLUGINS.md): run it that way
+            from .. import plugins as P
+            try:
+                P.run_script(path, self)
+                self.status.showMessage(f"Ran {os.path.basename(path)}", 5000)
+            except Exception as e:
+                QMessageBox.warning(self, APP_NAME, f"{os.path.basename(path)} failed:\n\n{type(e).__name__}: {e}")
+            self._after_plugin()
+            return
+        self.status.showMessage(f"Running {os.path.basename(path)}…")
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        try:
+            ws = S.run_file(path)
+            docs = ws.documents()
+        except Exception as e:
+            QApplication.restoreOverrideCursor()
+            import traceback
+            tb = traceback.format_exc(limit=6)
+            QMessageBox.critical(self, APP_NAME, f"The script stopped with an error:\n{e}\n\n{tb[-1500:]}")
+            self.status.clearMessage()
+            return
+        finally:
+            if QApplication.overrideCursor() is not None:
+                QApplication.restoreOverrideCursor()
+        self._fresh_uids(docs)
+        for d in docs:
+            self._add_tab(d)
+            if getattr(d, "kind", "") in ("assembly", "drawing"):
+                d.refresh()                              # now linked through the app's tabs
+        errs = ws.errors()
+        msg = f"Script built {len(docs)} document(s): " + ", ".join(d.name for d in docs)
+        if errs:
+            msg += " — some features failed: " + "; ".join(f"{n}: {len(e)}" for n, e in errs.items())
+        self.status.showMessage(msg, 10000)
+        return docs
+
+    def _fresh_uids(self, docs):
+        """Documents a script built get new ids if the originals are open too, so links stay inside the script's
+        set (an assembly links to the Part Studio the script made, not the one already open)."""
+        import uuid
+        open_uids = {getattr(d, "uid", None) for d in self._open_docs()}
+        remap = {}
+        for d in docs:
+            if getattr(d, "uid", None) in open_uids:
+                remap[d.uid] = uuid.uuid4().hex
+                d.uid = remap[d.uid]
+        if not remap:
+            return
+        for d in docs:
+            kind = getattr(d, "kind", "")
+            if kind == "assembly":
+                for inst in d.instances:
+                    src = inst.get("source", {})
+                    if src.get("uid") in remap:
+                        src["uid"] = remap[src["uid"]]
+                for sub in d.subs:
+                    src = sub.get("source", {})
+                    if src.get("uid") in remap:
+                        src["uid"] = remap[src["uid"]]
+            elif kind == "drawing" and d.source and d.source.get("uid") in remap:
+                d.source["uid"] = remap[d.source["uid"]]
 
     def show_shortcuts(self):
         """Document → Keyboard shortcuts (or ?): every key, in a table you can search."""

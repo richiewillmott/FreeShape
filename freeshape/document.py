@@ -708,6 +708,11 @@ class Document:
     def load(path) -> "Document":
         with open(path) as fh:
             d = json.load(fh)
+        return Document.from_dict(d, path)
+
+    @staticmethod
+    def from_dict(d, path=None) -> "Document":
+        """A Part Studio from its file contents (what load() reads, and what a FreeShape script builds), rebuilt."""
         doc = Document()
         doc.name = d.get("name", "Part Studio 1")
         doc.uid = d.get("uid") or doc.uid

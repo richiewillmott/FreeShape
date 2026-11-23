@@ -1691,6 +1691,11 @@ class AssemblyDoc:
     def load(path, resolver=None):
         with open(path) as fh:
             d = json.load(fh)
+        return AssemblyDoc.from_dict(d, path, resolver)
+
+    @staticmethod
+    def from_dict(d, path=None, resolver=None, refresh=True):
+        """An assembly from its file contents (what load() reads, and what a FreeShape script builds)."""
         if d.get("format") != FILE_FORMAT:
             raise K.KernelError("Not a FreeShape assembly")
         a = AssemblyDoc()
@@ -1706,10 +1711,10 @@ class AssemblyDoc:
         a.units = d.get("units", "mm")
         a.blobs = d.get("blobs", {})
         a.path = path
-        base = os.path.dirname(os.path.abspath(path))
+        base = os.path.dirname(os.path.abspath(path)) if path else None
         for inst in a.instances:
             src = inst["source"]
-            if src.get("relpath") and not (src.get("path") and os.path.exists(src["path"])):
+            if base and src.get("relpath") and not (src.get("path") and os.path.exists(src["path"])):
                 cand = os.path.normpath(os.path.join(base, src["relpath"]))
                 if os.path.exists(cand):
                     src["path"] = cand
@@ -1717,5 +1722,6 @@ class AssemblyDoc:
                 for x in a.instances + a.mates + a.relations + a.patterns + a.subs]
         a._counter = max(nums + [0])
         a.resolver = resolver
-        a.refresh(solve=False, notify=False)
+        if refresh:
+            a.refresh(solve=False, notify=False)
         return a
