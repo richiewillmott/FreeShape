@@ -960,6 +960,91 @@ def _sweep_up_to(state, p, face, kind, how):
     return K.keep_piece_from(sweep_long(), tool, seed)
 
 
+def up_to_side(state, ftype, p, which=1) -> int:
+    """Which way an Extrude / Revolve "Up to …" end has to go to reach its target: +1 the way it points without
+    Opposite direction, -1 the other way, 0 if that can't be told (or either way works). which=2: the extrude's
+    second end (its +1 is still the first end's way, as the second end always runs opposite the first). Used by
+    the dialog to turn the arrow towards the face / vertex / part picked, as Onshape does."""
+    from . import body_options as BO
+    end = p.get("end") if which == 1 else p.get("end2")
+    target = (p.get("up_to") if which == 1 else p.get("up_to2")) or {}
+    if end not in UP_TO:
+        return 0
+    try:
+        profs = BO.profiles(state, p, _profiles(state, p))
+        if not profs:
+            return 0
+        solid_profs = [f for f in profs if f.ShapeType() == 4]
+
+        def target_point():
+            if end == "up_to_vertex" and target.get("kind") == "vertex":
+                return resolve_point(state, target["ref"])
+            if end == "up_to_face" and target.get("kind") == "face":
+                return np.asarray(K.face_info(resolve(state, target["ref"], "face")[1])["c"], float)
+            if end == "up_to_part" and target.get("kind") == "part" and target.get("id") in state.parts:
+                lo, hi = K.bbox(state.parts[target["id"]].shape)
+                return (np.asarray(lo, float) + np.asarray(hi, float)) / 2
+            return None
+        if ftype == "revolve":
+            if end == "up_to_next" or not solid_profs:
+                return 0
+            a, d = resolve_axis(state, p.get("axis", {}))
+            q = target_point()
+            if q is None and end == "up_to_face" and target.get("kind") == "plane":
+                return 0
+            if q is None:
+                return 0
+            ang = K.angle_about(K.interior_point(solid_profs[0]), q, a, d)
+            if ang < 1e-6 or abs(ang - 180) < 1e-6:
+                return 0
+            return 1 if ang < 180 else -1
+        n = np.asarray(BO.profile_normal(state, p, profs), float)
+        n = n / np.linalg.norm(n)
+        cutting = p.get("op", "add") in ("remove", "intersect")
+        if cutting and not p.get("regions"):
+            n = -n                                         # (as run_extrude: cuts from a face go into the part)
+        o = _profile_origin(state, p, profs)
+        if end == "up_to_face" and target.get("kind") == "plane":
+            pl = resolve_plane(state, target["ref"])
+            pn = np.asarray(pl.normal, float)
+            den = float(n @ pn)
+            if abs(den) < 1e-6:
+                return 0
+            t = float((np.asarray(pl.origin, float) - o) @ pn) / den
+        elif end in ("up_to_face", "up_to_vertex"):
+            q = target_point()
+            if q is None:
+                return 0
+            t = float((q - o) @ n)
+        else:                                              # up to next / up to a part: which way meets it
+            if not solid_profs:
+                return 0
+            pid = target.get("id") if end == "up_to_part" and target.get("kind") == "part" else None
+            if end == "up_to_part" and pid not in state.parts:
+                return 0
+            parts = [state.parts[pid]] if pid else list(state.parts.values())
+            size = _model_size(state, solid_profs) * 2 + 10
+            start = K.interior_point(solid_profs[0])
+            eps = max(size * 1e-6, 1e-5)
+
+            def meets(direction):
+                sweep = K.extrude(solid_profs, direction, size)
+                for pt in parts:
+                    # building onto a part from its own face: that part isn't "the next one" that way
+                    if not cutting and K._point_in(pt.shape, start + direction * eps):
+                        continue
+                    if K.intersects(pt.shape, sweep):
+                        return True
+                return False
+            fwd, back = meets(n), meets(-n)
+            return 0 if fwd == back else (1 if fwd else -1)
+        if abs(t) < 1e-7:
+            return 0
+        return 1 if t > 0 else -1
+    except (K.KernelError, KeyError, IndexError, ValueError, TypeError):
+        return 0
+
+
 def _first_point(wire):
     from . import body_options as BO
     return BO._ends(wire)[0]

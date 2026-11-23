@@ -129,7 +129,8 @@ class Viewport(QOpenGLWidget):
         self._section_cache_key = None
         self._section_meshes = {}
         self.measure_line = None  # (p1, p2) world points of a measured distance
-        # drag arrows: dicts {origin, dir, value, on_drag(value), on_done()} — like Onshape's manipulators
+        # drag arrows: dicts {origin, dir, value, on_drag(value), on_done(), on_click(), drag} — like Onshape's
+        # manipulators: drag to stretch (unless drag is False), click to flip
         self.manipulators = []
         self._manip_drag = None
         self._manip_hover = None
@@ -1948,7 +1949,8 @@ class Viewport(QOpenGLWidget):
             if btn == Qt.LeftButton and self._manip_drag is not None:
                 md = self._manip_drag
                 m = self.manipulators[md["i"]]
-                t = self._manip_param(m, x, y)
+                # only once it's really dragged (a click flips it instead), and not an arrow that can't stretch
+                t = self._manip_param(m, x, y) if self._moved and m.get("drag", True) else None
                 if t is not None:
                     v = t - md["offset"]
                     step = m.get("snap", 0.0)
@@ -2116,7 +2118,9 @@ class Viewport(QOpenGLWidget):
         if self._manip_drag is not None:
             m = self.manipulators[self._manip_drag["i"]] if self._manip_drag["i"] < len(self.manipulators) else None
             self._manip_drag = None
-            if m and m.get("on_done"):
+            if m and not self._moved and m.get("on_click"):
+                m["on_click"]()                          # clicked, not dragged: flip it, like Onshape
+            elif m and m.get("on_done"):
                 m["on_done"]()
             self.update()
             return

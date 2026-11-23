@@ -689,6 +689,20 @@ def draw(name: str, p: QPainter):
         p.setPen(_pen(ORANGE, 2.2))
         p.drawLine(QPointF(27, 18), QPointF(27, 28))
         p.drawLine(QPointF(22, 23), QPointF(32, 23))
+    elif name in ("dir_normal", "dir_flipped"):
+        # the direction arrow on Extrude, Revolve …: up normally, down when flipped (as Onshape's)
+        p.setPen(_pen(INK, 1.2))
+        p.setBrush(QColor("#e8eef7"))
+        p.drawPolygon(QPolygonF([QPointF(6, 26), QPointF(26, 26), QPointF(22, 21), QPointF(10, 21)]))
+        up = name == "dir_normal"
+        tip, tail = (4.0, 19.0) if up else (19.0, 4.0)
+        p.setPen(_pen(BLUE, 2.6))
+        p.drawLine(QPointF(16, tail), QPointF(16, tip + (3 if up else -3)))
+        p.setPen(Qt.NoPen)
+        p.setBrush(BLUE)
+        d = 1 if up else -1
+        p.drawPolygon(QPolygonF([QPointF(16, tip), QPointF(10.5, tip + 7 * d), QPointF(21.5, tip + 7 * d)]))
+        p.setBrush(Qt.NoBrush)
     elif name == "finish_sketch":
         p.setPen(Qt.NoPen)
         p.setBrush(QColor("#1e8e3e"))

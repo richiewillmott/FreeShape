@@ -100,7 +100,9 @@ through and use them in later features.
 icons there* writes them all as PNGs with the right names to start from; *Reload icons* applies changes. [ICONS.md](ICONS.md) lists every icon name.
 
 **Part features** — each opens a floating dialog with a live preview; ✓ (Enter) accepts, ✕ (Esc) cancels.
-Things selected before opening a feature are pre-filled. Extrude and Plane show a **blue arrow you can drag** to set the depth/offset (drag back past the start to flip direction; hold Shift for finer, unsnapped values).
+Things selected before opening a feature are pre-filled. Extrude and Plane show a **blue arrow you can drag** to set the depth/offset (drag back past the start to flip direction; hold Shift for finer, unsnapped values). **Click the arrow** to flip the direction; Revolve shows one too, pointing the way it turns. In the dialogs the direction is an **arrow button** (at the right of the end type or distance): it points down when flipped, click it to flip.
+
+**Up to next / face / part / vertex** turn the direction towards what they go up to by themselves, as Onshape does: pick a face below the sketch and the extrude turns down to it. This works for the second end too (the first end turns away so the second, which always runs opposite, can reach its target). Click the arrow to turn it back if you want.
 
 - **Solid, Surface or Thin** — Extrude, Revolve, Sweep and Loft can make a solid from regions and faces, a
   **surface** from sketch curves, edges or region outlines, or a **thin** wall by thickening them (both sides

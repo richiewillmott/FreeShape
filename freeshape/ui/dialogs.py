@@ -5,7 +5,7 @@ import copy
 import json
 
 import numpy as np
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, Signal, QSize
 from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, QToolButton, QLineEdit, QComboBox, QCheckBox,
@@ -412,6 +412,20 @@ def _check(key, label, visible=None):
     return {"t": "check", "key": key, "label": label, "visible": visible}
 
 
+def _flip_look(b):
+    """An arrow button's icon and tip for its state."""
+    on = b.isChecked()
+    b.setIcon(icon("dir_flipped" if on else "dir_normal"))
+    b.setToolTip(f"{b.property('flip_label')}: {'flipped' if on else 'not flipped'} — click to flip "
+                 "(or click the arrow in the view)")
+
+
+def _flip(key, label, inline=None, visible=None):
+    """An Onshape-style direction arrow button (instead of an "Opposite direction" tick box). inline: the key of
+    the row it sits at the right of (the end type, the distance …); without one it gets a row of its own."""
+    return {"t": "flip", "key": key, "label": label, "inline": inline, "visible": visible}
+
+
 def _sel(key, label, want, multi=True, visible=None):
     return {"t": "sel", "key": key, "label": label, "want": want, "multi": multi, "visible": visible}
 
@@ -563,7 +577,7 @@ SCHEMAS = {
         *_UP_TO_FIELDS,
         _num("offset", "Stop short by",
              visible=lambda p: p.get("end") in ("up_to_face", "up_to_vertex")),
-        _check("flip", "Opposite direction", visible=lambda p: p.get("end") != "symmetric"),
+        _flip("flip", "Opposite direction", inline="end", visible=lambda p: p.get("end") != "symmetric"),
         _check("second", "Second end position", visible=lambda p: p.get("end") not in ("symmetric", "through")),
         _choice("end2", "Second end type", [("blind", "Blind"), ("symmetric", "Symmetric (mirror of the first end)"),
                                             ("through", "Through all")] + F.UP_TO_LABELS,
@@ -603,8 +617,8 @@ SCHEMAS = {
         _num("offset", "Stop short by",
              visible=lambda p: p.get("end") == "up_to_face"),
         _check("mirror_end", "Symmetric (mirror it the other way too)", visible=lambda p: p.get("end") in F.UP_TO),
-        _check("flip", "Opposite direction",
-               visible=lambda p: p.get("end") in ("one", "two") or p.get("end") in F.UP_TO),
+        _flip("flip", "Opposite direction", inline="end",
+              visible=lambda p: p.get("end") in ("one", "two") or p.get("end") in F.UP_TO),
     ],
     "fillet": [
         _sel("edges", "Edges or faces to fillet", {"edge"}),
@@ -639,12 +653,12 @@ SCHEMAS = {
     "move_face": [
         _sel("faces", "Flat faces to move", {"face"}),
         _num("distance", "Distance (outwards)"),
-        _check("flip", "Flip direction"),
+        _flip("flip", "Flip direction", inline="distance"),
     ],
     "offset_surface": [
         _sel("faces", "Faces to offset", {"face"}),
         _num("distance", "Distance (outwards)"),
-        _check("flip", "Flip direction"),
+        _flip("flip", "Flip direction", inline="distance"),
     ],
     "plane": [
         _choice("type", "Plane type", F.PLANE_TYPES),
@@ -652,7 +666,7 @@ SCHEMAS = {
         {"t": "info", "key": "_info", "text": lambda p: _plane_info(p)},
         _num("offset", "Offset distance", visible=lambda p: F.plane_type(p) == "offset"),
         _num("angle", "Angle", unit="deg", visible=lambda p: F.plane_type(p) == "line_angle"),
-        _check("flip", "Flip direction", visible=lambda p: F.plane_type(p) is not None),
+        _flip("flip", "Flip direction", inline="type", visible=lambda p: F.plane_type(p) is not None),
     ],
     "mirror": [
         *_pattern_of("mirror"),
@@ -670,7 +684,7 @@ SCHEMAS = {
         _choice("dir_std", "…or world axis", [("", "—"), ("X", "X axis"), ("Y", "Y axis"), ("Z", "Z axis")]),
         _num("spacing", "Distance"),
         _num("count", "Instance count", unit=""),
-        _check("flip", "Opposite direction"),
+        _flip("flip", "Opposite direction", inline="spacing"),
         _check("second", "Second direction"),
         _sel("dir2_sel", "Second direction (edge or sketch line)", {"axis"}, multi=False,
              visible=lambda p: p.get("second")),
@@ -678,7 +692,7 @@ SCHEMAS = {
                 visible=lambda p: p.get("second")),
         _num("spacing2", "Second distance", visible=lambda p: p.get("second")),
         _num("count2", "Second instance count", unit="", visible=lambda p: p.get("second")),
-        _check("flip2", "Opposite second direction", visible=lambda p: p.get("second")),
+        _flip("flip2", "Opposite second direction", inline="spacing2", visible=lambda p: p.get("second")),
     ],
     "circular_pattern": [
         *_pattern_of("pattern"),
@@ -722,7 +736,7 @@ SCHEMAS = {
         _sel("faces", "Faces to draft", {"face"}),
         _sel("neutral_sel", "Neutral plane", {"plane"}, multi=False),
         _num("angle", "Draft angle", unit="deg"),
-        _check("flip", "Opposite direction"),
+        _flip("flip", "Opposite direction", inline="angle"),
     ],
     "split": [
         _sel("parts", "Parts to split", {"part"}),
@@ -777,7 +791,7 @@ SCHEMAS = {
         _sel("parts", "Parts to grow out to (none: all)", {"part"}),
         _num("thickness", "Thickness", minimum=1e-6),
         _choice("direction", "Rib grows", _mf().RIB_DIRECTIONS),
-        _check("flip", "Opposite direction"),
+        _flip("flip", "Opposite direction", inline="direction"),
     ],
     "delete_part": [
         _sel("parts", "Parts to delete", {"part"}),
@@ -795,7 +809,7 @@ SCHEMAS = {
         _num("height", "Height", minimum=1e-6, visible=lambda p: p.get("mode", "turns_pitch") != "turns_pitch"),
         _num("start_angle", "Start angle", unit="deg"),
         _check("left_hand", "Left-handed (turns anticlockwise)"),
-        _check("flip", "Opposite direction"),
+        _flip("flip", "Direction"),
     ],
     "compound": [
         _sel("parts", "Solid parts (none: all)", {"part"}),
@@ -835,7 +849,7 @@ SCHEMAS = {
         _choice("method", "Measure method", _mv().METHODS, visible=lambda p: p.get("mtype", "distance") == "distance"),
         _choice("component", "Value", _mv().COMPONENTS, visible=lambda p: p.get("mtype", "distance") == "distance"),
         _num("ray_offset", "Ray origin offset", visible=lambda p: p.get("mtype") == "ray"),
-        _check("ray_flip", "Opposite direction", visible=lambda p: p.get("mtype") == "ray"),
+        _flip("ray_flip", "Opposite direction", inline="ray_offset", visible=lambda p: p.get("mtype") == "ray"),
         _check("ray_closest", "Closest", visible=lambda p: p.get("mtype") == "ray"),
         _check("ray_box", "Box intersection",
                visible=lambda p: p.get("mtype") == "ray" and not p.get("ray_closest", True)),
@@ -1294,11 +1308,20 @@ class FeatureDialog(_ResizableFrame):
         line.setStyleSheet("color:#e3e6ea;")
         lay.addWidget(line)
         p = self.feature["params"]
+        self._inline = []                                 # (flip spec, its arrow button) sitting in another row
+        inline = {s["inline"]: s for s in self.schema if s["t"] == "flip" and s.get("inline")}
         for spec in self.schema:
+            if spec["t"] == "flip" and spec.get("inline"):
+                continue                                  # made with the row it sits in
             w = self._make_row(spec, p)
             if w is not None:
                 lay.addWidget(w)
                 self.rows.append((spec, w))
+                fs = inline.get(spec.get("key"))
+                if fs is not None and w.layout() is not None:
+                    btn = self._flip_button(fs, p)
+                    w.layout().addWidget(btn)
+                    self._inline.append((fs, btn))
         self.err = QLabel("")
         self.err.setObjectName("dialogError")
         self.err.setWordWrap(True)
@@ -1353,6 +1376,12 @@ class FeatureDialog(_ResizableFrame):
         row = QWidget()
         h = QHBoxLayout(row)
         h.setContentsMargins(0, 0, 0, 0)
+        if t == "flip":                                   # an arrow button on a row of its own
+            lab = QLabel(spec["label"])
+            lab.setStyleSheet("color:#4b5563;")
+            h.addWidget(lab, 1)
+            h.addWidget(self._flip_button(spec, p))
+            return row
         if t == "check":
             cb = QCheckBox(spec["label"])
             cb.setChecked(bool(p.get(spec["key"])))
@@ -1458,6 +1487,20 @@ class FeatureDialog(_ResizableFrame):
             return row
         return None
 
+    def _flip_button(self, spec, p):
+        """The direction arrow: points up normally, down when flipped. Click it (or the arrow in the view)."""
+        b = QToolButton()
+        b.setObjectName("flipButton")
+        b.setCheckable(True)
+        b.setAutoRaise(True)
+        b.setIconSize(QSize(20, 20))
+        b.setChecked(bool(p.get(spec["key"])))
+        b.setProperty("flip_label", spec["label"])
+        _flip_look(b)
+        b.toggled.connect(lambda v, b=b, k=spec["key"]: (_flip_look(b), self._set(k, v)))
+        self.widgets[spec["key"]] = b
+        return b
+
     def _split_rows(self):
         """One row per Split tool: its name, Keep both sides, and Flip (which side stays) when not."""
         box = getattr(self, "_split_box", None)
@@ -1518,7 +1561,7 @@ class FeatureDialog(_ResizableFrame):
             if spec["key"] == "_info":           # warnings in red, hints in green
                 lab.setStyleSheet("color:#d93025; font-weight:600;" if txt.startswith("⚠")
                                   else "color:#2e9e44; font-weight:600;")
-        for spec, w in self.rows:
+        for spec, w in self.rows + getattr(self, "_inline", []):
             vis = spec.get("visible")
             w.setVisible(True if vis is None else bool(vis(p)))
         for f in self.fields.values():
@@ -1749,8 +1792,45 @@ class FeatureDialog(_ResizableFrame):
         fields = {k: f.items for k, f in self.fields.items()}
         fields_to_params(self.ftype, fields, self.feature["params"])
         self._auto_op()
+        snd = self.sender()
+        for which, keys in ((1, ("upto_face", "upto_vertex", "upto_part")),
+                            (2, ("upto2_face", "upto2_vertex", "upto2_part"))):
+            if any(snd is self.fields.get(k) for k in keys):
+                self._auto_direction(which)                # a face / vertex / part to go up to: turn towards it
         self._sync_visibility()
         self.schedule_preview()
+
+    def _auto_direction(self, which=1):
+        """Like Onshape: for an "Up to …" end, point the arrow the way that reaches what it goes up to (for the
+        first end and, unlike Onshape, the second too). You can still flip it back with the arrow."""
+        if self.ftype not in ("extrude", "revolve"):
+            return
+        try:
+            pp = F.prepare(self.feature, self.base_state)["params"]
+        except K.KernelError:
+            return
+        side = F.up_to_side(self.base_state, self.ftype, pp, which)
+        if not side:
+            return
+        p = self.feature["params"]
+        cur = -1 if p.get("flip") else 1
+        if which == 1:
+            want = side != cur
+        else:
+            # the second end runs opposite the first: flip both if its target is on the first end's side,
+            # unless that would turn the first end away from its own target
+            first = F.up_to_side(self.base_state, self.ftype, pp, 1) if pp.get("end") in F.UP_TO else 0
+            want = side == cur and first != cur
+        if want:
+            self._toggle_flip()
+
+    def _toggle_flip(self, key="flip"):
+        """Flip the direction (the arrow button, or a click on the arrow in the view)."""
+        w = self.widgets.get(key)
+        if isinstance(w, QToolButton) and w.isCheckable():
+            w.setChecked(not w.isChecked())              # its toggled signal sets the param and previews
+        else:
+            self._set(key, not self.feature["params"].get(key, False))
 
     AUTO_OP_TYPES = ("extrude", "revolve", "sweep")
 
@@ -1891,10 +1971,14 @@ class FeatureDialog(_ResizableFrame):
             fk = {"up_to_face": "upto_face", "up_to_vertex": "upto_vertex", "up_to_part": "upto_part"}.get(value)
             if fk in self.fields:
                 QTimer.singleShot(0, lambda fk=fk: self.activate(self.fields[fk]))
+            if value in F.UP_TO:
+                QTimer.singleShot(0, lambda: self._auto_direction(1))     # up to next, or one already picked
         if key == "end2" and self.ftype == "extrude":
             fk = {"up_to_face": "upto2_face", "up_to_vertex": "upto2_vertex", "up_to_part": "upto2_part"}.get(value)
             if fk in self.fields:
                 QTimer.singleShot(0, lambda fk=fk: self.activate(self.fields[fk]))
+            if value in F.UP_TO:
+                QTimer.singleShot(0, lambda: self._auto_direction(2))
         if key in ("axis_std", "dir_std", "dir2_std") and value:
             # choosing a world axis replaces a picked axis
             fk = {"axis_std": "axis_sel", "dir_std": "dir_sel", "dir2_std": "dir2_sel"}[key]
@@ -1925,10 +2009,12 @@ class FeatureDialog(_ResizableFrame):
         w = self.widgets.get(key)
         if isinstance(w, QLineEdit):
             w.setText(self._num_text(key, value))
-        elif isinstance(w, QCheckBox):
+        elif isinstance(w, (QCheckBox, QToolButton)) and w.isCheckable():
             w.blockSignals(True)
             w.setChecked(bool(value))
             w.blockSignals(False)
+            if w.property("flip_label"):
+                _flip_look(w)
 
     def _snap_step(self):
         raw = self.main.viewport.cam.scale * 6        # roughly 6 px per step
@@ -1983,6 +2069,8 @@ class FeatureDialog(_ResizableFrame):
         try:
             if self.ftype == "split":
                 return self._split_arrows(p)
+            if self.ftype == "revolve":
+                return self._revolve_arrow(p)
             if self.ftype == "extrude":
                 if p.get("end") == "through":
                     return []
@@ -1998,6 +2086,12 @@ class FeatureDialog(_ResizableFrame):
                 symmetric = p.get("end") == "symmetric"
                 depth = float(p.get("depth", 10))
                 value = depth / 2 if symmetric else (-depth if p.get("flip") else depth)
+                if p.get("end") in F.UP_TO:
+                    # up to something: the arrow only shows (and flips) the way it goes; click it to flip
+                    reach = self.main.viewport.cam.scale * 70
+                    return [{"origin": origin, "dir": n, "value": -reach if p.get("flip") else reach,
+                             "drag": False, "on_drag": lambda v: None, "on_done": self.schedule_preview,
+                             "on_click": self._toggle_flip, "label": dict(F.UP_TO_LABELS)[p["end"]]}]
 
                 def on_drag(v, symmetric=symmetric):
                     if symmetric:
@@ -2009,6 +2103,7 @@ class FeatureDialog(_ResizableFrame):
                     self.schedule_preview()
                 return [{"origin": origin, "dir": n, "value": value, "on_drag": on_drag,
                          "on_done": self.schedule_preview, "snap": self._snap_step(),
+                         "on_click": None if symmetric else self._toggle_flip,
                          "min": 1e-3 if symmetric else None, "label": U.length(depth, 4)}]
             if self.ftype == "plane":
                 if F.plane_type(p) != "offset":
@@ -2028,10 +2123,37 @@ class FeatureDialog(_ResizableFrame):
                     self.main.viewport.manipulators[0]["label"] = U.length(abs(v), 4)
                     self.schedule_preview()
                 return [{"origin": base.origin, "dir": base.normal, "value": value, "on_drag": on_drag,
-                         "on_done": self.schedule_preview, "snap": self._snap_step(), "label": U.length(off, 4)}]
+                         "on_done": self.schedule_preview, "snap": self._snap_step(), "on_click": self._toggle_flip,
+                         "label": U.length(off, 4)}]
         except (K.KernelError, KeyError, IndexError):
             return []
         return []
+
+    def _revolve_arrow(self, p):
+        """A curved-way arrow on a Revolve that turns one way (one direction, two directions, up to …): it points
+        the way the profile turns; click it to turn the other way."""
+        end = p.get("end", "full")
+        if not (end in ("one", "two") or end in F.UP_TO):
+            return []
+        profs = [f for f in F._profiles(self.base_state, p) if f.ShapeType() == 4]
+        if not profs:
+            return []
+        a, d = F.resolve_axis(self.base_state, p.get("axis", {}))
+        d = np.asarray(d, float) / np.linalg.norm(d)
+        if p.get("flip"):
+            d = -d
+        infos = [K.face_info(f) for f in profs]
+        area = sum(i["area"] for i in infos) or 1.0
+        c = sum(np.array(i["c"]) * i["area"] for i in infos) / area
+        r = c - np.asarray(a, float)
+        r = r - (r @ d) * d
+        if np.linalg.norm(r) < 1e-9:
+            return []
+        way = np.cross(d, r / np.linalg.norm(r))           # the way the profile sets off turning
+        label = dict(F.UP_TO_LABELS).get(end) or f"{fmt(float(p.get('angle', 180)))}°"
+        return [{"origin": c, "dir": way, "value": self.main.viewport.cam.scale * 70, "drag": False,
+                 "on_drag": lambda v: None, "on_done": self.schedule_preview, "on_click": self._toggle_flip,
+                 "label": label}]
 
     # ------------------------------------------------------------------ preview / commit
     def schedule_preview(self):
