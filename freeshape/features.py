@@ -2048,6 +2048,32 @@ def run_sm_flange(state, f):
         state.sheet[pid] = model
 
 
+def _separately(run):
+    """'Separate' on Extrude / Revolve / Sweep (New, Solid): each picked area or face is made on its own, so areas
+    that touch — a square cut into four by a cross — give one part each instead of one fused part (as SALOME does,
+    and Onshape's Sweep Separate custom feature)."""
+    def go(state, f):
+        from . import body_options as BO
+        p = f["params"]
+        items = [("regions", r) for r in p.get("regions", [])] + [("faces", x) for x in p.get("faces", [])]
+        if not p.get("separate") or p.get("op", "add") != "new" or BO.creation(p) != "solid" or len(items) < 2:
+            return run(state, f)
+        before = set(state.parts)
+        for kind, item in items:
+            q = dict(p, regions=[item] if kind == "regions" else [], faces=[item] if kind == "faces" else [],
+                     separate=False)
+            run(state, dict(f, params=q))
+        if p.get("separate_colors"):
+            # each new part its own colour, to tell them apart (the Auto colour palette: no highlight oranges)
+            new = [pid for pid in state.parts if pid not in before]
+            for pid, col in zip(new, auto_colors(len(new))):
+                old = state.parts[pid]
+                state.parts[pid] = Part(old.id, old.name, old.shape, tuple(col), old.face_colors)
+    go.__name__ = run.__name__
+    go.__doc__ = run.__doc__
+    return go
+
+
 RUNNERS = {
     "sketch": run_sketch, "extrude": run_extrude, "revolve": run_revolve, "fillet": run_fillet,
     "chamfer": run_chamfer, "shell": run_shell, "plane": run_plane, "mirror": run_mirror,
@@ -2059,6 +2085,8 @@ RUNNERS = {
     "sm_hem": run_sm_hem, "sm_jog": run_sm_jog, "sm_tab": run_sm_tab, "sm_convert": run_sm_convert,
     "delete_face": run_delete_face, "move_face": run_move_face, "offset_surface": run_offset_surface,
 }
+for _k in ("extrude", "revolve", "sweep"):
+    RUNNERS[_k] = _separately(RUNNERS[_k])
 
 
 def _more_features():

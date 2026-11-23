@@ -1,57 +1,70 @@
 # FreeShape revisions
 
-## Unreleased
+## 2.4.0
 
-More sketch tools, and the sketch toolbar grouped more like other CAD programs.
+A much fuller sketcher, Onshape's selection tools and keys, an S menu of your own tools, direction arrows that work
+like Onshape's, resizable planes, and Export as Python script.
 
-- **Direction, Onshape style**: Up to next / face / part / vertex turn the Extrude (or Revolve) towards their
-  target by themselves, for the second end as well. **Click the arrow** in the view to flip the direction
-  (Revolve now has an arrow too). In the dialogs, *Opposite direction* tick boxes are now a clear **arrow button**
-  at the right of the end type or distance.
+**Sketch**
+- **Polygons with any number of sides**, inscribed (corners on a circle) or circumscribed (sides touching a circle,
+  so you size it across flats — handy for nut pockets). They share a Polygon button with the hexagon, which used to
+  sit under Rectangle.
+- **Midpoint line**, **aligned 3-point rectangle** (at any angle), **tangent arc**, **elliptical arc**, **conic**
+  (with rho; double-click to change it) and **control-point (Bézier-style) spline**.
+- **Sketch chamfer**, **split** (cut a line or arc in two) and **extend** (lengthen a line or arc to the next curve).
+- **Transform and Copy**: move and turn selected sketch geometry, or a copy of it.
+- **Intersect** (under Use ▾): bring in where part faces cross the sketch plane.
+- **Insert DXF** (in its own units, polylines and blocks included, ends joined into areas) and **Insert image** (a
+  picture to trace over, sized by dimensioning its corners).
+- The toolbar groups related tools under ▾ like other CAD programs (Line, Rectangle, Polygon, Arc, Spline,
+  Fillet / Chamfer, Offset / Slot, Transform / Copy, Use / Intersect, Trim / Split / Extend, Insert), and its
+  **Extrude ▾** button (Revolve, Sweep) finishes the sketch and starts the feature with its areas picked.
+
+**Selecting**
+- **Planes come last when picking**, as in Onshape: a face, sketch or edge under the mouse wins over a plane running
+  through it, so a part centred on the origin no longer gives you Front or Right. Sketch lines and points hidden
+  behind a face can't be picked through it either.
 - **Select other and Tab**: Tab steps through everything under the mouse (hidden faces too, drawn through the
-  model), a click selects the one shown; `` ` `` or right-click → *Select other…* lists it all. Right-click
-  **selection tools**: tangent-connected faces / edges, adjacent faces, edge loop, edges of a face, faces or edges
-  of the same size.
+  model) and a click selects the one shown; `` ` `` or right-click → *Select other…* lists it all.
+- **Right-click selection tools**: tangent-connected faces / edges, adjacent faces, edge loop, edges of a face,
+  faces or edges of the same size (every hole of one size, say).
+
+**Keys and menus**
+- **The S menu**: press S over the model for a grid of your own favourite tools at the mouse — a separate menu for
+  sketches, Part Studios, assemblies and drawings, each chosen and ordered with *Customize…* from every tool on that
+  toolbar (plugins too). In a sketch, Esc picks Select (S used to).
+- **Many more of Onshape's keys**: P planes, Shift+P construction, Shift+H sketches, Y / Shift+Y hide / show parts,
+  Shift+I isolate, Shift+X section, Shift+V named views, Shift+R high quality, Z zoom out, W zoom window,
+  Shift / Ctrl+arrow 90° / 5°, Shift+N rename, Shift+Enter accept and start another, ? for the list. In sketches:
+  M trim, X extend, B parallel, Shift+L / O / M / Q / J / A / F / S for perpendicular, concentric, midpoint,
+  symmetric, fix, tangent arc, fillet and point. **The hexagon moved from X to Shift+X.**
+- **Double-click the middle mouse button** to zoom to fit.
+- The **keyboard shortcuts window** (Document menu, or ?) is a table you can search: type *trim* or *Shift+X*.
+
+**Features and planes**
+- **Direction, Onshape style**: Up to next / face / part / vertex turn the Extrude (or Revolve) towards their target
+  by themselves, for the second end as well. **Click the arrow** in the view to flip the direction (Revolve now has
+  an arrow too). In the dialogs, *Opposite direction* tick boxes are now a clear **arrow button**.
+- **Separate** on Extrude, Revolve and Sweep (off by default, with New): areas that touch in the sketch become
+  one part each instead of one fused part — a square cut into four by a cross gives four bars (as SALOME does);
+  *Colour each part differently* gives each its own colour.
+- **Resize a plane** by dragging the dots at its corners (select it first; with several planes selected, each shows
+  its dots). Kept in the file, undoable; right-click → *Reset plane size*.
+
+**Scripts**
 - **Export as Python script / Run Python script** (Document menu): a project — the Part Studios, assemblies and
   drawings linked to the tab you're on — as one script in three parts (CAD model, assembly, drawing) that builds it
   again, with your typed variables first as plain Python values. Run it in FreeShape to open it as tabs, or with
-  Python to save the files.
+  Python to save the files. Each face, edge, corner or sketch area a feature uses is labelled in plain English
+  (`# edge of Arm — circle Ø8 round (6, 66, 0)`).
+
+**Fixed**
+- With PySide6 6.11, submenus (the view cube's render and edge options, Open recent, Plugins …) could come up empty.
+- A resized plane picked in a feature dialog was outlined at its default size; your own planes were outlined bigger
+  than they're drawn.
+- The Windows exe's Properties showed version 2.1.0; it now follows the app's version.
 - Tests no longer leave autosaved "Part Studio 1" documents in your FreeShape folder (they were offered for recovery
   the next time FreeShape started).
-- **Keyboard shortcuts window** (Document menu, or ?) is now a table you can search: type *trim* or *Shift+X*.
-- Fixed: a resized plane picked in a feature dialog (Plane, Sketch …) was outlined at its default size; your own
-  planes were outlined bigger than they're drawn.
-- **Many more Onshape keys**: P planes, Shift+P construction, Shift+H sketches, Y / Shift+Y hide / show parts,
-  Shift+I isolate, Shift+X section, Shift+V named views, Shift+R high quality, Z zoom out, W zoom window,
-  Shift / Ctrl+arrow 90° / 5°, Shift+N rename, Shift+Enter, ? for the list; in sketches M trim, X extend, B parallel,
-  Shift+L / O / M / Q / J / A / F / S for perpendicular, concentric, midpoint, symmetric, fix, tangent arc, fillet,
-  point. The hexagon moved from X to Shift+X.
-- **Planes come last when picking**, as in Onshape: a face (or sketch, edge …) under the mouse now wins over a
-  plane running through it, so a part centred on the origin no longer gives you Front or Right; sketch lines and
-  points hidden behind a face can't be picked through it either.
-- **Resize a plane** by dragging the dots at its corners (select it first; with several planes selected,
-  each shows its dots). Kept in the file, undoable;
-  right-click → *Reset plane size*.
-- **The S menu**: press S over the model for a grid of your own favourite tools at the mouse, with a separate
-  menu for sketches, Part Studios, assemblies and drawings. *Customize…* chooses and orders them from every tool
-  on that toolbar (plugins too). In a sketch, Esc now picks Select (S used to).
-- **Polygons with any number of sides**, inscribed (corners on a circle) or circumscribed (sides touching a circle,
-  so you size it across flats, handy for nut pockets). They share a Polygon button with the hexagon, which used to
-  sit under Rectangle.
-- **Midpoint line**, **aligned 3-point rectangle** (at any angle), **sketch chamfer** and **split** (cut a line or
-  arc in two), each in a ▾ menu next to its relative (Line, Rectangle, Fillet, Trim).
-- **Tangent arc**, **elliptical arc** and **conic** (with rho; double-click to change it) under Arc ▾;
-  **control-point (Bézier-style) spline** under Spline ▾.
-- **Extend** (under Trim ▾): lengthen a line or arc to the next curve.
-- **Transform and Copy**: move and turn selected sketch geometry, or a copy of it.
-- **Intersect** (under Use ▾): bring in where part faces cross the sketch plane.
-- **Insert DXF** and **Insert image** on the sketch toolbar: a drawing's geometry in its own units, or a picture
-  to trace over, sized by dimensioning its corners.
-- **Offset and Slot** now share a button, and the sketch's **Extrude ▾** button (Revolve, Sweep) finishes the sketch
-  and starts the feature with its areas picked.
-- **Double-click the middle mouse button** to zoom to fit.
-- Fixed: with PySide6 6.11, submenus (the view cube's render and edge options, Open recent, Plugins …) could
-  come up empty.
 
 ## 2.3.1
 

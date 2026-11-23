@@ -77,12 +77,32 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 icon = os.path.join(ROOT, "freeshape", "assets", "freeshape.ico")
+
+
+def _version_file():
+    """version_info.txt with the version numbers taken from freeshape.__version__, so the exe's Properties never
+    fall behind the app (they said 2.1.0 until 2.4.0)."""
+    import re
+    import tempfile
+    import freeshape
+    parts = [int(x) for x in re.findall(r"\d+", freeshape.__version__)[:3]] + [0, 0, 0]
+    v4 = ", ".join(str(x) for x in parts[:4])
+    with open(os.path.join(HERE, "version_info.txt"), encoding="utf-8") as fh:
+        text = fh.read()
+    text = re.sub(r"filevers=\([^)]*\)", f"filevers=({v4})", text)
+    text = re.sub(r"prodvers=\([^)]*\)", f"prodvers=({v4})", text)
+    text = re.sub(r"('(?:File|Product)Version', ')[^']*'", lambda m: m.group(1) + freeshape.__version__ + "'", text)
+    out = os.path.join(tempfile.mkdtemp(prefix="freeshape-ver-"), "version_info.txt")
+    with open(out, "w", encoding="utf-8") as fh:
+        fh.write(text)
+    return out
+
 exe = EXE(
     pyz, a.scripts, [],
     exclude_binaries=True,
     name="FreeShape",
     icon=icon if sys.platform == "win32" else None,
-    version=os.path.join(HERE, "version_info.txt") if sys.platform == "win32" else None,
+    version=_version_file() if sys.platform == "win32" else None,
     console=False,          # a normal windowed app: no black console window
     disable_windowed_traceback=False,
     upx=False,

@@ -15,7 +15,7 @@ OpenCascade kernel FreeCAD uses, so you get real B-rep solids and proper STEP fi
 
 ## What you can do
 
-- **Part Studios** — constrained sketches; extrude, revolve, sweep and loft as solids, surfaces or thin walls;
+- **Part Studios** — constrained sketches (polygons, conics, splines, DXF and image import …); extrude, revolve, sweep and loft as solids, surfaces or thin walls;
   fillets, chamfers, shell, draft, holes and real ISO threads; patterns, mirror, booleans, split; variables with
   units, and variables *measured from the model* that follow every change.
 - **Assemblies** — Onshape-style mates, sub-assemblies, gear / rack / screw relations, a standard parts library
@@ -27,26 +27,30 @@ OpenCascade kernel FreeCAD uses, so you get real B-rep solids and proper STEP fi
 - **Configurations, derived parts and version history** — many sizes from one table, and a readable *what
   changed* between any two versions, shown in 3D.
 - **Import and export** — STEP (with colours, fast even with hundreds of parts), STL for 3D printing, BREP.
-- **Plugins** — ready-made Gridfinity bins, timing pulleys, gears, Lighten pockets, laser-cut boxes and batch
-  export, or write your own in Python ([PLUGINS.md](PLUGINS.md)).
+- **Plugins and scripts** — ready-made Gridfinity bins, timing pulleys, gears, Lighten pockets, laser-cut boxes and
+  batch export, or write your own in Python ([PLUGINS.md](PLUGINS.md)); export any project as a Python script that
+  builds it again.
 
 | Part Studio | Assemblies | Drawings | Sheet metal |
 |---|---|---|---|
 | ![](docs/screenshot.png) | ![](docs/images/assembly.png) | ![](docs/images/drawing.png) | ![](docs/images/sheet_metal.png) |
 
-## New in 2.3
+## New in 2.4
 
-- **Sub-assemblies** — insert an assembly into another as one rigid group, mate to any of its parts, and it
-  follows edits made to it.
-- **Inch units** — each document in mm, cm, m, inches or feet.
-- **Toolbars organised like Onshape's** — Sketch first, related tools grouped under ▾, a foldable *Default
-  geometry* group.
-- **One Variable feature with units** — Length, Angle, Number, text or measured from the model; units are checked,
-  so a wrong kind of value is an error instead of a silent wrong number.
-- **Plugins** — Gridfinity bins, timing pulleys, Lighten pockets, laser-cut boxes, batch export.
-- **STL resolution**, **your own icons**, and fixes: chamfers next to fillets, and the window fits small screens.
+- **A fuller sketcher** — polygons with any number of sides (inscribed or circumscribed), midpoint line, aligned
+  rectangle, tangent and elliptical arcs, conics, control-point splines, chamfer, split, extend, transform, intersect,
+  and DXF / image import; the toolbar grouped like other CAD programs, with Extrude / Revolve / Sweep right on it.
+- **Selecting like Onshape** — planes come last, **Tab** steps through what's under the mouse, **Select other…**
+  lists it all, and right-click selects tangent-connected faces, loops or everything of the same size.
+- **The S menu and Onshape's keys** — your own tools at the mouse, one menu per sketch / Part Studio / assembly /
+  drawing; P, Y, Shift+I, Shift+H and many more, all in a searchable list (`?`).
+- **Direction arrows like Onshape's** — Up to face / next turn towards their target, click the arrow to flip.
+- **Separate** — Extrude / Revolve / Sweep areas that touch into one part each, instead of one fused part.
+- **Resizable planes** — drag the dots at a selected plane's corners.
+- **Export as Python script** — a whole project (model, assembly, drawing) as a script that builds it again, with
+  your variables at the top.
 
-**2.3.1** fixes fillets after threads and two Extrude dialog bugs, and redraws the undo / redo icons. Full history in [CHANGES.md](CHANGES.md).
+Release notes: [2.4.0](docs/releases/2.4.0.md). Full history in [CHANGES.md](CHANGES.md).
 
 ## Install
 
@@ -65,8 +69,9 @@ The installers aren't code-signed yet, hence the warnings. If the AppImage says 
 ## Know Onshape? You already know FreeShape
 
 Right-drag rotates, middle-drag pans, the wheel zooms. Select a plane and press `Shift+S` to sketch; `L`, `R`,
-`C`, `D` draw lines, rectangles, circles and dimensions. Double-click any feature to edit it, and drag the
-rollback bar through history. Type `#name` in any box to use a variable.
+`C`, `D` draw lines, rectangles, circles and dimensions. `S` opens your tools at the mouse, `Tab` picks what's
+behind, `P` hides the planes. Double-click any feature to edit it, and drag the rollback bar through history. Type
+`#name` in any box to use a variable.
 
 Everything else — every tool, key and option — is in the **[user guide](docs/USER_GUIDE.md)**. Option-by-option
 progress against Onshape is tracked in [FEATURE_PARITY.md](FEATURE_PARITY.md).

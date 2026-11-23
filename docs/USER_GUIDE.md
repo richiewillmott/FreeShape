@@ -132,7 +132,9 @@ Things selected before opening a feature are pre-filled. Extrude and Plane show 
 - **Merge scope** — for Add / Remove / Intersect, pick the parts it should act on (none picked: all of them).
 - **Extrude** — New / Add / Remove / Intersect; Blind, Symmetric, Through all, Up to next / face / part /
   vertex; a **second end** with its own end type; **draft** (taper) on either end. Cuts automatically go into
-  the material.
+  the material. **Separate** (Extrude, Revolve and Sweep, with New): areas that touch in the sketch — a square
+  cut into four by a cross — become one part each instead of one fused part; tick **Colour each part
+  differently** to tell them apart.
 - **Revolve** — around a sketch line, a part edge, or the X/Y/Z axis; full, one direction, symmetric, **two
   directions** (a different angle each way), or up to a face, part or vertex.
 - **Fillet** — pick edges, or a face to do all its edges; smooth (tangent) chains are followed; constant or
@@ -345,7 +347,9 @@ Run a Python script…** runs a script against the open Part Studio — both are
 an assembly uses, the drawings of them — as one Python script that builds it all again. It comes in three parts,
 *1. CAD model*, *2. Assembly*, *3. Drawing*, and your typed variables (Variable feature: a length, angle or number
 you entered) come first as plain Python values — change `wall = 3` to `wall = 4` and run it again for the thicker
-version. Sketches are written one point, curve and dimension per line; other features as their settings.
+version. Sketches are written one point, curve and dimension per line; other features as their settings. Every face, edge,
+corner or sketch area a feature uses has a comment saying what it is (`# face of Bracket — flat, facing +Z, 1200 mm²,
+centre (20, 15, 10)`) above the fingerprint FreeShape finds it by.
 
 **Run Python script…** (Document menu) runs such a script and opens what it builds as new tabs. From a terminal,
 `python my_model.py [folder]` saves the files instead (needs FreeShape's source on the Python path). A script is a

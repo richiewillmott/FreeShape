@@ -202,3 +202,29 @@ def test_menu_export_and_run_open_new_tabs(tmp_path, monkeypatch):
     assert docs and w.tabs.count() == n + 1
     assert docs[0].uid != original.uid                        # the original is open: the copy gets its own id
     assert _sig(docs[0]) == _sig(original)
+
+
+def test_every_pick_says_what_it_is(tmp_path):
+    doc = Document.load(os.path.join(EX, "bracket.fshape"))
+    text = S.dump([doc])
+    assert "# area of Bracket profile — 594 mm², 6 edges" in text
+    assert "# edge of Bracket — line 40 mm from (6, 20, 6) to (6, -20, 6)" in text
+    plate = _plate()
+    (part_id,) = plate.state.parts
+    shape = plate.state.parts[part_id].shape
+    top = next(f for f in K.faces(shape) if (K.face_info(f).get("n") or [0, 0, 0])[2] > 0.99)
+    on_top = plate.make_feature("sketch")
+    on_top["params"]["plane"] = {"kind": "face", "face": F.make_ref(part_id, top, "face", shape)}
+    s = Sketch()
+    s.add_circle(s.add_point(10, 10), 3)
+    on_top["params"]["sketch"] = s.to_dict()
+    plate.add_feature(on_top)
+    text, ws = _roundtrip([plate], tmp_path)
+    name = plate.state.parts[part_id].name
+    assert f"# face of {name} — flat, facing +Z, 1200 mm², centre (20, 15, 10)" in text
+    assert _sig(ws.documents()[0]) == _sig(plate) and not ws.errors()     # comments change nothing
+    studio, asm, dwg = _hinge()
+    text = S.dump([studio, asm, dwg])
+    assert "        # Base plate <1>: edge — circle Ø8 round (15, 20, 0)\n        a={" in text
+    assert "# area of Pin — 47.8 mm², 1 edge\n" in text
+    compile(text, "hinge.py", "exec")

@@ -348,9 +348,93 @@ class _Raw(str):
     """Python code written into the script as itself (a variable's name, ps1.uid …), not as a quoted string."""
 
 
+def _num(v, digits=3):
+    """A short number: 40, 12.5, 0.333."""
+    v = round(float(v), digits)
+    return f"{v:.{digits}f}".rstrip("0").rstrip(".") if v != int(v) else str(int(v))
+
+
+def _xyz(c):
+    return "(" + ", ".join(_num(x, 2) for x in c) + ")"
+
+
+def _facing(n):
+    import numpy as np
+    n = np.asarray(n, float)
+    i = int(np.argmax(np.abs(n)))
+    if abs(n[i]) > 0.999:
+        return f"facing {'-' if n[i] < 0 else '+'}{'XYZ'[i]}"
+    return "facing (" + ", ".join(_num(x, 2) for x in n) + ")"
+
+
+_FACE_KIND = {0: "flat", 1: "cylinder", 2: "cone", 3: "sphere", 4: "torus"}
+_EDGE_KIND = {0: "line", 1: "circle", 2: "ellipse"}
+
+
+def _noted(key, text, ind):
+    """`key` + a value; a value that starts with its "# what this is" comment gets the comment on its own line
+    above the key, not squeezed in after it."""
+    if text.startswith("# "):
+        note, rest = text.split("\n", 1)
+        return f"{note}\n{' ' * ind}{key}{rest.lstrip()}"
+    return key + text
+
+
+class _Plain(dict):
+    """A reference written without its comment (its owner already says what it is)."""
+
+
 class _Writer:
-    def __init__(self):
+    def __init__(self, part_names=None, sketch_names=None, inst_names=None):
         self.data = {}
+        self.part_names = part_names or {}           # part id -> name, to say whose face / edge a reference is
+        self.sketch_names = sketch_names or {}       # sketch feature id -> name
+        self.inst_names = inst_names or {}           # assembly instance id -> name
+
+    def describe(self, v):
+        """A plain-English line for a picked face / edge / corner / sketch area / sketch curve (what the
+        fingerprint below it means), or None if `v` isn't one."""
+        if not isinstance(v, dict) or isinstance(v, _Plain):
+            return None
+        kind = v.get("kind")
+        whose = self.part_names.get(v.get("part"), v.get("part"))
+        of = f" of {whose}" if whose else ""
+        try:
+            if kind == "face" and "area" in v:
+                bits = [_FACE_KIND.get(v.get("type"), "curved") + (f" Ø{_num(2 * v['r'])}" if "r" in v else "")]
+                if "n" in v:
+                    bits.append(_facing(v["n"]))
+                bits.append(f"{_num(v['area'], 1)} mm²")
+                if "c" in v:
+                    bits.append(f"centre {_xyz(v['c'])}")
+                return f"face{of} — " + ", ".join(bits)
+            if kind == "edge" and "len" in v:
+                t = v.get("type")
+                if t == 1 and "r" in v:
+                    what = f"circle Ø{_num(2 * v['r'])}" + (f" round {_xyz(v['center'])}" if "center" in v else "")
+                elif t == 0 and "p0" in v:
+                    what = f"line {_num(v['len'])} mm from {_xyz(v['p0'])} to {_xyz(v['p1'])}"
+                else:
+                    what = f"{_EDGE_KIND.get(t, 'curve')} {_num(v['len'])} mm long" + \
+                           (f", middle {_xyz(v['c'])}" if "c" in v else "")
+                return f"edge{of} — {what}"
+            if kind == "vertex" and "c" in v:
+                return f"corner{of} at {_xyz(v['c'])}"
+            if kind == "sketch_point" and "sketch" in v:
+                return f"point {v.get('point')} of {self.sketch_names.get(v['sketch'], v['sketch'])}"
+            if "sketch" in v and "area" in v and "loops" in v:
+                holes = int(v.get("loops", 1)) - 1
+                extra = f", with {holes} hole{'s' if holes > 1 else ''}" if holes > 0 else ""
+                return (f"area of {self.sketch_names.get(v['sketch'], v['sketch'])} — {_num(v['area'], 1)} mm², "
+                        f"{v.get('edges', '?')} edge{'' if v.get('edges') == 1 else 's'}{extra}")
+            if "sketch" in v and "entity" in v:
+                return f"curve {v['entity']} of {self.sketch_names.get(v['sketch'], v['sketch'])}"
+            if "inst" in v and kind in ("face", "edge", "vertex") and isinstance(v.get("ref"), dict):
+                inner = self.describe(v["ref"]) or kind
+                return f"{self.inst_names.get(v['inst'], v['inst'])}: {inner}"
+        except (KeyError, TypeError, ValueError):
+            return None
+        return None
 
     def lit(self, v, ind=0, width=110):
         """A Python literal for a file value: nested dicts / lists broken over lines when long; very long strings
@@ -379,19 +463,25 @@ class _Writer:
             pad = " " * (ind + 4)
             return "[\n" + "".join(f"{pad}{x},\n" for x in items) + " " * ind + "]"
         if isinstance(v, dict):
-            items = [f"{self.lit(str(k))}: {self.lit(x, ind + 4, width)}" for k, x in v.items()]
+            note = self.describe(v)
+            if note and "inst" in v:
+                v = {k: (_Plain(x) if k == "ref" else x) for k, x in v.items()}    # said once, on the outer one
+            items = [_noted(f"{self.lit(str(k))}: ", self.lit(x, ind + 4, width), ind + 4) for k, x in v.items()]
             one = "{" + ", ".join(items) + "}"
             if len(one) + ind <= width and "\n" not in one:
-                return one
-            pad = " " * (ind + 4)
-            return "{\n" + "".join(f"{pad}{x},\n" for x in items) + " " * ind + "}"
+                body = one
+            else:
+                pad = " " * (ind + 4)
+                body = "{\n" + "".join(f"{pad}{x},\n" for x in items) + " " * ind + "}"
+            # what a picked face / edge / area is, in words, on the line above its fingerprint
+            return f"# {note}\n{' ' * ind}{body}" if note else body
         return repr(v)
 
     def kwargs(self, d, ind, width=110):
         """keyword=value, … for a dict whose keys are names; one per line when it doesn't fit."""
         if any(not str(k).isidentifier() or keyword.iskeyword(str(k)) for k in d):
             return "**" + self.lit(dict(d), ind, width)
-        parts = [f"{k}={self.lit(v, ind + 4, width)}" for k, v in d.items()]
+        parts = [_noted(f"{k}=", self.lit(v, ind + 4, width), ind + 4) for k, v in d.items()]
         one = ", ".join(parts)
         if len(one) + ind <= width - 20 and "\n" not in one:
             return one
@@ -574,7 +664,10 @@ def dump(docs) -> str:
     studios = [d for d in docs if getattr(d, "kind", "studio") not in ("assembly", "drawing")]
     asms = [d for d in docs if getattr(d, "kind", "") == "assembly"]
     dwgs = [d for d in docs if getattr(d, "kind", "") == "drawing"]
-    w = _Writer()
+    part_names = {pid: p.name for d in studios for pid, p in d.state.parts.items()}
+    sketch_names = {f["id"]: f.get("name", f["id"]) for d in studios for f in d.features if f.get("type") == "sketch"}
+    inst_names = {i["id"]: i.get("name", i["id"]) for a in asms for i in a.instances}
+    w = _Writer(part_names, sketch_names, inst_names)
     taken = set(_RESERVED)
     names = {}
     top, body = [], []

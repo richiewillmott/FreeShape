@@ -467,6 +467,10 @@ def _creation_fields(verb):
         {**_segments("surface_op", SURFACE_OPS, "new"), "visible": lambda p: p.get("creation", "solid") == "surface"},
         _sel("profiles", f"Faces and sketch regions to {verb}", {"region", "face"},
              visible=lambda p: p.get("creation", "solid") == "solid"),
+        _check("separate", "Separate: one part per area",
+               visible=lambda p: p.get("creation", "solid") == "solid"),
+        _check("separate_colors", "Colour each part differently",
+               visible=lambda p: p.get("creation", "solid") == "solid" and p.get("separate")),
         _sel("curves", "Sketch curves and edges", {"path"}, visible=curvy),
         _num("thickness", "Thickness", visible=thin, minimum=1e-6),
         _choice("thin_side", "Wall goes", BO.THIN_SIDES, visible=thin),
@@ -1841,6 +1845,13 @@ class FeatureDialog(_ResizableFrame):
         else:
             self._set(key, not self.feature["params"].get(key, False))
 
+    def _show_op(self, op):
+        """Show `op` as the chosen New / Add / Remove / Intersect button."""
+        for spec, w in self.rows:
+            if spec.get("t") == "ops" and spec.get("key") == "op":
+                for b in getattr(w, "buttons", []):
+                    b.setChecked(b.property("value") == op)
+
     AUTO_OP_TYPES = ("extrude", "revolve", "sweep")
 
     def _auto_op(self):
@@ -1971,6 +1982,12 @@ class FeatureDialog(_ResizableFrame):
         if key == "creation" and self.ftype in ("extrude", "revolve", "sweep"):
             self._move_profiles_for(p.get("creation", "solid"), value)
         p[key] = value
+        if key == "separate" and value and p.get("op", "new") != "new":
+            # separate parts only makes sense for New: switch to it (and stop choosing the op automatically)
+            p["op"] = "new"
+            p.pop("scope", None)
+            self._op_chosen = True
+            self._show_op("new")
         if key == "type" and self.ftype in ("mirror", "linear_pattern", "circular_pattern"):
             fk = value if value in ("features", "faces") else "parts"
             if fk in self.fields:
