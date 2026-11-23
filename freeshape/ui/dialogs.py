@@ -202,8 +202,9 @@ def item_label(doc, item):
     return kind
 
 
-def item_geometry(state, item, plane_half=40.0):
-    """World geometry used to highlight a selected item: ('mesh', Mesh) or ('poly', ndarray)."""
+def item_geometry(state, item, plane_half=40.0, plane_rect=None):
+    """World geometry used to highlight a selected item: ('mesh', Mesh) or ('poly', ndarray). plane_rect(ref):
+    the (u0, u1, v0, v1) a picked plane is drawn over (its resized size), or None for ±plane_half."""
     kind, ref = item
     try:
         if kind == "region":
@@ -238,7 +239,9 @@ def item_geometry(state, item, plane_half=40.0):
         if kind == "plane":
             pl = F.resolve_plane(state, ref)
             h = plane_half
-            return ("poly", np.array([pl.to_world(u, v) for u, v in ((-h, -h), (h, -h), (h, h), (-h, h), (-h, -h))]))
+            r = plane_rect(ref) if plane_rect is not None else None
+            u0, u1, v0, v1 = r if r else (-h, h, -h, h)
+            return ("poly", np.array([pl.to_world(u, v) for u, v in ((u0, v0), (u1, v0), (u1, v1), (u0, v1), (u0, v0))]))
         if kind == "path":
             if ref.get("kind") == "outline":
                 from .. import body_options as BO
@@ -1999,11 +2002,22 @@ class FeatureDialog(_ResizableFrame):
         """Geometry of the current selections, in the pre-feature model, for highlighting."""
         out = []
         half = self.main.viewport.plane_half()
+
+        def rect(ref):
+            """A picked plane's outline matches the plane as drawn: its resized size, else its default."""
+            doc = self.doc
+            if not hasattr(doc, "plane_rect"):
+                return None
+            if ref.get("kind") == "std":
+                return doc.plane_rect(("std", ref.get("name")), half)
+            if ref.get("kind") == "plane":
+                return doc.plane_rect(("plane", ref.get("fid")), half * 0.6)
+            return None
         for key, fld in self.fields.items():
             if self.ftype == "split" and key == "parts" and self.fields.get("tools") and self.fields["tools"].items:
                 continue                  # the preview shows what's kept; a highlight of the whole part would hide it
             for i, item in enumerate(fld.items):
-                g = item_geometry(self.base_state, item, half)
+                g = item_geometry(self.base_state, item, half, rect)
                 if g is not None:
                     out.append(((key, i), g))
         return out

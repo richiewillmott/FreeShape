@@ -12,6 +12,9 @@ More sketch tools, and the sketch toolbar grouped more like other CAD programs.
   model), a click selects the one shown; `` ` `` or right-click → *Select other…* lists it all. Right-click
   **selection tools**: tangent-connected faces / edges, adjacent faces, edge loop, edges of a face, faces or edges
   of the same size.
+- **Keyboard shortcuts window** (Document menu, or ?) is now a table you can search: type *trim* or *Shift+X*.
+- Fixed: a resized plane picked in a feature dialog (Plane, Sketch …) was outlined at its default size; your own
+  planes were outlined bigger than they're drawn.
 - **Many more Onshape keys**: P planes, Shift+P construction, Shift+H sketches, Y / Shift+Y hide / show parts,
   Shift+I isolate, Shift+X section, Shift+V named views, Shift+R high quality, Z zoom out, W zoom window,
   Shift / Ctrl+arrow 90° / 5°, Shift+N rename, Shift+Enter, ? for the list; in sketches M trim, X extend, B parallel,

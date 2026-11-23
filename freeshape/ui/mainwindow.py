@@ -4239,34 +4239,9 @@ class MainWindow(QMainWindow):
             "<p><a href='https://github.com/richiewillmott/FreeShape'>github.com/richiewillmott/FreeShape</a></p>"))
 
     def show_shortcuts(self):
-        QMessageBox.information(self, "Keyboard shortcuts", (
-            "<b>Navigation</b><br>Right-drag: rotate · Middle-drag or Ctrl+right-drag: pan · Wheel: zoom · "
-            "double-click the wheel: zoom to fit<br>"
-            "Arrow keys: turn 15° · Shift+arrow: 90° · Ctrl+arrow: 5° · Ctrl+Shift+arrow: pan<br>"
-            "F: zoom to fit · Z: zoom out · W or Shift+Z: zoom to window · Alt+Left: previous view<br>"
-            "Shift+1…7: Front, Back, Left, Right, Top, Bottom, Isometric · N: normal to · Shift+V: named views<br><br>"
-            "<b>Showing</b><br>P: planes on / off · Shift+P: hide (or show) all planes and sketches · "
-            "Shift+H: hide (or show) sketches<br>"
-            "Y: hide the selected part (or the one under the mouse) · Shift+Y: show hidden parts · "
-            "Shift+I: isolate<br>"
-            "Shift+X: section view · Shift+R: view in high quality<br><br>"
-            "<b>Selecting</b><br>Space: deselect all · Drag a box: left-to-right selects what is fully inside, "
-            "right-to-left also what it touches · Shift / Ctrl: add<br>"
-            "Tab / Shift+Tab: step through everything under the mouse, then click to select the one shown · "
-            "` (back quote) or right-click → Select other…: list it all<br>"
-            "Right-click a face or edge: tangent-connected, loop, same size …<br><br>"
-            "<b>Features</b><br>Alt+C or Ctrl+Space: search tools · S: your tools menu · "
-            "Shift+S: sketch · Shift+E: extrude · Shift+W: revolve · Shift+F: fillet<br>"
-            "Enter: accept · Shift+Enter: accept and start another of the same · Esc: cancel · "
-            "Shift+N: rename · Ctrl+Z / Ctrl+Y: undo / redo · ?: this list<br><br>"
-            "<b>Sketch</b><br>L line · R rectangle · C circle · A arc · Shift+A tangent arc · P or Shift+S point · "
-            "D dimension · Q construction · U use · O offset · M trim · X extend · Shift+X hexagon · "
-            "Shift+F fillet<br>"
-            "I coincident · H horizontal · V vertical · E equal · T tangent · B parallel · Shift+L perpendicular · "
-            "Shift+O concentric · Shift+M midpoint · Shift+Q symmetric · Shift+J fix · Del delete · Esc stop tool<br><br>"
-            "<b>Assembly</b><br>I insert · M or Shift+F fastened · Shift+R revolute · Shift+L slider · "
-            "left-drag a part to move it · Del delete<br><br>"
-            "<b>Drawing</b><br>P projected view · N note"))
+        """Document → Keyboard shortcuts (or ?): every key, in a table you can search."""
+        from .shortcuts_help import ShortcutsDialog
+        ShortcutsDialog(self).exec()
 
     def closeEvent(self, e):
         self._leave_modes()
