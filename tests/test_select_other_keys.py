@@ -188,7 +188,7 @@ def test_sketch_letters_go_to_sketch_tools():
     planes_on = w.act_planes.isChecked()
     for key, mods, tool in ((Qt.Key_P, Qt.NoModifier, "point"), (Qt.Key_M, Qt.NoModifier, "trim"),
                             (Qt.Key_X, Qt.NoModifier, "sk_extend"), (Qt.Key_B, Qt.NoModifier, "parallel"),
-                            (Qt.Key_X, Qt.ShiftModifier, "hexagon"), (Qt.Key_F, Qt.ShiftModifier, "sk_fillet"),
+                            (Qt.Key_X, Qt.ShiftModifier, "polygon"), (Qt.Key_F, Qt.ShiftModifier, "sk_fillet"),
                             (Qt.Key_S, Qt.ShiftModifier, "point"), (Qt.Key_L, Qt.ShiftModifier, "perpendicular"),
                             (Qt.Key_A, Qt.ShiftModifier, "arc_tan")):
         w.sketcher.set_tool("select")
@@ -212,3 +212,32 @@ def test_shift_enter_keeps_the_feature_and_starts_another():
     assert len(w.doc.features) == n + 1 and w.doc.features[-1]["type"] == "extrude"
     assert w.mode == "dialog" and w.dialog is not None and w.dialog.ftype == "extrude" and w.dialog is not d
     w.cancel_dialog()
+
+
+def test_p_and_the_plane_eyes_are_one_switch():
+    """P used to hide the default planes with a switch of its own: the feature list still showed them as shown,
+    and while P had them off their eyes did nothing (and the other way round)."""
+    from freeshape.ui.panels import ROLE_EYE, ROLE_ID, ROLE_KIND, STD_PLANES
+    app, w, vp = _win()
+
+    def eyes():
+        lst = w.left.features
+        return {lst.item(i).data(ROLE_ID): lst.item(i).data(ROLE_EYE) for i in range(lst.count())
+                if lst.item(i).data(ROLE_KIND) == "std_plane"}
+
+    def drawn():
+        return {key[1] for key, *_ in vp.planes if key[0] == "std"}
+
+    assert eyes() == {n: "shown" for n in STD_PLANES} and drawn() == set(STD_PLANES)
+    _key(w, app, Qt.Key_P)                                    # P hides them: the list says so
+    assert eyes() == {n: "hidden" for n in STD_PLANES} and not drawn() and not w.act_planes.isChecked()
+    w._tree_eye("std_plane:Top")                              # the eye brings one back while P had them off
+    app.processEvents()
+    assert eyes()["Top"] == "shown" and drawn() == {"Top"} and w.act_planes.isChecked()
+    _key(w, app, Qt.Key_P)                                    # P with one shown: hide them all
+    assert not drawn() and set(eyes().values()) == {"hidden"}
+    _key(w, app, Qt.Key_P)                                    # and P again shows them all
+    assert drawn() == set(STD_PLANES) and set(eyes().values()) == {"shown"}
+    w._tree_eye("std_plane:Front")                            # an eye hides one; P still works after
+    app.processEvents()
+    assert drawn() == {"Top", "Right"} and eyes()["Front"] == "hidden" and w.act_planes.isChecked()

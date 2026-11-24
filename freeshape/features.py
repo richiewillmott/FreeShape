@@ -26,8 +26,9 @@ FEATURE_LABELS = {
     "sketch": "Sketch", "extrude": "Extrude", "revolve": "Revolve", "fillet": "Fillet",
     "chamfer": "Chamfer", "shell": "Shell", "plane": "Plane", "mirror": "Mirror",
     "linear_pattern": "Linear pattern", "circular_pattern": "Circular pattern",
+    "curve_pattern": "Curve pattern", "point_pattern": "Point pattern", "mate_connector": "Mate connector",
     "boolean": "Boolean", "import": "Import", "hole": "Hole", "variable": "Variable", "measure_value": "Variable", "derived": "Derived",
-    "sweep": "Sweep", "loft": "Loft", "draft": "Draft", "split": "Split", "move": "Move", "thread": "Thread",
+    "sweep": "Sweep", "loft": "Loft", "draft": "Draft", "split": "Split", "move": "Transform", "thread": "Thread",
     "sm_base": "Sheet metal", "sm_flange": "Flange", "sm_hem": "Hem", "sm_jog": "Jog", "sm_tab": "Tab",
     "sm_convert": "Convert to sheet metal", "delete_face": "Delete face", "move_face": "Move face", "offset_surface": "Offset surface",
 }
@@ -164,15 +165,28 @@ class ModelState:
     history: dict = field(default_factory=dict)     # feature id -> (state before it, state after it)
     measured: dict = field(default_factory=dict)    # Measure value feature id -> its value
     var_kinds: dict = field(default_factory=dict)   # variable name -> length | angle | area | volume | number | any
+    connectors: dict = field(default_factory=dict)  # Mate connector feature id -> its frame {o, x, y, z, name}
+    # parts made so far by each feature: feature id -> count. A part's id is "<feature id>:p<n>", n counting only
+    # that feature's parts, so suppressing or deleting an earlier feature never renumbers it (references to it,
+    # its name / colour and assemblies using it stay on the same body).
+    part_seq: dict = field(default_factory=dict)
+    # Reading a file saved before part ids were per feature: ids are made the old way ("<feature id>:<n>", n
+    # counting every part in the model), and each old id -> the id the part has now is noted in legacy_map.
+    legacy_map: dict | None = None
 
     def copy(self):
         return ModelState(dict(self.parts), dict(self.sketches), dict(self.planes), self.part_counter,
                           dict(self.vars), dict(self.sheet), dict(self.history), dict(self.measured),
-                          dict(self.var_kinds))
+                          dict(self.var_kinds), dict(self.connectors), dict(self.part_seq), self.legacy_map)
 
     def new_part(self, shape, fid, color=DEFAULT_COLOR):
         self.part_counter += 1
-        pid = f"{fid}:{self.part_counter}"
+        k = self.part_seq[fid] = self.part_seq.get(fid, 0) + 1
+        pid = f"{fid}:p{k}"
+        if self.legacy_map is not None:
+            old = f"{fid}:{self.part_counter}"
+            self.legacy_map[old] = pid
+            pid = old
         p = Part(pid, f"Part {self.part_counter}", shape, color)
         self.parts[pid] = p
         return p
@@ -186,7 +200,43 @@ def make_ref(part_id, sub, kind, part_shape=None):
     if part_shape is not None:
         lo, hi = K.bbox(part_shape)
         ref["bb"] = [lo.tolist(), hi.tolist()]
+        try:                                   # where it sits in the part (see kernel.edge_context)
+            ref["ctx"] = K.face_context(part_shape, sub) if kind == "face" else K.edge_context(part_shape, sub)
+        except Exception:
+            pass
     return ref
+
+
+# how much each unit of (1 - cos) between a stored edge's face normals and a candidate's adds to its score: faces
+# turned right round add 0.6 each (no match); turned 45° (an edited rotation upstream), about 0.18 in all
+_ADJ_WEIGHT = 0.3
+
+
+def context_penalty(shape, sub, kind, ref) -> float:
+    """What a candidate face / edge adds to its match score for not sitting in the part the way the picked one did:
+    0 when it agrees (or the reference is from before references kept their context), 1e9 when it can't be the same
+    one — an outside corner for an inside one, a pocket floor for a top face, a face pointing the other way."""
+    ctx = ref.get("ctx")
+    if kind == "face":
+        if "n" in ref:
+            info = K.face_info(sub)
+            if "n" in info and float(np.dot(info["n"], ref["n"])) < -0.5:
+                return 1e9
+        if not ctx or ctx.get("outline") not in ("convex", "concave"):
+            return 0.0
+        got = K.face_context(shape, sub).get("outline")
+        return 1e9 if got in ("convex", "concave") and got != ctx["outline"] else 0.0
+    if not ctx:
+        return 0.0
+    got = K.edge_context(shape, sub)
+    if ctx.get("convex") is not None and got["convex"] is not None and got["convex"] != ctx["convex"]:
+        return 1e9
+    pen = 0.0
+    if ctx.get("adj") and got["adj"]:
+        for n in ctx["adj"]:
+            best = max(float(np.dot(n, m)) for m in got["adj"])
+            pen += (1.0 - best) * _ADJ_WEIGHT
+    return pen
 
 
 def _norm_pos(c, bb):
@@ -233,6 +283,8 @@ def resolve(state: ModelState, ref, kind):
         for s in subs:
             info = K.face_info(s) if kind == "face" else K.edge_info(s)
             sc = _score(info, ref, scale, bb)
+            if sc < min(best_s, 0.6):
+                sc += context_penalty(p.shape, s, kind, ref)      # only worked out for close candidates
             if sc < best_s:
                 best, best_s = (p.id, s), sc
     if best is None or best_s > 0.6:
@@ -671,12 +723,20 @@ def apply_body(state: ModelState, body, op: str, fid: str, scope=None):
 NUMERIC_KEYS = {"depth", "depth2", "angle", "radius", "distance", "thickness", "offset", "count", "spacing",
                 "diameter", "counterbore_dia", "counterbore_depth", "dx", "dy", "dz", "rotate",
                 "draft", "pitch", "twist", "scale_end", "major", "length", "clearance", "thread_clearance",
-                "countersink_dia", "k", "relief_scale"}
+                "countersink_dia", "k", "relief_scale",
+                # second-direction / other-side boxes, transform scale and helix: every number box a feature dialog
+                # has must be listed here, or an expression typed in it reaches the geometry as text
+                "thickness2", "offset2", "draft_angle", "draft_angle2", "angle2", "radius2", "distance2", "spacing2",
+                "count2", "scale", "turns", "height", "start_angle"}
+
+# number boxes that hold a whole count
+WHOLE_KEYS = {"count", "count2"}
 
 
 # what each numeric param holds, for unit checking: angles, plain numbers; the rest are lengths
-ANGLE_KEYS = {"angle", "rotate", "draft", "twist", "angle2", "draft2", "start_angle", "pressure_angle"}
-NUMBER_KEYS = {"count", "count2", "k", "relief_scale", "scale_end", "turns", "ray_index", "teeth"}
+ANGLE_KEYS = {"angle", "rotate", "draft", "twist", "angle2", "draft2", "start_angle", "pressure_angle",
+              "draft_angle", "draft_angle2"}
+NUMBER_KEYS = {"count", "count2", "k", "relief_scale", "scale_end", "turns", "ray_index", "teeth", "scale"}
 ANY_KEYS = {"round_to", "density", "module"}
 
 
@@ -717,7 +777,7 @@ def prepare(f, state):
             why = check_units(v, want, state.var_kinds)
             if why:
                 raise K.KernelError(f"{k.replace('_', ' ').capitalize()} '{v}': {why}")
-            p2[k] = int(round(val)) if k == "count" else val
+            p2[k] = int(round(val)) if k in WHOLE_KEYS else val
     return dict(f, params=p2)
 
 
@@ -755,8 +815,14 @@ def run_sketch(state, f):
             bad = [n for n in var_names(c["expr"]) if n not in state.vars]
             raise K.KernelError(f"Unknown variable #{bad[0]}" if bad else f"Can't read '{c['expr']}'")
         c["value"] = val
-    if driven:
-        sk.solve()
+    if driven and not sk.solve():
+        # a variable gave a dimension a value the sketch can't take (it would break its other constraints): say so,
+        # rather than building regions from geometry that doesn't match its own dimensions. (A clash the sketch
+        # already had, among dimensions no variable drives, is left as it was before.)
+        failing = [c for c in driven if c["id"] in sk.status.get("bad", ())]
+        if failing:
+            dims = ", ".join(f"'{c['expr']}'" for c in failing[:3]) + (" …" if len(failing) > 3 else "")
+            raise K.KernelError(f"The sketch can't be solved with these variable values — check dimension {dims}")
     for e in sk.entities.values():             # text that comes from variables: "PN-" + #part
         if e["type"] == "text" and e.get("expr"):
             try:
@@ -863,9 +929,33 @@ def run_extrude(state, f):
             depth2 = float(p.get("depth2", 0)) if second else 0.0
             return K.extrude(profs, direction, depth, symmetric=symmetric, depth2=depth2)
         body = one_side(direction, *side1)
+        start = crossing_start(direction)
+        if start is not None:
+            # the second end's vertex is on the first end's side (Onshape's trick: both ends up to the same
+            # vertex, the second stopping short by X → a slab X thick ending at the vertex): the extrusion
+            # starts out there instead of at the sketch
+            if start > 0:
+                body = K.cut(body, K.extrude(profs, direction, start))
+            elif start < 0:
+                body = K.combine([body, K.extrude(profs, -direction, -start)])
+            if body is None or (all(f.ShapeType() == 4 for f in profs) and K.volume(body) <= 1e-9):
+                raise K.KernelError("The second end is past the first end — make it stop short by less")
+            return body
         if side2 is not None:
             body = K.combine([body, one_side(-direction, *side2)])
         return body
+
+    def crossing_start(direction):
+        """Where the extrusion starts (along `direction`, from the sketch) when the second end is up to a vertex
+        that lies on the first end's side; None when it doesn't (the usual case)."""
+        if not (second and end2 == "up_to_vertex" and (p.get("up_to2") or {}).get("kind") == "vertex"):
+            return None
+        q = resolve_point(state, p["up_to2"]["ref"])
+        dn = np.asarray(direction, float) / np.linalg.norm(direction)
+        reach = float((q - _profile_origin(state, p, profs)) @ dn)      # how far along the first end's way
+        if reach <= 1e-9:
+            return None
+        return reach - float(p.get("offset2", 0.0) or 0.0)    # stopping short: back towards the sketch
 
     d = -n if flip else n
     body = make(d)
@@ -1317,6 +1407,8 @@ def run_circular_pattern(state, f):
     ids = [] if _features_mode(p) or _faces_mode(p) else _selected_parts(state, p)
     a, d = resolve_axis(state, p.get("axis", {"kind": "std", "name": "Z"}))
     n = int(p.get("count", 4))
+    if n < 2:                                  # (before the step: a count of 0 would divide by zero)
+        raise K.KernelError("Count must be at least 2")
     total = float(p.get("angle", 360))
     step = total / n if abs(total - 360) < 1e-9 else total / max(n - 1, 1)
     if _features_mode(p):
@@ -1336,6 +1428,106 @@ def run_circular_pattern(state, f):
     if not copies:
         raise K.KernelError("Count must be at least 2")
     apply_body(state, K.compound(copies), p.get("op", "add"), f["id"], p.get("scope"))
+
+
+def _pattern_moves(state, f, ids, moves, empty_msg="Count must be at least 2"):
+    """Copy the parts / features / faces of a pattern with each of `moves` (shape -> moved shape)."""
+    p = f["params"]
+    if not moves:
+        raise K.KernelError(empty_msg)
+    if _faces_mode(p):
+        repeat_faces(state, p, moves)
+        return
+    if _features_mode(p):
+        _repeat_features(state, f, moves)
+        return
+    copies = [mv(state.parts[i].shape) for i in ids for mv in moves]
+    if not copies:
+        raise K.KernelError("Select the parts to pattern")
+    apply_body(state, K.compound(copies), p.get("op", "add"), f["id"], p.get("scope"))
+
+
+def _pattern_seed_box(state, f, ids):
+    """The middle of what a pattern copies (its parts, the material its features or faces make)."""
+    p = f["params"]
+    if _faces_mode(p):
+        shapes = [s_ for a, r in face_feature_bodies(state, p.get("faces", [])).values() for s_ in (a, r) if s_]
+    elif _features_mode(p):
+        shapes = [s_ for _pid, a, r in _feature_changes(state, p.get("features", [])) for s_ in (a, r) if s_]
+    else:
+        shapes = [state.parts[i].shape for i in ids]
+    if not shapes:
+        raise K.KernelError("Select what to pattern")
+    lo, hi = K.bbox(K.compound(shapes))
+    return (np.asarray(lo, float) + np.asarray(hi, float)) / 2
+
+
+def run_curve_pattern(state, f):
+    """Copies spaced along a path (sketch curves or edges), turning with it as Onshape's Curve pattern does (or
+    keeping their orientation). The first copy is the seed where it is; the others move as the path's start
+    would move to each place along it."""
+    p = f["params"]
+    ids = [] if _features_mode(p) or _faces_mode(p) else _selected_parts(state, p)
+    if not p.get("path"):
+        raise K.KernelError("Pick the path to pattern along")
+    wire = _path_wire(state, p["path"])
+    n = int(p.get("count", 4))
+    if n < 2:
+        raise K.KernelError("Count must be at least 2")
+    _f, length, closed = K.wire_frames(wire, [0.0])
+    if p.get("spacing_mode", "fit") == "distance":
+        step = float(p.get("spacing", 20))
+        if step <= 0:
+            raise K.KernelError("Spacing must be more than 0")
+        if step * (n - 1) > length + 1e-6:
+            raise K.KernelError(f"{n} copies {step:g} mm apart need a path {step * (n - 1):g} mm long; "
+                                f"this one is {length:.4g} mm")
+    else:
+        step = length / n if closed else length / (n - 1)       # spread along it all (round a closed one)
+    frames, _l, _c = K.wire_frames(wire, [step * k for k in range(n)], bool(p.get("flip")))
+    (p0, t0), rest = frames[0], frames[1:]
+    normal = None                                       # a flat path turns everything about its plane's normal
+    samples, _l, _c = K.wire_frames(wire, np.linspace(0, length, 24))
+    sp = np.array([q for q, _t in samples])
+    sp = sp - sp.mean(axis=0)
+    _u, sv, vt = np.linalg.svd(sp)
+    if sv[0] > 1e-9 and sv[-1] < 1e-6 * sv[0]:
+        normal = vt[-1]
+    moves = []
+    for q, t in rest:
+        ang, axis = 0.0, None
+        if not p.get("keep_orientation"):
+            if normal is not None:
+                ang = math.degrees(math.atan2(float(np.cross(t0, t) @ normal), float(t0 @ t)))
+                axis = normal
+            else:
+                cr = np.cross(t0, t)
+                if np.linalg.norm(cr) > 1e-9:
+                    axis = cr / np.linalg.norm(cr)
+                    ang = math.degrees(math.atan2(np.linalg.norm(cr), float(t0 @ t)))
+        if axis is None or abs(ang) < 1e-9:
+            moves.append(lambda s_, v=q - p0: K.translate(s_, v))
+        else:
+            moves.append(lambda s_, v=q - p0, a=ang, ax=axis: K.transform(s_, v, p0, ax, a))
+    _pattern_moves(state, f, ids, moves)
+
+
+def run_point_pattern(state, f):
+    """A copy at each picked point (vertices or sketch points): moved by how far each point is from the reference
+    point — or, with none picked, from the middle of what's copied."""
+    p = f["params"]
+    ids = [] if _features_mode(p) or _faces_mode(p) else _selected_parts(state, p)
+    locs = p.get("locations") or []
+    if not locs:
+        raise K.KernelError("Pick the points to copy to")
+    ref = p.get("reference")
+    origin = resolve_point(state, ref) if ref else _pattern_seed_box(state, f, ids)
+    moves = []
+    for r in locs:
+        v = resolve_point(state, r) - origin
+        if np.linalg.norm(v) > 1e-9:                    # the seed's own place: it's already there
+            moves.append(lambda s_, v=v: K.translate(s_, v))
+    _pattern_moves(state, f, ids, moves, "Pick points away from the reference point")
 
 
 def run_boolean(state, f):
@@ -1897,22 +2089,139 @@ def run_split(state, f):
         set_part_shape(state, part, K.compound(pieces) if len(pieces) > 1 else pieces[0])
 
 
-def run_move(state, f):
-    p = f["params"]
-    ids = _selected_parts(state, p)
+def run_mate_connector(state, f):
+    from . import mate_connectors as MC
+    state.connectors[f["id"]] = MC.build(state, f["params"])
+
+
+MOVE_TYPES = [("line", "Translate by line"), ("distance", "Translate by distance"), ("xyz", "Translate by XYZ"),
+              ("mates", "Transform by mate connectors"), ("rotate", "Rotate"), ("copy", "Copy in place"),
+              ("scale", "Scale"), ("points", "Translate from point to point")]
+
+
+def _axis_segment(state, ref):
+    """The two ends of a straight edge or sketch line picked as an axis (None for a world axis or a round edge)."""
+    kind = (ref or {}).get("kind")
+    if kind == "sketch_line":
+        sk = state.sketches.get(ref["sketch"])
+        if sk is None or ref["line"] not in sk.sketch.entities:
+            raise K.KernelError("Missing line")
+        e = sk.sketch.entities[ref["line"]]
+        return (np.asarray(sk.plane.to_world(*sk.sketch.points[e["p1"]]), float),
+                np.asarray(sk.plane.to_world(*sk.sketch.points[e["p2"]]), float))
+    if kind == "edge":
+        _, e = resolve(state, ref["edge"], "edge")
+        info = K.edge_info(e)
+        if "p0" in info:
+            return np.asarray(info["p0"], float), np.asarray(info["p1"], float)
+    return None
+
+
+def move_function(state, p):
+    """What a Transform (Move) feature does to each part, as a function shape -> moved shape. Its types follow
+    Onshape's Transform: by XYZ (and an optional turn, as files before 2.5 had), by a line's length and direction,
+    by a distance along a direction, from one point to another, a rotation, one mate connector onto another, or a
+    uniform scale."""
+    t = p.get("type", "xyz")
+    flip = -1.0 if p.get("flip") else 1.0
+    if t == "line":
+        seg = _axis_segment(state, p.get("axis"))
+        if seg is None:
+            raise K.KernelError("Pick a straight edge or sketch line to move along (it moves by its length)")
+        v = (seg[1] - seg[0]) * flip
+        return lambda s_: K.translate(s_, v)
+    if t == "distance":
+        _a, d = resolve_axis(state, p.get("axis") or {"kind": "std", "name": "X"})
+        v = np.asarray(d, float) * float(p.get("distance", 0) or 0) * flip
+        return lambda s_: K.translate(s_, v)
+    if t == "points":
+        a, b = p.get("from_point"), p.get("to_point")
+        if not a or not b:
+            raise K.KernelError("Pick the point to move from and the point to move to")
+        v = resolve_point(state, b) - resolve_point(state, a)
+        return lambda s_: K.translate(s_, v)
+    if t == "rotate":
+        a, d = resolve_axis(state, p.get("axis") or {"kind": "std", "name": "Z"})
+        ang = float(p.get("rotate", 0) or 0) * flip
+        return lambda s_: K.transform(s_, (0, 0, 0), a, d, ang)
+    if t == "mates":
+        from . import mate_connectors as MC
+        fa, fb = state.connectors.get(p.get("from_mc")), state.connectors.get(p.get("to_mc"))
+        if fa is None or fb is None:
+            raise K.KernelError("Choose the mate connector to move from and the one to move to (add them with "
+                                "Mate connector first)")
+        if p.get("flip"):                          # land the other way up: Z against Z
+            fb = dict(fb, z=-fb["z"], y=-fb["y"])
+        return MC.move_between(fa, fb)
+    if t == "copy":
+        return lambda s_: s_
+    if t == "scale":
+        k = float(p.get("scale", 1) or 0)
+        if k <= 0:
+            raise K.KernelError("The scale must be more than 0")
+        pt = p.get("about")
+        return lambda s_: K.scale(s_, resolve_point(state, pt) if pt else np.zeros(3), k)
     v = (float(p.get("dx", 0)), float(p.get("dy", 0)), float(p.get("dz", 0)))
     ang = float(p.get("rotate", 0))
     a, d = (np.zeros(3), np.array([0, 0, 1.0]))
     if abs(ang) > 1e-12:
         a, d = resolve_axis(state, p.get("axis") or {"kind": "std", "name": "Z"})
+    return lambda s_: K.transform(s_, v, a, d, ang)
+
+
+def _rigid_matrix(move):
+    """The 4x4 rigid motion a shape function makes (found by moving four points through it), or None if it isn't
+    one (a scale)."""
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeVertex
+    from OCP.gp import gp_Pnt
+    got = []
+    for q in ((0, 0, 0), (1, 0, 0), (0, 1, 0), (0, 0, 1)):
+        pts = K.vertex_points(move(BRepBuilderAPI_MakeVertex(gp_Pnt(*q)).Vertex()))
+        if len(pts) != 1:
+            return None
+        got.append(np.asarray(pts[0], float))
+    o = got[0]
+    R = np.column_stack([got[1] - o, got[2] - o, got[3] - o])
+    if not np.allclose(R.T @ R, np.eye(3), atol=1e-9) or np.linalg.det(R) < 0:
+        return None
+    M = np.eye(4)
+    M[:3, :3], M[:3, 3] = R, o
+    return M
+
+
+def _moved_sheet(model, M):
+    """A sheet metal part's model after the part is moved rigidly by M: its panels (and where its flat pattern
+    lies) move with it. None for a motion that isn't rigid — the part is then plain solid geometry, and sheet
+    metal features on it say so instead of building from where the sheet used to be."""
+    if model is None or M is None:
+        return None
+    m = model.copy()
+    for panel in m.panels:
+        panel["fold"] = M @ np.asarray(panel["fold"], float)
+        panel["flat"] = M @ np.asarray(panel["flat"], float)
+    return m
+
+
+def run_move(state, f):
+    p = f["params"]
+    ids = _selected_parts(state, p)
+    move = move_function(state, p)
+    M = _rigid_matrix(move) if any(pid in state.sheet for pid in ids) else None
     for pid in ids:
         part = state.parts[pid]
-        moved = K.transform(part.shape, v, a, d, ang)
-        if p.get("copy"):
+        moved = move(part.shape)
+        sheet = _moved_sheet(state.sheet.get(pid), M)
+        if p.get("copy") or p.get("type") == "copy":
             np_ = state.new_part(moved, f["id"], part.color)
             state.parts[np_.id] = Part(np_.id, part.name + " (copy)", moved, part.color, part.face_colors)
+            if sheet is not None:
+                state.sheet[np_.id] = sheet          # a copy of a sheet metal part is sheet metal too
         else:
             state.parts[pid] = Part(pid, part.name, moved, part.color, part.face_colors)
+            if sheet is not None:
+                state.sheet[pid] = sheet
+            else:
+                state.sheet.pop(pid, None)
 
 
 def run_sm_base(state, f):
@@ -2078,6 +2387,8 @@ RUNNERS = {
     "sketch": run_sketch, "extrude": run_extrude, "revolve": run_revolve, "fillet": run_fillet,
     "chamfer": run_chamfer, "shell": run_shell, "plane": run_plane, "mirror": run_mirror,
     "linear_pattern": run_linear_pattern, "circular_pattern": run_circular_pattern,
+    "curve_pattern": run_curve_pattern, "point_pattern": run_point_pattern,
+    "mate_connector": run_mate_connector,
     "boolean": run_boolean, "import": run_import, "hole": run_hole, "variable": run_variable, "measure_value": run_measure_value,
     "derived": run_derived,
     "sweep": run_sweep, "loft": run_loft, "draft": run_draft, "split": run_split, "move": run_move,
@@ -2136,6 +2447,10 @@ def default_params(ftype: str, state: ModelState | None = None) -> dict:
                            "spacing2": 30.0, "flip2": False, "op": "new"},
         "circular_pattern": {"parts": [], "axis": {"kind": "std", "name": "Z"}, "count": 6,
                              "angle": 360.0, "op": "new"},
+        "curve_pattern": {"parts": [], "path": [], "count": 4, "spacing_mode": "fit", "spacing": 20.0,
+                          "flip": False, "keep_orientation": False, "op": "new"},
+        "point_pattern": {"parts": [], "locations": [], "reference": None, "op": "new"},
+        "mate_connector": {"on": None, "point": 0, "flip": False, "rotate": 0.0, "dx": 0.0, "dy": 0.0, "dz": 0.0},
         "boolean": {"op": "union", "tools": [], "targets": [], "keep_tools": False},
         "import": {"data": "", "filename": ""},
         "variable": {"name": "", "expr": "10"},
@@ -2154,8 +2469,9 @@ def default_params(ftype: str, state: ModelState | None = None) -> dict:
                  "ruled": False, "path": [], "op": op},
         "draft": {"faces": [], "neutral": {"kind": "std", "name": "Top"}, "angle": 3.0, "flip": False},
         "split": {"parts": [], "tools": []},
-        "move": {"parts": [], "dx": 0.0, "dy": 0.0, "dz": 0.0, "axis": {"kind": "std", "name": "Z"},
-                 "axis_std": "Z", "rotate": 0.0, "copy": False},
+        "move": {"type": "xyz", "parts": [], "dx": 0.0, "dy": 0.0, "dz": 0.0, "axis": {"kind": "std", "name": "Z"},
+                 "axis_std": "Z", "rotate": 0.0, "distance": 10.0, "flip": False, "from_point": None,
+                 "to_point": None, "from_mc": "", "to_mc": "", "scale": 1.0, "about": None, "copy": False},
         "sm_base": {"regions": [], "thickness": 1.5, "radius": 1.5, "k": 0.44, "flip": False, "relief": True,
                     "relief_scale": 1.5},
         "sm_hem": {"edges": [], "length": 10.0, "down": False, "own_radius": False, "radius": 0.75},

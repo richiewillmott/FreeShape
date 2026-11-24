@@ -1674,12 +1674,37 @@ def export_dxf(doc: DrawingDoc, path, full_size=False):
     return _export_dxf_ezdxf(doc, path, full_size)
 
 
+
+def _dxf_mapping(doc: DrawingDoc, full_size: bool):
+    """How paper points of each thing on the sheet go into the DXF: owner (None, a view id or an annotation id) ->
+    (point map, length factor, the scale its model sizes are drawn at on paper). On paper size everything stays put.
+    Full size: the border and notes scale by 1 / sheet scale as before, and each view is drawn at true size about
+    its own place — a view at its own scale (a detail view, or one given a scale in its properties) too, so every
+    view measures 1:1 in the DXF."""
+    sc = float(doc.sheet.get("scale", 1.0) or 1.0)
+    k = 1.0 / sc if full_size else 1.0
+    views = {v["id"]: v for v in doc.views}
+    view_of = {a["id"]: views.get(a.get("view")) for a in doc.annots}
+
+    def for_view(v):
+        vs = doc.view_scale(v)
+        if not full_size:
+            return (lambda p: (float(p[0]), float(p[1]))), 1.0, vs
+        o = np.asarray(v["o"], float)
+        return (lambda p: tuple(float(x) for x in (o * k + (np.asarray(p, float)[:2] - o) / vs))), 1.0 / vs, vs
+
+    sheet = ((lambda p: (float(p[0]) * k, float(p[1]) * k)), k, sc)
+
+    def mapping(owner):
+        v = views.get(owner) or view_of.get(owner)
+        return for_view(v) if v is not None else sheet
+    return mapping, k
+
+
 def _export_dxf_ezdxf(doc: DrawingDoc, path, full_size=False):
     import ezdxf
     from ezdxf.enums import TextEntityAlignment
-    sc = float(doc.sheet.get("scale", 1.0))
-    k = 1.0 / sc if full_size else 1.0
-    S = lambda p: (float(p[0]) * k, float(p[1]) * k)
+    mapping, k = _dxf_mapping(doc, full_size)
     out = ezdxf.new("R2010", setup=False)
     out.units = ezdxf.units.MM
     out.header["$MEASUREMENT"] = 1
@@ -1713,13 +1738,14 @@ def _export_dxf_ezdxf(doc: DrawingDoc, path, full_size=False):
         kind, layer, owner = it[0], it[1], it[2]
         if layer == "TRIM" or owner in dim_ids:
             continue
+        S, f, _vs = mapping(owner)
         at = {"layer": layer}
         if kind == "line":
             msp.add_line(S(it[3]), S(it[4]), dxfattribs=at)
         elif kind == "circle":
-            msp.add_circle(S(it[3]), it[4] * k, dxfattribs=at)
+            msp.add_circle(S(it[3]), it[4] * f, dxfattribs=at)
         elif kind == "arc":
-            msp.add_arc(S(it[3]), it[4] * k, it[5], it[6], dxfattribs=at)
+            msp.add_arc(S(it[3]), it[4] * f, it[5], it[6], dxfattribs=at)
         elif kind == "poly":
             msp.add_lwpolyline([S(q) for q in it[3]], dxfattribs=at)
         elif kind == "tri":
@@ -1732,8 +1758,9 @@ def _export_dxf_ezdxf(doc: DrawingDoc, path, full_size=False):
     for a in doc.annots:
         if a["type"] == "note":
             continue
+        S, f, vs = mapping(a["id"])
         try:
-            _ezdxf_dim(doc, msp, a, k, sc, full_size)
+            _ezdxf_dim(doc, msp, a, k, S, f, vs, full_size)
         except Exception:
             # if AutoCAD-style can't be made for this one, draw it as lines and text like on screen
             items = []
@@ -1750,14 +1777,17 @@ def _export_dxf_ezdxf(doc: DrawingDoc, path, full_size=False):
     out.saveas(path)
 
 
-def _ezdxf_dim(doc, msp, a, k, sc, full_size):
+def _ezdxf_dim(doc, msp, a, k, S, f, vs, full_size):
+    """One dimension as a real DXF dimension. S / f: where its view's paper points and lengths go (see
+    _dxf_mapping); vs: the scale its view is drawn at. A DXF dimension measures what's drawn, so DIMLFAC turns
+    that back into model size: 1 / the view's scale on paper (not the sheet's — a detail view, or a view with its
+    own scale, read wrong before), 1 at full size, where every view is drawn 1:1."""
     g = doc.dim_geometry(a)
     if g is None:
         return
     kind, data, value = g
     lost = any(isinstance(a.get(x), dict) and a[x].get("lost") for x in ("a", "b", "b2"))
-    S = lambda p: (float(p[0]) * k, float(p[1]) * k)
-    ov = {"dimlfac": 1.0 if full_size else 1.0 / sc, "dimtxt": TEXT_H * k, "dimasz": ARROW_L * k,
+    ov = {"dimlfac": 1.0 if full_size else 1.0 / vs, "dimtxt": TEXT_H * k, "dimasz": ARROW_L * k,
           "dimexo": GAP * k, "dimexe": OVERSHOOT * k, "dimgap": 0.8 * k, "dimtad": 1, "dimtih": 0, "dimtoh": 0,
           "dimtxsty": "Standard", "dimclrd": 0, "dimclre": 0, "dimclrt": 0, "dimdsep": ord("."),
           "dimtmove": 1}
@@ -1781,7 +1811,7 @@ def _ezdxf_dim(doc, msp, a, k, sc, full_size):
                 A, B = B, A                      # run left to right (or upwards) so the text reads the right way
             u = _unit(B - A)
             n = np.array([-u[1], u[0]])
-            dist = float((pos - A) @ n) * k
+            dist = float((pos - A) @ n) * f
             d = msp.add_aligned_dim(p1=S(A), p2=S(B), distance=dist, text=text, dimstyle="Standard",
                                     override=ov, dxfattribs=at)
     else:
@@ -1790,12 +1820,12 @@ def _ezdxf_dim(doc, msp, a, k, sc, full_size):
         v = pos - C
         ang = math.degrees(math.atan2(v[1], v[0])) if np.linalg.norm(v) > 1e-9 else 45.0
         if kind == "dia":
-            d = msp.add_diameter_dim(center=S(C), radius=R * k, angle=ang, location=S(pos), text=text,
+            d = msp.add_diameter_dim(center=S(C), radius=R * f, angle=ang, location=S(pos), text=text,
                                      dimstyle="Standard", override=ov, dxfattribs=at)
         else:
             if not a.get("text"):
                 text = f"{a.get('prefix', '')}R<>{a.get('suffix', '')}"
-            d = msp.add_radius_dim(center=S(C), radius=R * k, angle=ang, location=S(pos), text=text,
+            d = msp.add_radius_dim(center=S(C), radius=R * f, angle=ang, location=S(pos), text=text,
                                    dimstyle="Standard", override=ov, dxfattribs=at)
     d.render()
 
@@ -1803,23 +1833,23 @@ def _ezdxf_dim(doc, msp, a, k, sc, full_size):
 def _export_dxf_r12(doc: DrawingDoc, path, full_size=False):
     """Plain AutoCAD R12 DXF (used if ezdxf isn't installed)."""
     from .dxf import DxfWriter
-    k = 1.0 / float(doc.sheet.get("scale", 1.0)) if full_size else 1.0
+    mapping, k = _dxf_mapping(doc, full_size)
     w = DxfWriter()
     for name, (_wd, _dash, col, lt) in LAYER_STYLE.items():
         if name == "TRIM":
             continue
         w.layer(name, col, lt)
-    S = lambda p: (p[0] * k, p[1] * k)
     for it in doc.items():
         kind, layer = it[0], it[1]
         if layer == "TRIM":
             continue
+        S, f, _vs = mapping(it[2])
         if kind == "line":
             w.line(layer, S(it[3]), S(it[4]))
         elif kind == "circle":
-            w.circle(layer, S(it[3]), it[4] * k)
+            w.circle(layer, S(it[3]), it[4] * f)
         elif kind == "arc":
-            w.arc(layer, S(it[3]), it[4] * k, it[5], it[6])
+            w.arc(layer, S(it[3]), it[4] * f, it[5], it[6])
         elif kind == "poly":
             w.polyline(layer, [S(q) for q in it[3]])
         elif kind == "tri":

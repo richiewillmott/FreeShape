@@ -18,8 +18,9 @@ Geometry:
 Constraints are dicts with a "type" and entity/point references. Dimensions are
 constraints with a "value". The solver is a damped Gauss-Newton on a
 minimum-norm step, so under-constrained geometry moves as little as possible
-(which is what makes dragging and editing dimensions feel natural).
-"""
+(which is what makes dragging and editing dimensions feel natural); when that
+step can't improve (redundant constraints), it takes Levenberg-Marquardt steps.
+Radii are solved in a form that keeps them positive (see _get_x)."""
 from __future__ import annotations
 
 import copy
@@ -29,6 +30,15 @@ import math
 import numpy as np
 
 ORIGIN = "origin"
+
+
+def _finite_value(v) -> bool:
+    """A constraint's value (a number, or [x, y] for fix) holds only finite numbers. Non-numbers pass."""
+    if isinstance(v, (list, tuple)):
+        return all(_finite_value(x) for x in v)
+    if isinstance(v, (int, float)):
+        return math.isfinite(v)
+    return True
 
 # Constraint types that carry an editable value (i.e. dimensions)
 DIMENSIONS = {"distance", "hdistance", "vdistance", "radius", "diameter", "angle"}
@@ -41,6 +51,7 @@ CONSTRAINT_LABELS = {
     "equal": "Equal", "tangent": "Tangent", "concentric": "Concentric", "midpoint": "Midpoint",
     "fix": "Fix", "symmetric": "Symmetric", "distance": "Distance", "hdistance": "Horizontal distance",
     "vdistance": "Vertical distance", "radius": "Radius", "diameter": "Diameter", "angle": "Angle",
+    "normal": "Normal",
 }
 
 
@@ -382,16 +393,31 @@ class Sketch:
                 n += 1
         return idx, n
 
+    # A radius is solved for as x, with r = r0 * exp(x / r0) and r0 its value when the solve starts (x = 0 then):
+    # a radius can't reach zero or go negative (a circle dragged "through" another stays a circle, and the solve
+    # reports the tangency it can't keep), and near the start dr/dx = 1, so steps share movement out as before.
+    _R_MIN = 1e-6
+
+    @staticmethod
+    def _r_of(x, r0):
+        return r0 * math.exp(min(max(x / r0, -700.0), 50.0))
+
     def _get_x(self, idx, n):
         x = np.zeros(n)
+        self._r0 = {}
         for (k, j), i in idx.items():
-            x[i] = self.entities[k]["r"] if j == "r" else self.points[k][j]
+            if j == "r":
+                r = self.entities[k]["r"]
+                self._r0[k] = max(abs(float(r)), self._R_MIN) if math.isfinite(r) else float("nan")
+                x[i] = 0.0 if math.isfinite(r) else float("nan")
+            else:
+                x[i] = self.points[k][j]
         return x
 
     def _set_x(self, idx, x):
         for (k, j), i in idx.items():
             if j == "r":
-                self.entities[k]["r"] = float(x[i])
+                self.entities[k]["r"] = float(self._r_of(x[i], self._r0[k]))
             else:
                 self.points[k][j] = float(x[i])
 
@@ -406,7 +432,8 @@ class Sketch:
         def rad(get, eid):
             e = ents[eid]
             if e["type"] in ("circle", "ellipse", "ellipse_arc"):
-                return get((eid, "r"))
+                r0 = (getattr(self, "_r0", None) or {}).get(eid)
+                return get((eid, "r")) if r0 is None else self._r_of(get((eid, "r")), r0)
             return float(np.linalg.norm(pt(get, e["p1"]) - pt(get, e["c"])))
 
         def pkeys(*pids):
@@ -422,6 +449,16 @@ class Sketch:
         def line_dir(get, eid):
             e = ents[eid]
             return pt(get, e["p2"]) - pt(get, e["p1"])
+
+        # every line's length now (the start of the solve), floored at a millionth of the sketch's size so a
+        # zero-length line can't divide by zero
+        pts = np.asarray([v for v in self.points.values()], float).reshape(-1, 2)
+        floor = 1e-6 * max(1.0, float(np.ptp(pts, axis=0).max()) if len(pts) > 1 else 1.0)
+        len0 = {}
+        for eid, e in ents.items():
+            if e["type"] == "line" and e.get("p1") in self.points and e.get("p2") in self.points:
+                d = np.asarray(self.points[e["p2"]], float) - np.asarray(self.points[e["p1"]], float)
+                len0[eid] = max(float(np.hypot(*d)), floor) if np.all(np.isfinite(d)) else 0.0
 
         # implicit arc constraint: both endpoints on the same radius
         for eid, e in ents.items():
@@ -439,7 +476,7 @@ class Sketch:
             t, R = c["type"], c["refs"]
             v = c.get("value", 0.0)
             try:
-                f, keys = self._make_eq(t, R, v, pt, rad, line_dir, pkeys, ekeys, ents)
+                f, keys = self._make_eq(t, R, v, pt, rad, line_dir, pkeys, ekeys, ents, len0)
             except (KeyError, IndexError):
                 continue
             if f is not None:
@@ -447,7 +484,7 @@ class Sketch:
         return eqs
 
     @staticmethod
-    def _make_eq(t, R, v, pt, rad, line_dir, pkeys, ekeys, ents):
+    def _make_eq(t, R, v, pt, rad, line_dir, pkeys, ekeys, ents, len0=None):
         def typ(i):
             return ents[R[i]]["type"] if R[i] in ents else "pointref"
 
@@ -492,10 +529,16 @@ class Sketch:
         if t in ("parallel", "perpendicular"):
             l1, l2 = R
 
-            def f(g):
+            # Divided by the lines' lengths when the solve started, not their lengths now: still 0 exactly when the
+            # lines are parallel (perpendicular) and about sin (cos) of the angle near the start, but stretching a
+            # line no longer makes it look nearly met. (Divided by the current lengths, a solve that couldn't
+            # converge slid points off to kilometres away, where every such constraint looks almost met.)
+            n = ((len0 or {}).get(l1, 0.0) * (len0 or {}).get(l2, 0.0)) or None
+
+            def f(g, n0=n):
                 d1 = line_dir(g, l1)
                 d2 = line_dir(g, l2)
-                n = (np.linalg.norm(d1) * np.linalg.norm(d2)) + 1e-12
+                n = n0 if n0 else (np.linalg.norm(d1) * np.linalg.norm(d2)) + 1e-12
                 if t == "parallel":
                     return [(d1[0] * d2[1] - d1[1] * d2[0]) / n]
                 return [(d1 @ d2) / n]
@@ -510,6 +553,35 @@ class Sketch:
             ca = ents[a]["c"] if a in ents else a
             cb = ents[b]["c"] if b in ents else b
             return (lambda g: list(pt(g, ca) - pt(g, cb))), pkeys(ca, cb)
+        if t == "normal":
+            # a line at right angles to a curve where they meet (Onshape's Normal). A circle or arc: the line runs
+            # through its centre. An ellipse: the line lies along the ellipse's normal at `foot`, the line's end
+            # on (or nearest) the ellipse.
+            l, e = R[0], R[1]
+            l1, l2 = ents[l]["p1"], ents[l]["p2"]
+            if ents[e]["type"] in ("circle", "arc"):
+                cc = ents[e]["c"]
+
+                def f(g):
+                    d = pt(g, l2) - pt(g, l1)
+                    w = pt(g, cc) - pt(g, l1)
+                    return [(d[0] * w[1] - d[1] * w[0]) / (np.linalg.norm(d) + 1e-12)]
+                return f, ekeys(l) + pkeys(cc)
+            foot = R[2] if len(R) > 2 else l1
+            cc, aa = ents[e]["c"], ents[e]["a"]
+
+            def f(g):
+                c0 = pt(g, cc)
+                ax = pt(g, aa) - c0
+                A = np.linalg.norm(ax) + 1e-12
+                u = ax / A
+                vv = np.array([-u[1], u[0]])
+                B = abs(rad(g, e)) + 1e-12
+                w = pt(g, foot) - c0
+                grad = u * ((w @ u) / A ** 2) + vv * ((w @ vv) / B ** 2)       # the ellipse's normal there
+                d = pt(g, l2) - pt(g, l1)
+                return [(d[0] * grad[1] - d[1] * grad[0]) / ((np.linalg.norm(d) * np.linalg.norm(grad)) + 1e-12)]
+            return f, ekeys(l) + ekeys(e)
         if t == "normal_at":
             # arc/circle `a` meets line `l` at point `p` at right angles to the radius (i.e. tangent there).
             # Pins the tangent point first-order, so filleted corners solve as fully defined.
@@ -605,15 +677,29 @@ class Sketch:
             return f, ekeys(l1) + ekeys(l2)
         return None, []
 
-    def solve(self, weights: dict | None = None, iters=60, tol=1e-9) -> bool:
+    def solve(self, weights: dict | None = None, iters=60, tol=1e-9, ignore=None) -> bool:
         """Solve all constraints in place. `weights` raises the cost of moving specific
-        variables (e.g. the point being dragged). Returns True if every constraint is met."""
+        variables (e.g. the point being dragged). Returns True if every constraint is met.
+        `ignore`: ids of constraints to leave out of the solve (ones that already can't be met, so a drag elsewhere
+        isn't spoiled by them); they are still checked afterwards and reported in status["bad"] if not met."""
         idx, n = self._layout()
         if n == 0:
             self.status = {"ok": True, "bad": set(), "free": set(), "dof": 0}
             return True
         eqs = self._equations()
+        # a dimension that isn't a finite number (inf / nan from a file or an old expression) can't be solved for:
+        # leave it out and report it, rather than letting it poison the whole sketch
+        unreadable = {c["id"] for c in self.constraints if not _finite_value(c.get("value", 0.0))}
+        if unreadable:
+            eqs = [e for e in eqs if e[0] not in unreadable]
+        ignore = set(ignore or ()) - {None}
+        set_aside = [e for e in eqs if e[0] in ignore]
+        if set_aside:
+            eqs = [e for e in eqs if e[0] not in ignore]
         x = self._get_x(idx, n)
+        if not np.all(np.isfinite(x)):
+            self.status = {"ok": False, "bad": set(unreadable), "free": set(), "dof": n}
+            return False
         w = np.ones(n)
         if weights:
             for k, val in weights.items():
@@ -655,17 +741,37 @@ class Sketch:
             if err < tol * tol:
                 break
             Js = J / w           # weighted minimum-norm step
-            step_y, *_ = np.linalg.lstsq(Js, -r, rcond=1e-10)
+            step_y, *_ = np.linalg.lstsq(Js, -r, rcond=1e-7)
             step = step_y / w
             lam = 1.0
             improved = False
-            for _ls in range(12):
-                xn = x + lam * step
-                rn, _ = evaluate(xn, False)
-                if rn @ rn < err:
-                    improved = True
-                    break
-                lam *= 0.5
+            if np.all(np.isfinite(step)):
+                for _ls in range(12):
+                    xn = x + lam * step
+                    rn, _ = evaluate(xn, False)
+                    if rn @ rn < err:
+                        improved = True
+                        break
+                    lam *= 0.5
+            if not improved:
+                # Redundant (consistent) constraints make J nearly singular; its tiny singular values blow the
+                # Gauss-Newton step up. A damped step, (JᵀJ + μI) dy = -Jᵀr in the weighted variables, stays in
+                # proportion; μ grows until a step helps (a large μ is a short step down the gradient).
+                g = Js.T @ Js
+                rhs = -(Js.T @ r)
+                mu = 1e-9 * max(float(np.max(np.diag(g))) if g.size else 1.0, 1e-12)
+                for _lm in range(24):
+                    try:
+                        step_y = np.linalg.solve(g + mu * np.eye(n), rhs)
+                    except np.linalg.LinAlgError:
+                        mu *= 10.0
+                        continue
+                    xn = x + step_y / w
+                    rn, _ = evaluate(xn, False)
+                    if np.all(np.isfinite(rn)) and rn @ rn < err:
+                        improved = True
+                        break
+                    mu *= 10.0
             if not improved:
                 break
             x = xn
@@ -680,6 +786,19 @@ class Sketch:
             if cid and np.any(np.abs(r[pos:pos + k]) > 1e-6):
                 bad.add(cid)
             pos += k
+        bad |= unreadable
+        for cid, f, keys in set_aside:          # left out of the solve, but still say whether they're met
+            if np.any(np.abs(np.atleast_1d(f(lambda kk: 0.0 if kk[0] == ORIGIN else x[idx[kk]]))) > 1e-6):
+                bad.add(cid)
+        # a circle that the solve shrank to (almost) nothing to meet its constraints has gone: regions skip it, so
+        # say so rather than report success — its constraints are what can't be met with a real circle
+        if self._r0:
+            pts = [v for v in self.points.values()]
+            size = max(1.0, float(np.ptp(np.asarray(pts, float), axis=0).max())) if len(pts) > 1 else 1.0
+            tiny = 1e-6 * size
+            for eid, r0 in self._r0.items():
+                if self.entities[eid]["r"] < tiny <= r0:
+                    bad |= {c["id"] for c in self.constraints if eid in c.get("refs", ())} or {eid}
         free = set()
         dof = n
         if J.size:

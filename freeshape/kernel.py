@@ -308,6 +308,128 @@ def edge_info(edge) -> dict:
     return info
 
 
+# ---------------------------------------------------------------------- where an edge / face sits in its part
+# A picked edge or face is re-found after a rebuild by its geometry (edge_info / face_info). Geometry alone can't
+# tell a pocket's inside corner from the box's outside corner once the pocket is gone, so a reference also keeps
+# its context: whether the edge is convex (an outside corner) or concave (an inside one) and which way the two
+# faces meeting there face; for a face, whether its outline is convex, concave or mixed. These don't change when
+# dimensions change, so the stricter match never gets in the way of an ordinary edit.
+_ADJ_CACHE: list = []          # [(shape, edge -> faces map)], the few shapes looked at last
+
+
+def _edge_face_map(shape):
+    for sh, emap in _ADJ_CACHE:
+        if sh.IsSame(shape) and sh.IsEqual(shape):
+            return emap
+    try:
+        from OCP.TopTools import TopTools_IndexedDataMapOfShapeListOfShape
+    except ImportError:  # OCP >= 8
+        from OCP.OCP.collections import (
+            IndexedDataMap_TopoDS_Shape_List_TopoDS_Shape_TopTools_ShapeMapHasher as
+            TopTools_IndexedDataMapOfShapeListOfShape)
+    emap = TopTools_IndexedDataMapOfShapeListOfShape()
+    TopExp.MapShapesAndAncestors_s(shape, TopAbs_EDGE, TopAbs_FACE, emap)
+    _ADJ_CACHE.insert(0, (shape, emap))
+    del _ADJ_CACHE[8:]
+    return emap
+
+
+def _faces_at_edge(shape, edge):
+    emap = _edge_face_map(shape)
+    j = emap.FindIndex(edge)
+    if j <= 0:
+        return []
+    seen = []
+    for f in emap.FindFromIndex(j):
+        if not any(f.IsSame(g) for g in seen):
+            seen.append(f)
+    return [_as_face(f) for f in seen]
+
+
+def _normal_at(face, p):
+    """The outward unit normal of a face at (near) point p, or None."""
+    from OCP.BRepLProp import BRepLProp_SLProps
+    from OCP.ShapeAnalysis import ShapeAnalysis_Surface
+    try:
+        uv = ShapeAnalysis_Surface(BRep_Tool.Surface_s(face)).ValueOfUV(_pnt(p), 1e-6)
+        props = BRepLProp_SLProps(BRepAdaptor_Surface(face), uv.X(), uv.Y(), 1, 1e-6)
+        if not props.IsNormalDefined():
+            return None
+        n = _np(props.Normal())
+    except Exception:
+        return None
+    if face.Orientation() == TopAbs_REVERSED:
+        n = -n
+    return n / max(np.linalg.norm(n), 1e-12)
+
+
+def _into_face(face, p, n, t, step):
+    """The unit direction from point p (on one of the face's edges) into the face, at right angles to the edge
+    (tangent t), or None if it can't be told."""
+    from OCP.BRepClass import BRepClass_FaceClassifier
+    from OCP.TopAbs import TopAbs_IN
+    u = np.cross(n, t)
+    if np.linalg.norm(u) < 1e-9:
+        return None
+    u = u / np.linalg.norm(u)
+    for sign in (1.0, -1.0):
+        q = p + sign * step * u
+        try:
+            if BRepClass_FaceClassifier(face, _pnt(q), step * 0.1).State() == TopAbs_IN:
+                return sign * u
+        except Exception:
+            return None
+    return None
+
+
+def edge_context(shape, edge) -> dict:
+    """{"convex": True (outside corner) | False (inside corner) | None (smooth, open or unknown),
+        "adj": [outward normal of each face meeting at the edge, at its middle]}."""
+    fs = _faces_at_edge(shape, edge)
+    ad = BRepAdaptor_Curve(edge)
+    t0, t1 = ad.FirstParameter(), ad.LastParameter()
+    p, v = gp_Pnt(), gp_Vec()
+    ad.D1(0.5 * (t0 + t1), p, v)
+    pt, tan = _np(p), np.array([v.X(), v.Y(), v.Z()])
+    if np.linalg.norm(tan) < 1e-12:
+        return {"convex": None, "adj": []}
+    tan = tan / np.linalg.norm(tan)
+    normals = [n for n in (_normal_at(f, pt) for f in fs) if n is not None]
+    out = {"convex": None, "adj": [n.tolist() for n in normals]}
+    if len(fs) != 2 or len(normals) != 2:
+        return out
+    g = GProp_GProps()
+    BRepGProp.LinearProperties_s(edge, g)
+    step = min(max(g.Mass() * 1e-3, 1e-4), 0.05)
+    u2 = _into_face(fs[1], pt, normals[1], tan, step)
+    if u2 is None:
+        return out
+    k = float(np.dot(normals[0], u2))      # face 2 runs away below face 1 (convex) or rises above it (concave)
+    if abs(k) > 0.02:                      # (about 1°; flatter than that is a smooth join, not a corner)
+        out["convex"] = k < 0
+    return out
+
+
+def face_context(shape, face) -> dict:
+    """{"outline": "convex" | "concave" | "mixed" | None}: what the edges round the face's outside make with the
+    faces next to it — a box's top is convex all round, a pocket's floor concave all round."""
+    from OCP.BRepTools import BRepTools
+    try:
+        wire = BRepTools.OuterWire_s(face)
+    except Exception:
+        return {"outline": None}
+    kinds = set()
+    exp = TopExp_Explorer(wire, TopAbs_EDGE)
+    while exp.More():
+        c = edge_context(shape, _as_edge(exp.Current()))["convex"]
+        if c is not None:
+            kinds.add(c)
+        exp.Next()
+    if not kinds:
+        return {"outline": None}
+    return {"outline": "mixed" if len(kinds) == 2 else ("convex" if True in kinds else "concave")}
+
+
 def edge_closest(edge, pt):
     """(point on the edge nearest `pt`, unit tangent of the edge there)."""
     from OCP.BRepExtrema import BRepExtrema_DistShapeShape
@@ -2632,6 +2754,28 @@ def transform(shape, translate_v=(0, 0, 0), axis_p=(0, 0, 0), axis_d=(0, 0, 1), 
     return BRepBuilderAPI_Transform(shape, t, True).Shape()
 
 
+def wire_frames(wire, distances, from_end=False):
+    """Points and unit tangents along a wire at the given arc-length distances from its start (or its end, going
+    back): [(point, tangent)], plus the wire's length and whether it's closed."""
+    from OCP.BRepAdaptor import BRepAdaptor_CompCurve
+    from OCP.GCPnts import GCPnts_AbscissaPoint
+    c = BRepAdaptor_CompCurve(wire)
+    length = GCPnts_AbscissaPoint.Length_s(c)
+    u0 = c.FirstParameter()
+    out = []
+    for s in distances:
+        s = float(min(max(s, 0.0), length))
+        if from_end:
+            s = length - s
+        u = GCPnts_AbscissaPoint(c, s, u0).Parameter() if s > 1e-12 else u0
+        pnt, vec = gp_Pnt(), gp_Vec()
+        c.D1(u, pnt, vec)
+        t = np.array([vec.X(), vec.Y(), vec.Z()], float)
+        t = t / (np.linalg.norm(t) or 1.0)
+        out.append((np.array([pnt.X(), pnt.Y(), pnt.Z()], float), -t if from_end else t))
+    return out, float(length), bool(c.IsClosed())
+
+
 def cylinder(base, direction, radius, height):
     from OCP.BRepPrimAPI import BRepPrimAPI_MakeCylinder
     ax = gp_Ax2(_pnt(base), _dir(direction))
@@ -2893,6 +3037,18 @@ def trsf_from_matrix(M) -> gp_Trsf:
     t = gp_Trsf()
     t.SetValues(*(float(M[r, c]) for r in range(3) for c in range(4)))
     return t
+
+
+def transform_matrix(shape, M):
+    """A copy of the shape moved by a 4x4 rigid transform (numpy)."""
+    return BRepBuilderAPI_Transform(shape, trsf_from_matrix(M), True).Shape()
+
+
+def scale(shape, centre, factor):
+    """A copy of the shape scaled by `factor` the same in every direction, about `centre`."""
+    t = gp_Trsf()
+    t.SetScale(_pnt(centre), float(factor))
+    return BRepBuilderAPI_Transform(shape, t, True).Shape()
 
 
 def located(shape, M):

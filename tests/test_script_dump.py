@@ -97,7 +97,7 @@ def _hinge():
     studio = Document.load(os.path.join(EX, "hinge_parts.fshape"))
 
     def res(src):
-        return studio.state_for(src.get("config")).parts[src["part"]]
+        return studio.state_for(src.get("config")).parts[studio.part_id(src["part"])]
     asm = AssemblyDoc.load(os.path.join(EX, "hinge.fasm"), resolver=res)
     dwg = DrawingDoc()
     dwg.name = "Hinge drawing"

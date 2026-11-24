@@ -21,13 +21,16 @@ from .. import sketch_ops as OPS
 
 DRAW_TOOLS = {"line", "line_mid", "rect", "center_rect", "rect3", "hexagon", "polygon", "polygon_out", "circle", "arc3", "arc_center", "arc_tan", "conic", "point", "spline", "spline_cp", "ellipse", "ellipse_arc", "text"}
 
+NORMAL_CURVES = ("circle", "arc", "ellipse", "ellipse_arc")    # what Normal (or Perpendicular) takes with a line
+
 # constraint tool -> (description, list of acceptable selection signatures)
 CONSTRAINT_TOOLS = {
     "coincident": "Select two points, or a point and a curve",
     "horizontal": "Select a line or two points",
     "vertical": "Select a line or two points",
     "parallel": "Select two lines",
-    "perpendicular": "Select two lines",
+    "perpendicular": "Select two lines (or a line and a curve: at right angles to it)",
+    "normal": "Select a line and a circle, arc or ellipse: the line meets it at right angles",
     "tangent": "Select a line and an arc/circle, or two arcs/circles",
     "equal": "Select two lines or two arcs/circles",
     "midpoint": "Select a point and a line",
@@ -123,6 +126,10 @@ class Sketcher:
         self.show_regions = True
         self.show_constraints = True
         self.variables = {}          # #name -> value, from the features before this sketch
+        self.variable_kinds = {}     # #name -> length / angle / number …
+        # callable(name, kind, value) -> the variables after making #name before this sketch (or None): typing an
+        # unknown #name in a dimension box offers to create it (set by the main window)
+        self.on_new_variable = None
         self.undo_stack: list = []
         self.redo_stack: list = []
         self.poly_sides = 6         # the polygon tools' number of sides (the last one typed)
@@ -699,6 +706,24 @@ class Sketcher:
             return self._ops_click(vp, x, y, e)
         return False
 
+    # ------------------------------------------------------------------ edits next to constraints that already fail
+    # A sketch can hold a constraint that can't be met (two lengths on one line, say). That mustn't freeze the rest
+    # of the sketch: a drag or a dimension edit is judged only on whether it makes something fail that didn't
+    # before, and the constraints already failing sit out its solve (so they don't pull the geometry about).
+    def _failing_now(self, data=None) -> set:
+        """Ids of the constraints that can't be met in the sketch as it is (or as `data`, a saved sketch, is)."""
+        probe = Sketch.from_dict(data if data is not None else self.sk.to_dict())
+        probe.solve()
+        return set(probe.status.get("bad", ()))
+
+    def _solve_without_new_failures(self, before, weights=None, keep=()) -> bool:
+        """Solve with the constraints in `before` (already failing) left out, except those in `keep` (the one being
+        added or edited). True when nothing fails that didn't before and none of `keep` fails."""
+        before, keep = set(before), set(keep)
+        self.sk.solve(weights=weights, ignore=before - keep)
+        bad = set(self.sk.status.get("bad", ()))
+        return not (bad - before) and not (bad & keep)
+
     def mouse_drag(self, vp, x, y, e):
         if self.tool in DRAW_TOOLS:
             self.mouse_move(vp, x, y, e)
@@ -717,6 +742,7 @@ class Sketcher:
             self.push_undo()
             d["pushed"] = True
             d["orig"] = self.sk.to_dict()
+            d["bad0"] = self._failing_now(d["orig"])
         sk = self.sk
         kind, i = d["kind"], d["id"]
         delta = uv - d["start"]
@@ -751,11 +777,14 @@ class Sketcher:
                     sk.points[pid] = (np.array(base.points[pid]) + delta).tolist()
                     weights[(pid, 0)] = 1e3
                     weights[(pid, 1)] = 1e3
-        sk.solve(weights=weights)
-        if not sk.status.get("ok", True):
+        if not self._solve_without_new_failures(d.get("bad0", ()), weights):
             # couldn't satisfy constraints with the dragged geometry there: fall back to the original
-            sk.points = Sketch.from_dict(d["orig"]).points
-            sk.solve()
+            base = Sketch.from_dict(d["orig"])
+            sk.points = base.points
+            for eid, ent in base.entities.items():
+                if eid in sk.entities and "r" in ent:
+                    sk.entities[eid]["r"] = ent["r"]
+            sk.solve(ignore=d.get("bad0", ()))
         self.on_change(False)
 
     def _box_pick(self, vp, box, additive):
@@ -936,12 +965,12 @@ class Sketcher:
         return False
 
     # Onshape's sketch keys (as far as FreeShape has the tool); R stays the corner rectangle, X is Extend as in
-    # Onshape (the hexagon moved to Shift+X)
+    # Onshape (Shift+X is the polygon — a hexagon to start)
     KEYS = {"L": "line", "R": "rect", "C": "circle", "A": "arc3", "D": "dimension", "I": "coincident",
             "H": "horizontal", "V": "vertical", "E": "equal", "T": "tangent", "P": "point", "U": "use",
             "O": "offset", "B": "parallel", "M": "trim", "X": "sk_extend"}
     SHIFT_KEYS = {"L": "perpendicular", "O": "concentric", "J": "fix", "M": "midpoint", "Q": "symmetric",
-                  "A": "arc_tan", "F": "sk_fillet", "S": "point", "X": "hexagon"}
+                  "A": "arc_tan", "F": "sk_fillet", "S": "point", "X": "polygon"}
 
     @classmethod
     def key_tool(cls, key, mods) -> str | None:
@@ -1028,6 +1057,16 @@ class Sketcher:
                 made.append((tool, [self._as_point(a), self._as_point(b)], None))
             elif tool in ("parallel", "perpendicular") and ta == "line" and tb == "line":
                 made.append((tool, [a, b], None))
+            elif tool in ("perpendicular", "normal") and "line" in (ta, tb) \
+                    and (ta in NORMAL_CURVES or tb in NORMAL_CURVES):
+                line, curve = (a, b) if ta == "line" else (b, a)
+                refs = [line, curve]
+                if sk.entities[curve]["type"] in ("ellipse", "ellipse_arc"):
+                    ln = sk.entities[line]                        # the line's end that meets the ellipse
+                    poly = sk.polyline(curve, 96)
+                    near = lambda pid: float(np.min(np.linalg.norm(poly - sk.P(pid), axis=1)))
+                    refs.append(min((ln["p1"], ln["p2"]), key=near))
+                made.append(("normal", refs, None))
             elif tool == "equal" and ((ta == tb == "line") or (ta in curves and tb in curves)):
                 made.append(("equal", [a, b], None))
             elif tool == "concentric" and ta in curves + ("point",) and tb in curves + ("point",):
@@ -1720,19 +1759,19 @@ class Sketcher:
             return None
         ctype, refs, val = spec
         sk = self.sk
-        sk.solve()
+        bad0 = self._failing_now()
+        sk.solve(ignore=bad0)
         dof_before = sk.status.get("dof", 0)
         saved = sk.to_dict()
         self.push_undo()
         c = sk.add_constraint(ctype, *refs, value=float(val))
         if pos is not None:
             c["pos"] = [float(pos[0]), float(pos[1])]
-        sk.solve()
-        if not sk.status.get("ok", True) or sk.status.get("dof", 0) >= dof_before:
+        if not self._solve_without_new_failures(bad0, keep={c["id"]}) or sk.status.get("dof", 0) >= dof_before:
             # it would fight the other dimensions (or just repeat them): leave the sketch as it was and say so
             self._restore_geometry(saved)
             sk.constraints.remove(c)
-            sk.solve()
+            sk.solve(ignore=bad0)
             self.undo_stack.pop()
             if vp is not None:
                 self._flash(vp, "Can't add that dimension — this is already set by other dimensions or "
@@ -2080,17 +2119,19 @@ class Sketcher:
             txt = with_unit(ed.text().strip(), U.unit())
             v = parse_number(txt, variables=self.variables)
             self._close_editor()
+            if v is None and self._new_variable(vp, txt, "angle" if ctype == "angle" else "length", value):
+                v = parse_number(txt, variables=self.variables)
             # (refs can be curves or points: e.g. a hexagon's across-flats runs from a corner to a side)
             if v is not None and v > 0 and all(r in self.sk.entities or r in self.sk.points for r in refs):
+                bad0 = self._failing_now()
                 self.push_undo()
                 c = self.sk.add_constraint(ctype, *refs, value=float(v))
                 c["pos"] = [float(pos[0]), float(pos[1])]
                 if has_vars(txt):
                     c["expr"] = txt
-                self.sk.solve()
-                if not self.sk.status.get("ok", True):
+                if not self._solve_without_new_failures(bad0, keep={c["id"]}):
                     self.sk.constraints.remove(c)      # would over-constrain: drop it quietly
-                    self.sk.solve()
+                    self.sk.solve(ignore=bad0)
                     self.undo_stack.pop()
                 self.on_change(True)
             vp.update()
@@ -2110,6 +2151,26 @@ class Sketcher:
         ed.setFocus()
         ed.selectAll()
 
+    def _new_variable(self, vp, txt, kind, value):
+        """`txt` uses a #name that doesn't exist: offer to make it (just before this sketch, set to `value`).
+        True if it was made — self.variables then has it."""
+        from .varcomplete import missing_variable
+        name = missing_variable(txt, self.variables)
+        if not name or self.on_new_variable is None:
+            return False
+        from PySide6.QtWidgets import QMessageBox
+        shown = f"{fmt(value)}°" if kind == "angle" else U.length(float(value))
+        ok = QMessageBox.question(vp.window() if hasattr(vp, "window") else None, "New variable",
+                                  f"#{name} doesn't exist yet. Create #{name} = {shown} just before this sketch "
+                                  "(and use it here)?", QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        if ok != QMessageBox.Yes:
+            return False
+        new = self.on_new_variable(name, kind, value)
+        if new is None:
+            return False
+        self.variables = dict(new)
+        return True
+
     def _make_editor(self, vp, cx, cy, text):
         ed = QLineEdit(vp)
         ed.setFixedWidth(110)
@@ -2117,6 +2178,8 @@ class Sketcher:
         ed.move(int(cx - 55), int(cy - 12))
         ed.setStyleSheet("QLineEdit { border: 2px solid %s; border-radius: 4px; padding: 2px 4px; font-weight: 600; }"
                          % theme.ACCENT)
+        from .varcomplete import attach
+        attach(ed, lambda: self.variables, lambda: self.variable_kinds)
         return ed
 
     def edit_dimension(self, vp, c):
@@ -2134,6 +2197,8 @@ class Sketcher:
         ed.move(int(r.center().x() - 55), int(r.center().y() - 12))
         ed.setStyleSheet("QLineEdit { border: 2px solid %s; border-radius: 4px; padding: 2px 4px; font-weight: 600; }"
                          % theme.ACCENT)
+        from .varcomplete import attach
+        attach(ed, lambda: self.variables, lambda: self.variable_kinds)
         cid = c["id"]
 
         def commit():
@@ -2144,6 +2209,8 @@ class Sketcher:
                 txt = with_unit(txt, U.unit())         # a bare number is in the document's unit
             v = parse_number(txt, angle=(unit == "deg"), variables=self.variables)
             self._close_editor()
+            if v is None and self._new_variable(vp, txt, "angle" if unit == "deg" else "length", c["value"]):
+                v = parse_number(txt, angle=(unit == "deg"), variables=self.variables)
             if v is None or (c["type"] != "angle" and v <= 0):
                 return
             cc = self._constraint(cid)
@@ -2152,17 +2219,17 @@ class Sketcher:
             self.push_undo()
             old = cc["value"]
             saved = self.sk.to_dict()
+            bad0 = self._failing_now(saved)
             cc["value"] = float(v)
             if has_vars(txt):
                 cc["expr"] = txt
             else:
                 cc.pop("expr", None)
-            self.sk.solve()
-            if not self.sk.status.get("ok", True):
+            if not self._solve_without_new_failures(bad0, keep={cid}):
                 # can't be done with the other dimensions: put everything back exactly and say why
                 cc["value"] = old
                 self._restore_geometry(saved)
-                self.sk.solve()
+                self.sk.solve(ignore=bad0 - {cid})
                 self.undo_stack.pop()
                 self._flash(vp, f"Can't make that {fmt(v)} — it doesn't fit with the other dimensions and "
                                 "constraints")

@@ -23,6 +23,10 @@ Following [issue #27](https://github.com/richiewillmott/FreeShape/issues/27): fe
 | [Hole](#hole) | 100% |
 | [Linear pattern](#linear-pattern) | 100% |
 | [Circular pattern](#circular-pattern) | 100% |
+| [Curve pattern](#curve-pattern) | 100% |
+| [Point pattern](#point-pattern) | 100% |
+| [Transform](#transform) | 100% |
+| [Mate connector](#mate-connector) | 75% |
 | [Mirror](#mirror) | 100% |
 | [Thicken](#thicken) | 92% |
 | [Enclose](#enclose) | 100% |
@@ -120,7 +124,7 @@ Following [issue #27](https://github.com/richiewillmott/FreeShape/issues/27): fe
 - ✅ Constant radius
 - ✅ Tangent propagation *(shared: Tangent chains)*
 - ⬜ Conic / curvature cross-section — OpenCascade fillets are circular-section only
-- 🟡 Variable radius — start and end radii; Onshape also allows radii at points
+- 🟡 Variable radius — start and end radii (either can be an expression); Onshape also allows radii at points
 
 ### Chamfer
 
@@ -184,6 +188,58 @@ Following [issue #27](https://github.com/richiewillmott/FreeShape/issues/27): fe
 - ✅ Angle and count
 - ✅ New / Add / Remove / Intersect *(shared: Merge with the model)*
 - ✅ Merge scope *(shared: Merge scope)*
+
+### Curve pattern
+
+100% · shared tools used: Merge scope, Merge with the model, Pattern / mirror faces
+
+- ✅ Parts
+- ✅ Features
+- ✅ Faces *(shared: Pattern / mirror faces)*
+- ✅ Path (sketch curves or edges)
+- ✅ Count, spread or distance apart
+- ✅ Turn with the path / keep orientation
+- ✅ New / Add / Remove / Intersect *(shared: Merge with the model)*
+- ✅ Merge scope *(shared: Merge scope)*
+
+### Point pattern
+
+100% · shared tools used: Merge scope, Merge with the model, Pattern / mirror faces
+
+- ✅ Parts
+- ✅ Features
+- ✅ Faces *(shared: Pattern / mirror faces)*
+- ✅ Locations (vertices, sketch points)
+- ✅ Reference point — optional: else the middle of what's patterned
+- ✅ New / Add / Remove / Intersect *(shared: Merge with the model)*
+- ✅ Merge scope *(shared: Merge scope)*
+
+### Transform
+
+100% · shared tools used: Axis / direction picking
+
+- ✅ Translate by line *(shared: Axis / direction picking)* — by the line's own length
+- ✅ Translate by distance *(shared: Axis / direction picking)*
+- ✅ Translate by XYZ
+- ✅ Transform by mate connectors
+- ✅ Rotate *(shared: Axis / direction picking)*
+- ✅ Copy in place
+- ✅ Scale — uniform, about a point or the origin; a scaled sheet metal part becomes a plain part
+- ✅ Copy part — 'Keep the original'; sheet metal parts moved, turned or copied stay sheet metal
+- ✅ Translate from point to point — FreeShape extra
+
+### Mate connector
+
+75% · shared tools used: Opposite direction
+
+- ✅ On a face, edge or vertex
+- ✅ Points of the face to choose from (Shift) — middle, corners, edge middles, round-edge centres; a round face's axis ends
+- ✅ Flip primary axis *(shared: Opposite direction)*
+- ✅ Rotate about Z
+- ✅ Move along X / Y / Z
+- ✅ Used by Transform
+- ⬜ Used in assemblies — assemblies make their own from what you click
+- ⬜ Owner part / Point pattern of mate connectors
 
 ### Mirror
 
@@ -297,6 +353,8 @@ Each is built once and used by every feature listed under it. A tool marked *to 
   - ✅ Loft: New / Add / Remove / Intersect
   - ✅ Linear pattern: New / Add / Remove / Intersect
   - ✅ Circular pattern: New / Add / Remove / Intersect
+  - ✅ Curve pattern: New / Add / Remove / Intersect
+  - ✅ Point pattern: New / Add / Remove / Intersect
   - ✅ Mirror: New / Add / Remove / Intersect
   - ✅ Thicken: New / Add / Remove / Intersect
   - ✅ Enclose: New / Add / Remove / Intersect
@@ -307,6 +365,8 @@ Each is built once and used by every feature listed under it. A tool marked *to 
   - ✅ Loft: Merge scope
   - ✅ Linear pattern: Merge scope
   - ✅ Circular pattern: Merge scope
+  - ✅ Curve pattern: Merge scope
+  - ✅ Point pattern: Merge scope
   - ✅ Mirror: Merge scope
   - ✅ Thicken: Merge scope
   - ✅ Enclose: Merge scope
@@ -326,6 +386,7 @@ Each is built once and used by every feature listed under it. A tool marked *to 
 - **Opposite direction** — Reverse the direction. `freeshape.features:run_extrude`
   - ✅ Extrude: Opposite direction
   - ✅ Revolve: Opposite direction
+  - ✅ Mate connector: Flip primary axis
   - ✅ Rib: Opposite direction
   - ✅ Helix: Opposite direction
 - **Draft / taper** — Lean faces by an angle about a neutral plane. `freeshape.body_options:taper`
@@ -338,6 +399,9 @@ Each is built once and used by every feature listed under it. A tool marked *to 
   - ✅ Revolve: Revolve axis
   - ✅ Linear pattern: Direction
   - ✅ Circular pattern: Axis
+  - ✅ Transform: Translate by line
+  - ✅ Transform: Translate by distance
+  - ✅ Transform: Rotate
   - ✅ Helix: Around an axis, circle edge or cylinder
 - **Tangent chains** — Pick one edge or face, get the smooth chain it belongs to (OpenCascade carries fillets, chamfers and drafts along it). `freeshape.kernel:fillet`
   - ✅ Fillet: Tangent propagation
@@ -346,6 +410,8 @@ Each is built once and used by every feature listed under it. A tool marked *to 
 - **Pattern / mirror faces** — Repeat or mirror the boss / pocket some faces make (found by healing them away, as Delete face does). `freeshape.features:face_feature_bodies`
   - ✅ Linear pattern: Faces
   - ✅ Circular pattern: Faces
+  - ✅ Curve pattern: Faces
+  - ✅ Point pattern: Faces
   - ✅ Mirror: Faces
 - **Two directions** — A second direction (patterns) or second angle (revolve). `freeshape.features:run_linear_pattern`
   - ✅ Revolve: Two directions (second angle)

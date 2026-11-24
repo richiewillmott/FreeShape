@@ -1,5 +1,85 @@
 # FreeShape revisions
 
+## 2.5.0
+
+Variables made on the fly, a Variables table, copy and paste for features, Transform with Onshape's types, mate
+connectors in Part Studios, Curve and Point patterns, and the view facing a sketch when you edit it.
+
+- **Create a variable as you type it**: type an unknown `#name` in a feature's value box — `#depth` in an Extrude's
+  depth, say — and **Create #depth = 25 mm** appears (with what the box had); click it or press Enter and a Variable
+  is added just before that feature (even one far up the list), and the box uses it. Lengths, angles and counts
+  make the right kind of variable. Sketch dimension boxes offer it too (the variable goes before the sketch).
+- **Type `#` for a list of the variables** you can use, with their values — in feature boxes, Variable values and
+  sketch dimension boxes, part-way through an expression too.
+- **Variables table** (Variable ▾ → *Variables table*): every variable with its value, kind and what uses it; change
+  values and names in place — a rename follows the variable into every feature, sketch dimension and
+  configuration.
+- **Copy and paste features** (`Ctrl+C` / `Ctrl+V`, or right-click → *Copy* / *Paste after this*), within a Part
+  Studio or between Part Studios and FreeShape windows; pasted features that used each other stay linked.
+- **Orient normal to sketch on edit** now faces the sketch when you open an existing one to edit, as in Onshape (it
+  only did for new sketches), and switching the option off while sketching goes back to the view you had.
+- **Transform** has Onshape's types: Translate by line (by the line's own length), by distance, by XYZ, Transform by
+  mate connectors, Rotate, Copy in place and Scale — plus Translate from point to point. Files from before open as
+  "by XYZ" with their turn kept.
+- **Mate connectors in Part Studios** (Transform ▾ → *Mate connector*): a frame on a face, edge or vertex. Each
+  face offers its points — its middle, corners, edge middles and round-edge centres; a round face its axis at the
+  middle or either end — shown as crosses: press **Shift** (or click a cross) to move to the next without picking
+  the face again. Flip, turn about Z and move along X / Y / Z; drawn as small triads; used by Transform.
+- **Curve pattern** — copies of parts, features or faces along a path (sketch curves or edges), spread along it or a
+  set distance apart, turning with it or keeping their orientation. **Point pattern** — a copy at each picked
+  vertex or sketch point, measured from a reference point (or from the middle of what's copied).
+- **Normal** sketch constraint: a line at right angles to a circle, arc or ellipse where they meet. Pick a line and
+  a curve with **Perpendicular** (`Shift+L`) and it makes one.
+- **Up to vertex at both ends**, the Onshape way: first end up to a vertex, second end up to the same vertex stopping
+  short by X makes a part X thick whose end is at the vertex (a second end's vertex on the first end's side now
+  works instead of failing).
+- The separate **Hexagon** tool is gone from the toolbar: Inscribed polygon does the same (6 sides to start, snapping
+  level), and `Shift+X` now starts it.
+- An Extrude's **second end position** (Blind) has its own arrow to drag, pointing the other way to the first,
+  as in Onshape; it sets the Second depth.
+- Fixed: unticking *Second end position* left the second end's picked vertex (or face) highlighted in the view.
+- Fixed: a part in a feature's merge scope (Extrude → Add on a STEP import, say) was highlighted all over while
+  you worked, hiding the preview. It lights up only while you're picking in the Merge scope box, as in Onshape.
+- Fixed: a message shown while FreeShape starts (a file that needs a rebuild, a recovered autosave, an error)
+  could hide behind the splash screen, which stays on top, leaving nothing you could click. The splash now
+  closes the moment any message or dialog opens.
+- Fixed: opening a sketch straight after a tab opened could snap the view back to isometric (the tab's delayed
+  first view cancelled the turn to face the sketch).
+- Fixed: suppressing or deleting a feature that makes parts no longer renumbers the parts made after it, so a
+  fillet, chamfer, name or colour on a later part stays on that part (it could move to another body without an
+  error). Part ids now count per feature. **Files are saved in a new format (2)**: files from earlier versions open
+  and convert by themselves, and assemblies, drawings, derived parts, saved versions and exported scripts that use
+  the old ids still find their parts. Files saved by 2.5.0 shouldn't be edited in older FreeShape versions.
+- Fixed: when the edge or face a feature uses disappears upstream (its pocket suppressed or deleted, or the feature
+  moved above it), the feature now says *Missing edge reference* instead of quietly rounding some other edge — an
+  inside corner is never taken for an outside one, nor a pocket's floor for the top face. Edges and faces picked
+  from this version on remember where they sit in the part; ordinary dimension changes still follow them.
+- Sketch solver: constraints that repeat what others already say (a parallel added to a 3-point rectangle, an
+  equal on a rectangle's opposite sides) no longer freeze the sketch — it solves and drags as it should. A circle
+  can no longer be solved to a negative radius or shrunk to nothing and silently drop out of the profile: a radius
+  of −4, or a tangency only a vanishing circle could meet, is shown as a constraint that can't be met. Big
+  changes to a sketch with parallel and perpendicular lines now solve where they used to give up (and could leave
+  points far off the screen). A constraint that can't be met (shown red) no longer freezes the rest of the sketch:
+  you can still drag other geometry and add or change dimensions, as long as the change doesn't break something
+  else — and the red constraint's own geometry stays put.
+- Fixed: drawing DXFs give the right dimension values on views with their own scale (detail views, or a view
+  given a scale in its properties) — a 2:1 view's 60 mm read 120 — and *full size* DXFs now draw those views at
+  true size too.
+- Fixed: a sheet metal part moved or turned with Transform keeps working as sheet metal — flanges, hems and the
+  flat pattern follow it (a flange used to be built where the part had been). A copy made with Transform is sheet
+  metal too; a scaled one becomes a plain part.
+- Fixed: `P` (View ▸ Show default planes) and the planes' eyes in the feature list were two separate switches —
+  P hid the planes but the list still showed them as shown, and while one had them off the other did nothing.
+  They're one switch now: P hides (or shows) all three, the eyes show it, and an eye works after P. Hidden
+  planes are saved with the Part Studio, as hidden sketches are.
+- Fixed: saving no longer empties the file if something goes wrong part-way (the file is written alongside and
+  swapped in); a feature that fails no longer leaves half its result in the model; a variable value that a sketch
+  can't satisfy is reported on the sketch; `1e999` and other infinite values are refused; expressions work in every
+  number box (second-direction counts, second radius and distance, draft angles, helix and scale); a circular
+  pattern with count 0 explains itself; and names can no longer break out of comments in an exported script.
+- For contributors: a `.gitattributes` keeps text files at LF line endings, so Git on Windows stops warning
+  "LF will be replaced by CRLF" for every saved file.
+
 ## 2.4.0
 
 A much fuller sketcher, Onshape's selection tools and keys, an S menu of your own tools, direction arrows that work

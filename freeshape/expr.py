@@ -67,7 +67,12 @@ def _split_terms(t):
 
 def parse_number(text, angle=False, variables=None):
     """Returns a float in mm (or degrees), or None if the text can't be parsed
-    (including when it uses a variable that isn't defined)."""
+    (including when it uses a variable that isn't defined, or works out to infinity / not-a-number)."""
+    v = _parse_number(text, angle, variables)
+    return v if v is None or math.isfinite(v) else None
+
+
+def _parse_number(text, angle=False, variables=None):
     if isinstance(text, (int, float)):
         return float(text)
     if text is None:
@@ -92,7 +97,7 @@ def parse_number(text, angle=False, variables=None):
     if len(terms) > 1:
         total = 0.0
         for sign, term in terms:
-            v = parse_number(term, angle, variables)
+            v = _parse_number(term, angle, variables)
             if v is None:
                 return None
             total += sign * v
@@ -101,7 +106,7 @@ def parse_number(text, angle=False, variables=None):
     # a single trailing unit applies to the whole expression: "1/2 in" -> (1/2)*25.4
     m = re.match(r"^(.*?)\s*(" + units_alt + r")$", t)
     if m and m.group(1) and not re.search(r"\d\s*(" + units_alt + r")(?![A-Za-z])", m.group(1)):
-        inner = parse_number(m.group(1), angle, variables)
+        inner = _parse_number(m.group(1), angle, variables)
         return None if inner is None else inner * _UNITS[m.group(2)]
 
     # otherwise apply units attached to individual numbers: "1in + 5mm"

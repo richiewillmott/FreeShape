@@ -5,11 +5,12 @@ import copy
 import json
 
 import numpy as np
-from PySide6.QtCore import Qt, QTimer, Signal, QSize
+from PySide6.QtCore import Qt, QTimer, Signal, QSize, QEvent
 from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, QToolButton, QLineEdit, QComboBox, QCheckBox,
-    QListWidget, QListWidgetItem, QWidget, QButtonGroup, QSizePolicy, QGraphicsDropShadowEffect,
+    QListWidget, QListWidgetItem, QWidget, QButtonGroup, QSizePolicy, QGraphicsDropShadowEffect, QApplication,
+    QPushButton,
 )
 
 from .. import kernel as K
@@ -487,6 +488,30 @@ def _scope_field(also=lambda p: True):
                 visible=lambda p: p.get("op", "new") != "new" and also(p))
 
 
+def _mt(p):
+    return p.get("type", "xyz")
+
+
+def _connector_options(dlg):
+    """The Part Studio's mate connectors (made before this feature) to choose from."""
+    out = [("", "— choose —")]
+    for fid in getattr(dlg.base_state, "connectors", {}):
+        f = dlg.doc.feature(fid)
+        out.append((fid, f["name"] if f else fid))
+    return out
+
+
+def _mc_info(p, dlg):
+    if not p.get("on"):
+        return "Pick where it goes. With nothing picked it sits at the origin."
+    names = [c["name"] for c in dlg._mc_candidates()] if dlg is not None else []
+    if not names:
+        return ""
+    k = int(p.get("point", 0) or 0) % len(names)
+    more = " — press Shift for the next point" if len(names) > 1 else ""
+    return f"At: {names[k]}  ({k + 1} of {len(names)}){more}"
+
+
 def _pattern_of(what):
     """The 'Parts / Features' switch and feature picker shared by Mirror and the patterns."""
     return [
@@ -711,6 +736,27 @@ SCHEMAS = {
         _num("angle", "Angle", unit="deg"),
         _num("count", "Instance count", unit=""),
     ],
+    "curve_pattern": [
+        *_pattern_of("pattern"),
+        {**_ops(), "visible": lambda p: p.get("type", "parts") == "parts"},
+        _scope_field(lambda p: p.get("type", "parts") == "parts"),
+        _sel("parts", "Parts to pattern", {"part"}, visible=lambda p: p.get("type", "parts") == "parts"),
+        _sel("path", "Path to pattern along (sketch curves or edges)", {"path"}),
+        _num("count", "Instance count", unit=""),
+        _choice("spacing_mode", "Spacing", [("fit", "Spread along the whole path"), ("distance", "Distance apart")]),
+        _num("spacing", "Distance", visible=lambda p: p.get("spacing_mode") == "distance"),
+        _flip("flip", "Start from the other end", inline="spacing_mode"),
+        _check("keep_orientation", "Keep orientation (move only, don't turn with the path)"),
+    ],
+    "point_pattern": [
+        *_pattern_of("pattern"),
+        {**_ops(), "visible": lambda p: p.get("type", "parts") == "parts"},
+        _scope_field(lambda p: p.get("type", "parts") == "parts"),
+        _sel("parts", "Parts to pattern", {"part"}, visible=lambda p: p.get("type", "parts") == "parts"),
+        _sel("locations", "Points to copy to (vertices or sketch points)", {"vertex"}),
+        _sel("reference_sel", "Reference point (optional — else the middle of what's patterned)", {"vertex"},
+             multi=False),
+    ],
     "boolean": [
         {"t": "ops", "key": "op", "options": [("union", "Union"), ("subtract", "Subtract"), ("intersect", "Intersect")]},
         _sel("tools", "Tools", {"part"}),
@@ -754,16 +800,42 @@ SCHEMAS = {
          "points to."},
     ],
     "move": [
-        _sel("parts", "Parts to move", {"part"}),
-        _num("dx", "Move X"),
-        _num("dy", "Move Y"),
-        _num("dz", "Move Z"),
-        _num("rotate", "Rotate", unit="deg"),
-        _sel("axis_sel", "Rotate about (edge or sketch line)", {"axis"}, multi=False,
-             visible=lambda p: _isnum(p.get("rotate")) is not False),
+        _choice("type", "Type", F.MOVE_TYPES),
+        _sel("parts", "Parts to transform", {"part"}),
+        _num("dx", "Move X", visible=lambda p: _mt(p) == "xyz"),
+        _num("dy", "Move Y", visible=lambda p: _mt(p) == "xyz"),
+        _num("dz", "Move Z", visible=lambda p: _mt(p) == "xyz"),
+        _sel("axis_sel", "Line, direction or axis (edge or sketch line) — a line moves it by its own length",
+             {"axis"}, multi=False, visible=lambda p: _mt(p) in ("line", "distance", "rotate")
+             or (_mt(p) == "xyz" and _isnum(p.get("rotate")) is not False)),
+        _num("distance", "Distance", visible=lambda p: _mt(p) == "distance"),
+        _sel("from_sel", "Point to move from (vertex or sketch point)", {"vertex"}, multi=False,
+             visible=lambda p: _mt(p) == "points"),
+        _sel("to_sel", "Point to move to", {"vertex"}, multi=False, visible=lambda p: _mt(p) == "points"),
+        _num("rotate", "Rotate", unit="deg",
+             visible=lambda p: _mt(p) == "rotate" or (_mt(p) == "xyz" and _isnum(p.get("rotate")) is not False)),
         _choice("axis_std", "…or world axis", [("", "—"), ("X", "X axis"), ("Y", "Y axis"), ("Z", "Z axis")],
-                visible=lambda p: _isnum(p.get("rotate")) is not False),
-        _check("copy", "Keep the original (make a copy)"),
+                visible=lambda p: _mt(p) in ("rotate", "distance")
+                or (_mt(p) == "xyz" and _isnum(p.get("rotate")) is not False)),
+        _choice("from_mc", "Mate connector to move from", _connector_options, visible=lambda p: _mt(p) == "mates"),
+        _choice("to_mc", "Mate connector to move to", _connector_options, visible=lambda p: _mt(p) == "mates"),
+        _num("scale", "Scale", unit="", visible=lambda p: _mt(p) == "scale", minimum=1e-9),
+        _sel("about_sel", "About this point (none: the origin)", {"vertex"}, multi=False,
+             visible=lambda p: _mt(p) == "scale"),
+        _flip("flip", "Opposite direction", inline="type", visible=lambda p: _mt(p) in ("line", "distance", "rotate",
+                                                                                         "mates")),
+        _check("copy", "Keep the original (make a copy)", visible=lambda p: _mt(p) != "copy"),
+    ],
+    "mate_connector": [
+        _sel("on_sel", "On a face, edge or vertex (none: the origin)", {"face", "edge", "vertex"}, multi=False),
+        {"t": "info", "key": "_info", "text": lambda p, dlg=None: _mc_info(p, dlg), "dialog": True},
+        {"t": "button", "key": "_next_point", "label": "Next point  (Shift)", "on": "_mc_next_point",
+         "visible": lambda p: bool(p.get("on"))},
+        _flip("flip", "Flip the Z axis", inline="_next_point"),
+        _num("rotate", "Turn about Z", unit="deg"),
+        _num("dx", "Move along X"),
+        _num("dy", "Move along Y"),
+        _num("dz", "Move along Z"),
     ],
     "thread": [
         _sel("faces", "Round faces to thread (holes or shafts)", {"face"}),
@@ -937,7 +1009,7 @@ def params_to_fields(ftype, p):
             if spec["t"] == "sel" and spec["key"] != "scope_sel":
                 f[spec["key"]] = [tuple(it) for it in p.get(spec["key"]) or []]
         f["scope_sel"] = [("part", i) for i in p.get("scope") or []]
-    if ftype in ("mirror", "linear_pattern", "circular_pattern"):
+    if ftype in ("mirror", "linear_pattern", "circular_pattern", "curve_pattern", "point_pattern"):
         f["features"] = [("feature", i) for i in p.get("features", [])]
         f["faces"] = [("face", r) for r in p.get("faces", []) or []]
     if ftype in ("extrude", "revolve", "hole"):
@@ -946,7 +1018,7 @@ def params_to_fields(ftype, p):
             f[pre + "_face"] = [(u["kind"], u["ref"])] if u.get("kind") in ("face", "plane") else []
             f[pre + "_vertex"] = [("vertex", u["ref"])] if u.get("kind") == "vertex" else []
             f[pre + "_part"] = [("part", u["id"])] if u.get("kind") == "part" else []
-    if ftype in ("extrude", "revolve", "sweep", "loft", "mirror", "linear_pattern", "circular_pattern"):
+    if ftype in ("extrude", "revolve", "sweep", "loft", "mirror", "linear_pattern", "circular_pattern", "curve_pattern", "point_pattern"):
         f["scope_sel"] = [("part", i) for i in p.get("scope") or []]
     if ftype in ("extrude", "revolve", "sweep"):
         f["profiles"] = [("region", r) for r in p.get("regions", [])] + [("face", r) for r in p.get("faces", [])]
@@ -974,6 +1046,11 @@ def params_to_fields(ftype, p):
     if ftype == "move":
         a = p.get("axis") or {}
         f["axis_sel"] = [("axis", a)] if a and a.get("kind") != "std" else []
+        for key, fk in (("from_point", "from_sel"), ("to_point", "to_sel"), ("about", "about_sel")):
+            f[fk] = [("vertex", p[key])] if p.get(key) else []
+    if ftype == "mate_connector":
+        on = p.get("on") or {}
+        f["on_sel"] = [(on["kind"], on["ref"])] if on.get("kind") else []
     if ftype == "revolve":
         ax = p.get("axis") or {}
         f["axis_sel"] = [("axis", ax)] if ax and ax.get("kind") != "std" else []
@@ -992,6 +1069,11 @@ def params_to_fields(ftype, p):
         f["dir_sel"] = [("axis", d)] if d and d.get("kind") != "std" else []
         d2 = p.get("direction2") or {}
         f["dir2_sel"] = [("axis", d2)] if d2 and d2.get("kind") != "std" else []
+    if ftype in ("curve_pattern", "point_pattern"):
+        f["parts"] = [("part", i) for i in p.get("parts", [])]
+        f["path"] = [("path", r) for r in p.get("path", []) or []]
+        f["locations"] = [("vertex", r) for r in p.get("locations", []) or []]
+        f["reference_sel"] = [("vertex", p["reference"])] if p.get("reference") else []
     if ftype == "circular_pattern":
         f["parts"] = [("part", i) for i in p.get("parts", [])]
         a = p.get("axis") or {}
@@ -1021,7 +1103,7 @@ def fields_to_params(ftype, fields, p):
         p["edges"] = [r for k, r in fields.get("edges", []) if k == "edge"]
     if ftype == "sm_convert":
         p["faces"] = [r for k, r in fields.get("faces", []) if k == "face"]
-    if ftype in ("mirror", "linear_pattern", "circular_pattern"):
+    if ftype in ("mirror", "linear_pattern", "circular_pattern", "curve_pattern", "point_pattern"):
         p["features"] = [r for k, r in fields.get("features", []) if k == "feature"]
         p["faces"] = [r for k, r in fields.get("faces", []) if k == "face"]
     if ftype in ("extrude", "revolve", "hole"):
@@ -1034,7 +1116,7 @@ def fields_to_params(ftype, fields, p):
                 p[key] = {"kind": "part", "id": r} if k == "part" else {"kind": k, "ref": r}
             elif fk:
                 p.pop(key, None)
-    if ftype in ("extrude", "revolve", "sweep", "loft", "mirror", "linear_pattern", "circular_pattern"):
+    if ftype in ("extrude", "revolve", "sweep", "loft", "mirror", "linear_pattern", "circular_pattern", "curve_pattern", "point_pattern"):
         if "scope_sel" in fields:
             p["scope"] = [r for k, r in fields.get("scope_sel", []) if k == "part"] or None
     if ftype in ("extrude", "revolve", "sweep"):
@@ -1072,7 +1154,17 @@ def fields_to_params(ftype, fields, p):
             p["axis"] = sel[0][1]
             p["axis_std"] = ""
         else:
-            p["axis"] = {"kind": "std", "name": p.get("axis_std") or "Z"}
+            p["axis"] = {"kind": "std", "name": p.get("axis_std") or ("X" if p.get("type") == "distance" else "Z")}
+        for key, fk in (("from_point", "from_sel"), ("to_point", "to_sel"), ("about", "about_sel")):
+            if fk in fields:
+                s_ = fields.get(fk) or []
+                p[key] = s_[0][1] if s_ else None
+    if ftype == "mate_connector":
+        sel = fields.get("on_sel", [])
+        new_on = {"kind": sel[0][0], "ref": sel[0][1]} if sel else None
+        if new_on != p.get("on"):
+            p["point"] = 0                           # a new face: start at its first point
+        p["on"] = new_on
     if ftype == "revolve":
         sel = fields.get("axis_sel", [])
         if sel:
@@ -1089,7 +1181,7 @@ def fields_to_params(ftype, fields, p):
     if ftype == "plane":
         p["refs"] = [{"k": k, "ref": r} for k, r in fields.get("refs_sel", [])]
         p.pop("ref", None)
-    if ftype in ("mirror", "linear_pattern", "circular_pattern"):
+    if ftype in ("mirror", "linear_pattern", "circular_pattern", "curve_pattern", "point_pattern"):
         p["parts"] = [r for k, r in fields.get("parts", [])]
     if ftype == "mirror":
         sel = fields.get("plane_sel", [])
@@ -1114,6 +1206,12 @@ def fields_to_params(ftype, fields, p):
             p["axis_std"] = ""
         else:
             p["axis"] = {"kind": "std", "name": p.get("axis_std") or "Z"}
+    if ftype == "curve_pattern":
+        p["path"] = [r for k, r in fields.get("path", [])]
+    if ftype == "point_pattern":
+        p["locations"] = [r for k, r in fields.get("locations", []) if k == "vertex"]
+        sel = fields.get("reference_sel", [])
+        p["reference"] = sel[0][1] if sel else None
     if ftype == "boolean":
         p["tools"] = [r for k, r in fields.get("tools", [])]
         p["targets"] = [r for k, r in fields.get("targets", [])]
@@ -1235,6 +1333,8 @@ class FeatureDialog(_ResizableFrame):
         self._info_rows = []
         self.rows = []
         self.active_field = None
+        if self.ftype == "mate_connector":                # Shift steps to the next point on the face
+            QApplication.instance().installEventFilter(self)
         self._op_chosen = not is_new     # New / Add follow what the shape touches until you pick one yourself
         self._auto_busy = False
         self._timer = QTimer(self)
@@ -1334,6 +1434,16 @@ class FeatureDialog(_ResizableFrame):
         self.err.setWordWrap(True)
         self.err.hide()
         lay.addWidget(self.err)
+        # "Create #name = …": shown when a box uses a variable that doesn't exist yet (Enter does it too)
+        self._create_offer = None
+        self.create_btn = QToolButton()
+        self.create_btn.setObjectName("createVariable")
+        self.create_btn.setCursor(Qt.PointingHandCursor)
+        self.create_btn.setStyleSheet("QToolButton#createVariable { color: #1f6fd1; font-weight: 600; border: 1px "
+                                      "solid #9cc3f0; border-radius: 4px; padding: 3px 8px; background: #eef5fd; }")
+        self.create_btn.clicked.connect(self._do_create)
+        self.create_btn.hide()
+        lay.addWidget(self.create_btn)
 
     def _make_row(self, spec, p):
         t = spec["t"]
@@ -1367,6 +1477,16 @@ class FeatureDialog(_ResizableFrame):
             v.setSpacing(2)
             self._split_box, self._split_sig = box, None
             return box
+        if t == "button":
+            row = QWidget()
+            h = QHBoxLayout(row)
+            h.setContentsMargins(0, 0, 0, 0)
+            b = QPushButton(spec["label"])
+            b.clicked.connect(lambda _=False, fn=spec["on"]: getattr(self, fn)())
+            h.addWidget(b)
+            h.addStretch(1)
+            self.widgets[spec["key"]] = b
+            return row
         if t == "info":
             lab = QLabel("")
             lab.setWordWrap(True)
@@ -1429,14 +1549,22 @@ class FeatureDialog(_ResizableFrame):
                     # keep what was typed and say why — never quietly fall back to the old value
                     self._field_errors[k] = f"{label.split('(')[0].strip()}: {why}"
                     self._show_field_errors()
+                    # an unknown #name: offer to make it, just before this feature, with the value the box had
+                    from .varcomplete import missing_variable
+                    name = missing_variable(txt, self.base_state.vars)
+                    kind = want if want in ("length", "angle", "number") else "any"
+                    self._offer_create(k, name, kind, ed, done) if name else self._offer_create(k, None)
                     return
                 self._field_errors.pop(k, None)
+                self._offer_create(k, None)
                 v = parse_number(txt, angle=(unit == "deg"), variables=self.base_state.vars)
                 if has_vars(txt):
                     self._set(k, txt.strip())        # keep the expression so it follows the variable
                 else:
                     self._set(k, int(round(v)) if k == "count" or whole else v)
             self.widgets[spec["key"]] = ed
+            from .varcomplete import attach
+            attach(ed, lambda: self.base_state.vars, lambda: getattr(self.base_state, "var_kinds", {}))
             ed.textEdited.connect(lambda _t, f=done: f())
             ed.editingFinished.connect(
                 lambda ed=ed, k=spec["key"]: None if k in self._field_errors
@@ -1453,6 +1581,9 @@ class FeatureDialog(_ResizableFrame):
             ed.setPlaceholderText(spec.get("placeholder", ""))
             ed.setFixedWidth(150)
             self.widgets[spec["key"]] = ed
+            if spec.get("expr"):
+                from .varcomplete import attach
+                attach(ed, lambda: self.base_state.vars, lambda: getattr(self.base_state, "var_kinds", {}))
 
             def text_done(_t=None, ed=ed, k=spec["key"], is_expr=spec.get("expr")):
                 txt = ed.text().strip()
@@ -1468,9 +1599,10 @@ class FeatureDialog(_ResizableFrame):
             return row
         if t == "choice":
             cb = QComboBox()
-            for val, lab2 in spec["options"]:
+            opts = spec["options"](self) if callable(spec["options"]) else spec["options"]
+            for val, lab2 in opts:
                 cb.addItem(lab2, val)
-            idx = max(0, cb.findData(p.get(spec["key"], spec["options"][0][0])))
+            idx = max(0, cb.findData(p.get(spec["key"], opts[0][0])))
             cb.setCurrentIndex(idx)
             cb.currentIndexChanged.connect(lambda i, cb=cb, k=spec["key"]: self._set(k, cb.itemData(i)))
             h.addWidget(cb)
@@ -1561,7 +1693,7 @@ class FeatureDialog(_ResizableFrame):
         if self.ftype == "split":
             self._split_rows()
         for spec, lab in self._info_rows:
-            txt = spec["text"](p)
+            txt = spec["text"](p, self) if spec.get("dialog") else spec["text"](p)
             lab.setText(txt)
             w_ = max(min(lab.width() if lab.width() > 50 else 10 ** 6, self.width() - 24), 200)
             lab.setMinimumHeight(lab.heightForWidth(w_) if txt else 0)     # wrapped text gets all its lines
@@ -1575,7 +1707,49 @@ class FeatureDialog(_ResizableFrame):
             f.refresh(self.doc)
         self.adjustSize()
 
+    # ------------------------------------------------------------------ variables made on the fly
+    def _offer_create(self, key, name, kind=None, ed=None, redo=None):
+        """Show (or, with name None, hide) the 'Create #name' button for the box `key`."""
+        if name is None:
+            if self._create_offer and self._create_offer["key"] == key:
+                self._create_offer = None
+                self.create_btn.hide()
+                self.adjustSize()
+            return
+        value = self.feature["params"].get(key)
+        if value is None or (not isinstance(value, str) and kind == "length" and float(value) <= 0):
+            value = 10.0 if kind != "angle" else 90.0
+        if isinstance(value, (int, float)):
+            shown = U.length(float(value)) if kind == "length" else (f"{fmt(float(value))}°" if kind == "angle"
+                                                                       else fmt(float(value)))
+        else:
+            shown = str(value)
+        self._create_offer = {"key": key, "name": name, "kind": kind, "value": value, "redo": redo, "ed": ed}
+        self.create_btn.setText(f"+  Create #{name} = {shown}   (Enter)")
+        self.create_btn.setToolTip(f"Add a Variable #{name} just before this feature, set to {shown} (what this "
+                                   "box had) — change its value later in the feature list")
+        self.create_btn.show()
+        self.adjustSize()
+
+    def _do_create(self):
+        """Make the offered variable before this feature, then use it in the box."""
+        offer, self._create_offer = self._create_offer, None
+        self.create_btn.hide()
+        if not offer:
+            return
+        self.main.create_variable_before(self.index, offer["name"], offer["kind"], offer["value"])
+        self.index += 1                                  # this feature now comes one later
+        self.base_state = self.doc.state_before(self.index)
+        if offer.get("redo"):
+            offer["redo"]()                              # the box's text is fine now: use it
+        self.schedule_preview()
+        if offer.get("ed") is not None:
+            offer["ed"].setFocus()
+
     def keyPressEvent(self, e):
+        if e.key() in (Qt.Key_Return, Qt.Key_Enter) and self._create_offer is not None:
+            self._do_create()                            # Enter on "#newname": make it, don't accept yet
+            return
         if e.key() in (Qt.Key_Return, Qt.Key_Enter):
             if e.modifiers() & Qt.ShiftModifier and self.is_new:
                 # Shift+Enter, as Onshape: keep this one and start another of the same kind straight away
@@ -1591,6 +1765,7 @@ class FeatureDialog(_ResizableFrame):
 
     # ------------------------------------------------------------------ selection
     def activate(self, field):
+        prev = self.active_field
         if self.active_field is not None:
             self.active_field.set_active(False)
         self.active_field = field
@@ -1618,6 +1793,8 @@ class FeatureDialog(_ResizableFrame):
         self.main.viewport.select_filter = kinds
         for f in self.fields.values():
             f.refresh(self.doc)
+        if prev is not field and any(k == "part" for f in self.fields.values() for k, _r in f.items):
+            self.schedule_preview()                  # part highlights follow the active box
         self.main.viewport.update()
 
     def _default_hole_size(self, p):
@@ -1660,6 +1837,11 @@ class FeatureDialog(_ResizableFrame):
             return
         if pick.kind == "overlay":
             key, i = pick.key
+            if key == "_mc_point":                       # a click on one of the mate connector's places: go there
+                self.feature["params"]["point"] = i
+                self._sync_visibility()
+                self.schedule_preview()
+                return
             fld = self.fields.get(key)
             if fld and i < len(fld.items):
                 fld.items.pop(i)
@@ -1837,6 +2019,45 @@ class FeatureDialog(_ResizableFrame):
         if want:
             self._toggle_flip()
 
+    # ------------------------------------------------------------------ mate connectors
+    def _mc_candidates(self):
+        """The points the mate connector being edited can go at (cached per picked face / edge / vertex)."""
+        on = self.feature["params"].get("on")
+        if not on:
+            return []
+        key = json.dumps(on, sort_keys=True, default=str)
+        cache = self.__dict__.setdefault("_mc_cache", {})
+        if key not in cache:
+            from .. import mate_connectors as MC
+            try:
+                cache[key] = MC.candidates(self.base_state, on)
+            except (K.KernelError, KeyError, IndexError):
+                cache[key] = []
+        return cache[key]
+
+    def _mc_next_point(self):
+        """Shift (or Next point): the next place on the same face / edge for the mate connector."""
+        n = len(self._mc_candidates())
+        if n < 2:
+            return
+        p = self.feature["params"]
+        p["point"] = (int(p.get("point", 0) or 0) + 1) % n
+        self._sync_visibility()
+        self.schedule_preview()
+
+    def eventFilter(self, obj, ev):
+        # Onshape moves a mate connector between the points of a face with Shift: a tap of Shift (not while
+        # typing in a box) steps to the next one
+        if self.ftype == "mate_connector" and ev.type() == QEvent.KeyPress and ev.key() == Qt.Key_Shift \
+                and not ev.isAutoRepeat():
+            fw = QApplication.focusWidget()
+            if not isinstance(fw, (QLineEdit, QComboBox)) and not self.__dict__.get("_shift_seen"):
+                # the same key press reaches every parent widget in turn: count it once
+                self._shift_seen = True
+                QTimer.singleShot(0, lambda: self.__dict__.update(_shift_seen=False))
+                self._mc_next_point()
+        return super().eventFilter(obj, ev)
+
     def _toggle_flip(self, key="flip"):
         """Flip the direction (the arrow button, or a click on the arrow in the view)."""
         w = self.widgets.get(key)
@@ -1988,7 +2209,7 @@ class FeatureDialog(_ResizableFrame):
             p.pop("scope", None)
             self._op_chosen = True
             self._show_op("new")
-        if key == "type" and self.ftype in ("mirror", "linear_pattern", "circular_pattern"):
+        if key == "type" and self.ftype in ("mirror", "linear_pattern", "circular_pattern", "curve_pattern", "point_pattern"):
             fk = value if value in ("features", "faces") else "parts"
             if fk in self.fields:
                 QTimer.singleShot(0, lambda fk=fk: self.activate(self.fields[fk]))
@@ -2030,10 +2251,29 @@ class FeatureDialog(_ResizableFrame):
             if ref.get("kind") == "plane":
                 return doc.plane_rect(("plane", ref.get("fid")), half * 0.6)
             return None
+        if self.ftype == "mate_connector":
+            # the places it can go on the picked face: small crosses, the chosen one larger
+            cur = int(self.feature["params"].get("point", 0) or 0)
+            cands = self._mc_candidates()
+            for k, c in enumerate(cands):
+                s = half * (0.05 if k == cur % max(len(cands), 1) else 0.025)
+                o = np.asarray(c["o"], float)
+                pts = []
+                for d_ in (np.array([s, 0, 0]), np.array([0, s, 0]), np.array([0, 0, s])):
+                    pts += [o - d_, o + d_, o]
+                out.append((("_mc_point", k), ("poly", np.array(pts))))
+        params = self.feature["params"]
+        hidden = {spec.get("key") for spec, _w in self.rows + getattr(self, "_inline", [])
+                  if spec.get("visible") is not None and not spec["visible"](params)}
         for key, fld in self.fields.items():
+            if key in hidden:
+                continue                  # a box that's switched off (Second end unticked …): its picks don't count
             if self.ftype == "split" and key == "parts" and self.fields.get("tools") and self.fields["tools"].items:
                 continue                  # the preview shows what's kept; a highlight of the whole part would hide it
             for i, item in enumerate(fld.items):
+                if item[0] == "part" and fld is not self.active_field:
+                    continue              # a whole part (merge scope, parts to act on) lights up only while its box
+                    #                       is the one you're picking in — otherwise it hides the preview, as Onshape
                 g = item_geometry(self.base_state, item, half, rect)
                 if g is not None:
                     out.append(((key, i), g))
@@ -2123,25 +2363,30 @@ class FeatureDialog(_ResizableFrame):
                 symmetric = p.get("end") == "symmetric"
                 depth = float(p.get("depth", 10))
                 value = depth / 2 if symmetric else (-depth if p.get("flip") else depth)
+                second = self._second_arrow(p, origin, n)
                 if p.get("end") in F.UP_TO:
                     # up to something: the arrow only shows (and flips) the way it goes; click it to flip
                     reach = self.main.viewport.cam.scale * 70
                     return [{"origin": origin, "dir": n, "value": -reach if p.get("flip") else reach,
                              "drag": False, "on_drag": lambda v: None, "on_done": self.schedule_preview,
-                             "on_click": self._toggle_flip, "label": dict(F.UP_TO_LABELS)[p["end"]]}]
+                             "on_click": self._toggle_flip, "label": dict(F.UP_TO_LABELS)[p["end"]]}] + second
 
-                def on_drag(v, symmetric=symmetric):
+                first = {"origin": origin, "dir": n, "value": value, "on_done": self.schedule_preview,
+                         "snap": self._snap_step(), "on_click": None if symmetric else self._toggle_flip,
+                         "min": 1e-3 if symmetric else None, "label": U.length(depth, 4)}
+
+                def on_drag(v, symmetric=symmetric, first=first, second=second):
                     if symmetric:
                         self._set_quiet("depth", round(abs(v) * 2, 6))
                     else:
                         self._set_quiet("depth", round(abs(v), 6))
                         self._set_quiet("flip", v < 0)
-                    self.main.viewport.manipulators[0]["label"] = U.length(self.feature["params"]["depth"], 4)
+                        for m in second:           # the second end always goes the other way to the first
+                            m["dir"] = n if v < 0 else -n
+                    first["label"] = U.length(self.feature["params"]["depth"], 4)
                     self.schedule_preview()
-                return [{"origin": origin, "dir": n, "value": value, "on_drag": on_drag,
-                         "on_done": self.schedule_preview, "snap": self._snap_step(),
-                         "on_click": None if symmetric else self._toggle_flip,
-                         "min": 1e-3 if symmetric else None, "label": U.length(depth, 4)}]
+                first["on_drag"] = on_drag
+                return [first] + second
             if self.ftype == "plane":
                 if F.plane_type(p) != "offset":
                     return []
@@ -2165,6 +2410,24 @@ class FeatureDialog(_ResizableFrame):
         except (K.KernelError, KeyError, IndexError):
             return []
         return []
+
+    def _second_arrow(self, p, origin, n):
+        """Extrude with a second end position at a Blind depth: a second arrow, the other way to the first, that
+        drags the Second depth (it can't cross over — that's the first end's job)."""
+        if not (p.get("second") and p.get("end") not in ("symmetric", "through")
+                and p.get("end2", "blind") == "blind"):
+            return []
+        depth2 = float(p.get("depth2", 0) or 0)
+        arrow = {"origin": origin, "dir": n if p.get("flip") else -n, "value": max(depth2, 1e-3),
+                 "on_done": self.schedule_preview, "snap": self._snap_step(), "min": 1e-3,
+                 "label": U.length(depth2, 4)}
+
+        def on_drag(v, arrow=arrow):
+            self._set_quiet("depth2", round(abs(v), 6))
+            arrow["label"] = U.length(self.feature["params"]["depth2"], 4)
+            self.schedule_preview()
+        arrow["on_drag"] = on_drag
+        return [arrow]
 
     def _revolve_arrow(self, p):
         """A curved-way arrow on a Revolve that turns one way (one direction, two directions, up to …): it points
@@ -2282,6 +2545,7 @@ class FeatureDialog(_ResizableFrame):
             self._show_field_errors()                 # a box can't be used: say so rather than accept it
             return
         self._timer.stop()
+        self._stop_shift_filter()
         if self.ftype == "measure_value":
             self.main.viewport.measure_line = None
         self.feature["name"] = self.title.text().strip() or self.feature["name"]
@@ -2306,9 +2570,17 @@ class FeatureDialog(_ResizableFrame):
 
     def reject(self):
         self._timer.stop()
+        self._stop_shift_filter()
         if self.ftype == "measure_value":
             self.main.viewport.measure_line = None
         self.rejected.emit()
+
+    def _stop_shift_filter(self):
+        if self.ftype == "mate_connector":
+            try:
+                QApplication.instance().removeEventFilter(self)
+            except Exception:
+                pass
 
 
 class SketchDialog(_ResizableFrame):

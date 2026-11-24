@@ -36,11 +36,11 @@ the selection. Right-click a face for **tangent-connected faces**, **adjacent fa
 (every hole of one size, say) and **edges of this face**; right-click an edge for **tangent-connected edges**, its
 **loop** and **edges of the same size**. They add to what's selected.
 
-**Keys** — as Onshape's: `P` planes on / off, `Shift+P` hide (or show) all planes and sketches, `Shift+H` sketches,
+**Keys** — as Onshape's: `P` default planes on / off (the same as their eyes in the feature list), `Shift+P` hide (or show) all planes and sketches, `Shift+H` sketches,
 `Y` hide the selected part (or the one under the mouse), `Shift+Y` show hidden parts, `Shift+I` isolate, `Shift+X`
 section view, `Shift+V` named views, `Shift+R` high quality, `Shift+N` rename, `Shift+Enter` accept and start another
 of the same. In a sketch the letters pick sketch tools (as in Onshape: `M` trim, `X` extend, `B` parallel, `Shift+L`
-perpendicular … — see the table below; the hexagon moved to `Shift+X`). **Document → Keyboard shortcuts** (or `?`)
+perpendicular … — see the table below; `Shift+X` is the polygon, a hexagon to start). **Document → Keyboard shortcuts** (or `?`)
 lists every key in a table you can search.
 
 **Planes** come last when you click, as in Onshape: you get a plane only where nothing else is under the mouse, so a
@@ -59,7 +59,9 @@ menus and plugins included; add, remove and drag them into order. *Reset to defa
 set. (In a sketch, `S` used to pick Select; `Esc` does that.)
 
 **Sketching** — select a plane or flat face (or not — the dialog will ask) and press **Sketch** (`Shift+S`).
-The view turns to face the sketch plane (unless *Orient normal to sketch on edit* is off in the view options).
+The view turns to face the sketch plane — for a new sketch and when you open one to edit it — unless *Orient normal
+to sketch on edit* is off in the view options (under the view cube). Switching that option off while sketching goes
+back to the view you had; switching it on faces the sketch straight away. It's remembered between sessions.
 
 The table follows the sketch toolbar from left to right; tools that share a ▾ button are listed together.
 
@@ -70,8 +72,7 @@ The table follows the sketch toolbar from left to right; tools that share a ▾ 
 | Midpoint line | | click the middle, then one end — the other end mirrors it (a line centred on the origin, say) |
 | Corner / centre rectangle | `R` (corner) | adds horizontal / vertical constraints automatically |
 | Aligned rectangle | | two corners for one side at any angle, then click to set the width; the corners stay square |
-| Hexagon | `Shift+X` | centre, then a corner — a regular hexagon (corners on a construction circle, equal sides). Snaps flat-top or point-top; size it across flats |
-| Inscribed / circumscribed polygon | | centre, then a corner (inscribed) or the middle of a side (circumscribed); type the number of sides. Inscribed: the corners sit on a construction circle. Circumscribed: the sides touch it, so its diameter is the size across flats — handy for nut pockets |
+| Inscribed / circumscribed polygon | `Shift+X` | 6 sides (a hexagon) to start; centre, then a corner (inscribed) or the middle of a side (circumscribed); type the number of sides. Inscribed: the corners sit on a construction circle. Circumscribed: the sides touch it, so its diameter is the size across flats — handy for nut pockets |
 | Circle / ellipse | `C` | circle: centre, then radius; ellipse: centre, end of the long axis, then the width |
 | 3-point arc / centre-point arc | `A` | |
 | Tangent arc | `Shift+A` | click the end of a line or arc, then where it should finish — it carries on smoothly and stays tangent |
@@ -83,7 +84,7 @@ The table follows the sketch toolbar from left to right; tools that share a ▾ 
 | Text | | click where it starts and type; choose font, size, bold / italic and angle. Letters are real outlines you can extrude, cut or engrave |
 | Construction toggle | `Q` | toggles selected geometry, or the mode for new geometry |
 | Dimension | `D` | click a line (length), circle (Ø), arc (R), two points (distance — horizontal/vertical depending on where you place it), point + line, or two lines (distance or angle). You can also click a **part's edge or corner** to dimension to it, like Onshape. Type the value; expressions and units work: `25/2`, `1 in`, `10 cm` |
-| Constraints | `I` `H` `V` `E` `T` `B` … | coincident (`I`), horizontal (`H`), vertical (`V`), equal (`E`), tangent (`T`), parallel (`B`), perpendicular (`Shift+L`), midpoint (`Shift+M`), concentric (`Shift+O`), symmetric (`Shift+Q`), fix (`Shift+J`). Select geometry then click the constraint, or click the constraint then the geometry |
+| Constraints | `I` `H` `V` `E` `T` `B` … | coincident (`I`), horizontal (`H`), vertical (`V`), equal (`E`), tangent (`T`), parallel (`B`), perpendicular (`Shift+L`; a line and a circle, arc or ellipse → **normal**: the line meets the curve at right angles), midpoint (`Shift+M`), concentric (`Shift+O`), symmetric (`Shift+Q`), fix (`Shift+J`). Select geometry then click the constraint, or click the constraint then the geometry |
 | Sketch fillet / chamfer | `Shift+F` (fillet) | click a corner where two lines meet, type the radius (or, for a chamfer, the distance back along each line) — the shape keeps its dimensions |
 | Offset / slot | `O` (offset) | offset: click a line, arc or circle to offset its whole connected outline; type the distance (negative = inside). Slot: click the two end centres, type the width |
 | Mirror | | select geometry, then click the line to mirror about — the copy stays linked to the original |
@@ -102,8 +103,10 @@ Esc) to skip it. Polygons, conics, fillets, chamfers, offsets, slots, patterns a
 the same way, and the shape follows as you type.
 
 Drawing snaps to existing points and curves (adding coincident constraints) and infers horizontal/vertical.
-Geometry is **blue while under-defined and black when fully defined**; conflicting constraints turn red.
-Drag points or curves with the select tool and everything constrained follows. Double-click a dimension to
+Geometry is **blue while under-defined and black when fully defined**; conflicting constraints turn red. A red
+constraint doesn't hold up the rest of the sketch: you can still drag other geometry and add or change dimensions
+(a change that would break something else is refused), and the red constraint's own geometry stays where it is
+until you fix it. Drag points or curves with the select tool and everything constrained follows. Double-click a dimension to
 edit it. `Del` deletes, `Ctrl+Z` undoes inside the sketch. Closed areas become shaded **regions** — overlapping
 shapes give separate regions, exactly like Onshape.
 
@@ -118,6 +121,19 @@ uses it updates. **Units are checked**: an angle in a length box (`#angle` or `9
 area as a length is an error saying so, never a silent wrong number, and a box you can't use keeps your text and
 says why (and ✓ waits until it's fixed). Variables appear in the feature list, so you can define them part-way
 through and use them in later features.
+
+**Variables on the fly** — type `#` in any value box and the variables you can use drop down, with their values;
+pick one with the mouse or the arrow keys and Enter. Type a name that doesn't exist yet — `#depth` in an Extrude's
+depth, say — and FreeShape offers **Create #depth = 25 mm** (what the box had): click it or press Enter and a
+Variable is added **just before the feature you're editing** (so it's defined in time, even for a feature far up the
+list), and the box uses it. A depth makes a Length (in the document's unit), an angle an Angle, a count a Number.
+It works in sketch dimension boxes too (it asks first; the variable goes before the sketch). Change the value later
+in the feature list.
+
+**Variables table** — Variable ▾ → *Variables table* lists every variable of the Part Studio: its value, kind, what
+it's set to and which features use it. Change a value in *Set to*, or a name, right in the table — a new name follows
+the variable into every feature, sketch dimension and configuration that uses it. *+ New variable* adds one; the
+window stays open while you work and follows the model.
 
 **Text variables** — choose *Any expression* and type text in quotes (`"Rev B"`), or build it with `+`
 (`"PN-" + #part + "-" + #size`). Sketch text can use them: tick *From variables* in the Text dialog and type
@@ -136,12 +152,15 @@ Revolve shows one too, pointing the way it turns. In the dialogs the direction i
 the end type or distance: it points down when flipped; click it to flip. **Up to next / face / part / vertex** turn
 the direction towards what they go up to by themselves, as Onshape does: pick a face below the sketch and the
 extrude turns down to it. This works for the second end too (the first end turns away so the second, which always
-runs opposite, can reach its target). Click the arrow to turn it back if you want.
+runs opposite, can reach its target). Click the arrow to turn it back if you want. A Blind **second end** has an
+arrow of its own, pointing the other way: drag it to set the Second depth.
 
 - **Solid, Surface or Thin** — Extrude, Revolve, Sweep and Loft can make a solid from regions and faces, a
   **surface** from sketch curves, edges or region outlines, or a **thin** wall by thickening them (both sides
   equally, one side, or two different thicknesses).
 - **Merge scope** — for Add / Remove / Intersect, pick the parts it should act on (none picked: all of them).
+  FreeShape fills it in with the parts the feature touches. The parts in it light up only while you click into the
+  box, so a big part (a STEP import, say) doesn't hide the preview.
 - **Extrude** — New / Add / Remove / Intersect; Blind, Symmetric, Through all, Up to next / face / part /
   vertex; a **second end** with its own end type; **draft** (taper) on either end. Cuts automatically go into
   the material. **Separate** (Extrude, Revolve and Sweep, with New): areas that touch in the sketch — a square
@@ -189,15 +208,26 @@ runs opposite, can reach its target). Click the arrow to turn it back if you wan
 - **Draft** — tilt faces by an angle from a neutral plane, for moulded or 3D-printed parts.
 - **Split** — cut parts with planes, flat or curved faces, or sketch curves — several tools at once — keeping
   both sides or just the side each arrow points to.
-- **Move** — move and/or rotate parts (or imports), optionally keeping the original as a copy.
+- **Transform** — Onshape's types: *Translate by line* (by the line's own length), *by distance*, *by XYZ*,
+  *Transform by mate connectors* (one onto the other; the arrow button lands it the other way up), *Rotate*, *Copy
+  in place*, *Scale* (about a point or the origin), and *Translate from point to point*. Tick *Keep the original*
+  to make copies. A sheet metal part moved, turned or copied stays sheet metal (flanges and the flat pattern
+  follow it); a scaled one becomes a plain part.
+- **Mate connector** (in Transform's menu) — a frame on a face, edge or vertex, drawn as a small X / Y / Z triad.
+  The places it can go on the face show as crosses (its middle, corners, edge middles, round-edge centres; a round
+  face's axis at the middle or either end): **press Shift** or click a cross to move between them. Flip it, turn
+  it about Z and move it along its own axes.
 - **Plane** — offset, plane + point, line + angle, point + edge normal, three points, mid plane, curve + point or
   tangent; *Automatic* picks the type from your selection.
 - **Delete face / Move face / Offset surface** — remove fillets, chamfers, bosses and holes from imported parts
   (heal, cap or leave open), push or pull flat faces, or make a surface a set distance from faces.
-- **Mirror**, **Linear pattern**, **Circular pattern** — of whole parts, of features (repeat a hole, pocket
+- **Mirror**, **Linear / Circular / Curve / Point pattern** — of whole parts, of features (repeat a hole, pocket
   or boss; the copies follow when you edit the original), or of **faces** (pick all the faces of a boss, rib or
   pocket — handy on imported parts with no feature history). Linear patterns can have a **second direction**
-  for a grid; copies of parts can be added, or Remove / Intersect other parts.
+  for a grid. **Curve pattern** runs along a path (sketch curves or edges) — spread along it or a set distance
+  apart, turning with it or keeping their orientation; *Start from the other end* reverses it. **Point pattern**
+  puts a copy at each vertex or sketch point you pick, measured from a reference point (none: the middle of what's
+  copied). Copies of parts can be added, or Remove / Intersect other parts.
 - **Boolean** — union, subtract, intersect parts (intersect keeps only the targets' material inside the tools —
   Onshape's *subtract complement*).
 - **Import STEP / BREP** and **Export STEP / STL / BREP** (whole studio, or selected parts from the Parts list).
@@ -207,9 +237,16 @@ runs opposite, can reach its target). Click the arrow to turn it back if you wan
 **Feature list** — double-click to edit any feature; the model rolls back while you edit and everything
 after it regenerates when you accept. Right-click for rename, suppress, roll to here, hide/show, delete, and
 **Add to new folder** to group features that sit next to each other (collapse a folder with its arrow; right-click
-a folder to rename, suppress all, ungroup or delete it; drag features in and out).
+a folder to rename, suppress all, ungroup or delete it; drag features in and out). **Copy and paste features**: select
+them and press `Ctrl+C` (or right-click → *Copy*), then `Ctrl+V` pastes copies at the rollback bar — in this Part
+Studio or another, even in another FreeShape window — or right-click → *Paste after this*. A pasted extrude of a
+pasted sketch uses the new sketch; references to features you didn't copy are kept, so pasted elsewhere a feature
+may need its faces picked again (it turns red). One Undo takes the paste back.
 Drag the blue **rollback bar** to see the model at any point in history; new features are inserted at the bar.
-Features that fail to regenerate turn red — hover them for the reason. Hover or click a feature to see what it
+Features that fail to regenerate turn red — hover them for the reason. A feature that fails changes nothing
+in the model (it never leaves half its result), and one whose edge or face has gone upstream — its pocket
+suppressed, say — says *Missing edge reference* rather than quietly using some other edge; re-pick it. A sketch
+whose dimensions a variable has pushed out of reach says so too. Hover or click a feature to see what it
 made highlighted on the model (its faces, or a sketch's curves), like Onshape.
 
 **Parts list** — right-click for rename, colour, hide/isolate, mass properties and per-part export. Select several
@@ -298,7 +335,7 @@ still opens if a Part Studio file goes missing (it says so, and shows the saved 
 
 **Tabs** — each tab along the bottom is a Part Studio or an Assembly. **Import STEP** and **Open** put the file in a new tab (or reuse the current tab if it's empty); **+** adds a new Part Studio or Assembly (Ctrl+N for a Part Studio). Drag tabs to reorder, double-click to rename, right-click for rename / duplicate / close, or middle-click / Ctrl+W to close. To bring a STEP into the model you're working on instead, use Document → *Import STEP into this tab*.
 
-Part Studios save as `.fshape`, and older `.fcad` files still open (plain JSON of the feature history — imported parts are embedded as exact geometry; files from 2.0 and earlier that hold the STEP itself are converted when next saved).
+Part Studios save as `.fshape`, and older `.fcad` files still open (plain JSON of the feature history — imported parts are embedded as exact geometry; files from 2.0 and earlier that hold the STEP itself are converted when next saved). Since 2.5 parts are numbered within the feature that makes them, so suppressing a feature never renumbers later parts; files from 2.4 and earlier are converted as they open (assemblies, drawings and derived parts that use them still find their parts), and a file saved in 2.5 shouldn't be edited in an older version. Saving writes the new file alongside and swaps it in, so a save that fails part-way never leaves an empty file.
 
 ## Sheet metal
 
@@ -307,7 +344,8 @@ Part Studios save as `.fshape`, and older `.fcad` files still open (plain JSON o
 2. **Flange**: click the edges to bend up, set the length (measured to the outside of the bend) and angle.
    *Outside the edge* makes the part grow by the bend; *inside the edge* keeps the outline size. Tick *Bend the
    other way* to bend down. Flanges can go on the ends of other flanges.
-3. Add holes and cut-outs with the normal tools (sketch on a face + extrude cut, or Hole).
+3. Add holes and cut-outs with the normal tools (sketch on a face + extrude cut, or Hole). Move, turn or copy
+   the part with **Transform** and it stays sheet metal; Scale turns it into a plain part.
 4. **Flat pattern** shows it unfolded; **Export flat pattern (DXF)** gives the laser-cutting file: outline on
    layer CUT, dashed bend lines on layer BEND with "UP 90° R1.5" notes. Right-click the part for the same, or
    for a drawing of the flat pattern.
@@ -345,7 +383,8 @@ plan, side and isometric views at the biggest standard scale that fits, with a b
   revision, drawn by, date, company, material, general tolerances).
 - **Export DXF** — AutoCAD DXF with real AutoCAD dimensions (grip-edit or restyle them in AutoCAD), Arial
   text and layers (VISIBLE, HIDDEN, CENTER, DIM, NOTE, BORDER, TITLE …), at paper size or with the views at
-  true 1:1 size. **Export PDF** — vector, at the exact sheet size, ready to print.
+  true 1:1 size (each view, detail views and views with their own scale included; dimensions read the model's
+  sizes either way). **Export PDF** — vector, at the exact sheet size, ready to print.
 
 Drawings save as `.fdwg` and keep a copy of the model, so they still open if the Part Studio is missing.
 
@@ -386,9 +425,11 @@ This is a capable hobby/prototyping tool, not a replacement for Onshape:
 - The installers aren't code-signed yet, so Windows and macOS warn the first time you run them.
 - **No real-time collaboration, branching or cloud storage** (it is deliberately local).
 - **Reference tracking is geometric**: after an upstream edit, later features re-find their faces, edges and
-  regions by position and shape. That handles resizing and most edits well, but a drastic topology change can
-  make a later feature lose its reference (it turns red and you re-pick it). Onshape's persistent naming is
-  more robust here.
+  regions by position, shape and where they sit in the part (an inside or outside corner, which way the faces
+  meet). That handles resizing and most edits well, and a reference whose edge or face is gone turns red rather
+  than moving to another one; but a drastic topology change can still make a later feature lose its reference
+  (you re-pick it). Edges and faces picked before 2.5 don't carry that extra check until they're re-picked.
+  Onshape's persistent naming is more robust here.
 - Exported Python scripts refer to picked faces and edges by the same geometric fingerprint (labelled in plain
   English), not by readable selectors, so they are best edited through their variables at the top.
 - The sketch solver is a numerical least-squares solver: it is fine for typical sketches (tens of entities),

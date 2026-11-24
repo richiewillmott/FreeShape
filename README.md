@@ -36,7 +36,23 @@ OpenCascade kernel FreeCAD uses, so you get real B-rep solids and proper STEP fi
 |---|---|---|---|
 | ![](docs/screenshot.png) | ![](docs/images/assembly.png) | ![](docs/images/drawing.png) | ![](docs/images/sheet_metal.png) |
 
-## New in 2.4
+## New in 2.5
+
+- **Variables on the fly** — type an unknown `#name` in any value box and FreeShape offers to create it, just
+  before that feature, with the value the box had; type `#` for a list of the variables there are.
+- **Variables table** — every variable, its value and what uses it; change values and names in place.
+- **Copy and paste features** — `Ctrl+C` / `Ctrl+V` in the feature list, within or between Part Studios.
+- **The view faces a sketch when you edit it**, not only when you make one (Orient normal to sketch on edit).
+- **Transform with Onshape's types** — by line, distance, XYZ, mate connectors, rotate, copy in place and scale.
+- **Mate connectors in Part Studios** — on a face, edge or vertex; Shift steps through the face's points.
+- **Curve and Point patterns**, and a **Normal** sketch constraint (Perpendicular on a line and a curve).
+- **A second arrow for an Extrude's second end**, to drag its depth as you do the first.
+- **Sturdier models** — features stay on their own part when earlier ones are suppressed, a lost edge is
+  reported instead of swapped for another, a steadier sketch solver, right DXF dimensions on detail views, sheet
+  metal that follows Transform, and saves that can't leave an empty file. Files are saved in a new format; older
+  ones convert as they open ([upgrading](docs/releases/2.5.0.md#upgrading-from-24)).
+
+### New in 2.4
 
 - **A fuller sketcher** — polygons with any number of sides (inscribed or circumscribed), midpoint line, aligned
   rectangle, tangent and elliptical arcs, conics, control-point splines, chamfer, split, extend, transform, intersect,
@@ -51,7 +67,7 @@ OpenCascade kernel FreeCAD uses, so you get real B-rep solids and proper STEP fi
 - **Export as Python script** — a whole project (model, assembly, drawing) as a script that builds it again, with
   your variables at the top.
 
-Release notes: [2.4.0](docs/releases/2.4.0.md). Full history in [CHANGES.md](CHANGES.md).
+Release notes: [2.5.0](docs/releases/2.5.0.md), [2.4.0](docs/releases/2.4.0.md). Full history in [CHANGES.md](CHANGES.md).
 
 ## Install
 
@@ -82,7 +98,7 @@ progress against Onshape is tracked in [FEATURE_PARITY.md](FEATURE_PARITY.md).
 FreeShape is a capable tool for hobby, prototyping and small-business work, not a drop-in Onshape replacement:
 no FeatureScript (Python plugins and scripts instead), no flexible sub-assemblies or mate limits yet, no real-time
 collaboration or cloud (on purpose), and references are re-found by geometry, so a drastic upstream change can
-occasionally make a later feature need re-picking. The full list is in the [user guide](docs/USER_GUIDE.md#honest-limits).
+occasionally make a later feature need re-picking (it turns red rather than using the wrong edge). The full list is in the [user guide](docs/USER_GUIDE.md#honest-limits).
 
 ## Licence
 

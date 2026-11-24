@@ -248,7 +248,7 @@ def _ref_signature(shape, kind, index):
 
 def _refind(shape, ref, kind):
     """Index of the face/edge of `shape` that best matches a stored signature (or None)."""
-    from .features import _score
+    from .features import _score, context_penalty
     lo, hi = K.bbox(shape)
     scale = max(float(np.linalg.norm(hi - lo)), 1e-6)
     subs = K.faces(shape) if kind == "face" else K.edges(shape)
@@ -256,6 +256,8 @@ def _refind(shape, ref, kind):
     for i, s in enumerate(subs):
         info = K.face_info(s) if kind == "face" else K.edge_info(s)
         sc = _score(info, ref, scale, [lo, hi])
+        if sc < min(best_s, 0.6):
+            sc += context_penalty(shape, s, kind, ref)
         if sc < best_s:
             best, best_s = i, sc
     return best if best_s <= 0.6 else None

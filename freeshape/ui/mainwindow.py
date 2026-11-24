@@ -542,10 +542,17 @@ class MainWindow(QMainWindow):
               "array copies"),
             C("circular_pattern", "Circular pattern", "Repeat parts around an axis.",
               lambda: F_("circular_pattern"), "array copies polar"),
+            C("curve_pattern", "Curve pattern", "Repeat parts, features or faces along a path, turning with it.",
+              lambda: F_("curve_pattern"), "array copies path along curve"),
+            C("point_pattern", "Point pattern", "A copy of parts, features or faces at each picked point.",
+              lambda: F_("point_pattern"), "array copies points vertices locations"),
             C("boolean", "Boolean", "Add, subtract or intersect parts.", lambda: F_("boolean"),
               "union subtract intersect combine merge"),
             C("split", "Split", "Cut parts with planes, faces (flat or curved) or sketch curves; keep both sides or one.", lambda: F_("split"), "cut"),
-            C("move", "Move", "Move, rotate or copy parts by exact amounts.", lambda: F_("move"), "translate"),
+            C("move", "Transform", "Move, rotate, scale or copy parts: by XYZ, along a line, a distance, point to "
+              "point, or one mate connector onto another.", lambda: F_("move"), "translate move rotate scale copy"),
+            C("mate_connector", "Mate connector", "A frame (origin and X / Y / Z) on a face, edge or vertex; Shift "
+              "moves it between the points of the face.", lambda: F_("mate_connector"), "frame origin connector"),
             C("variable", "Variable", "A #name to use in any dimension: a length, angle, number or expression "
               "with its unit, or measured from the model (distance, area, volume…) so it follows the model.",
               lambda: F_("measure_value"), "parameter measure value distance area volume angle unit"),
@@ -716,13 +723,19 @@ class MainWindow(QMainWindow):
         h.addWidget(_sep())
         # copy them
         self._tb_group(h, [("linear_pattern", "Linear pattern", F_("linear_pattern")),
-                           ("circular_pattern", "Circular pattern", F_("circular_pattern"))])
+                           ("circular_pattern", "Circular pattern", F_("circular_pattern")),
+                           ("curve_pattern", "Curve pattern — copies along a path, turning with it",
+                            F_("curve_pattern")),
+                           ("point_pattern", "Point pattern — a copy at each picked point", F_("point_pattern"))])
         self._tb(h, "mirror", "Mirror", F_("mirror"))
         h.addWidget(_sep())
         # combine, cut up and move parts
         self._tb(h, "boolean", "Boolean — union, subtract or intersect parts", F_("boolean"))
         self._tb(h, "split", "Split — parts with planes, faces or sketch curves", F_("split"))
-        self._tb(h, "move", "Transform — move / rotate / copy parts", F_("move"))
+        self._tb_group(h, [("move", "Transform — by XYZ, a line, a distance, point to point, rotate, mate connectors "
+                                    "or scale; move or copy parts", F_("move")),
+                           ("mate_connector", "Mate connector — a frame on a face, edge or vertex (Shift: the next "
+                                              "point on the face)", F_("mate_connector"))])
         self._tb(h, "delete_part", "Delete part — remove parts from here on", F_("delete_part"))
         self._tb_group(h, [("compound", "Compound — solids as one part that share the faces where they touch "
                                         "(glue faces)", F_("compound")),
@@ -753,8 +766,10 @@ class MainWindow(QMainWindow):
                                  checkable=True)
         h.addWidget(_sep())
         # the Part Studio itself: variables, configurations, linked parts, history, plugins
-        self._tb(h, "variable", "Variable — a #name for any dimension: a length, angle, number or text, or "
-                 "measured from the model (it follows the model)", F_("measure_value"))
+        self._tb_group(h, [("variable", "Variable — a #name for any dimension: a length, angle, number or text, or "
+                            "measured from the model (it follows the model)", F_("measure_value")),
+                           ("variables_table", "Variables table — every variable, its value and what uses it; "
+                            "change values and names in place", self.show_variables)])
         self._tb(h, "configs", "Configurations — sizes / versions of this part from a table of variable values",
                  self.edit_configs)
         self._tb(h, "derived", "Derived — bring parts from another Part Studio, kept linked", F_("derived"))
@@ -896,8 +911,8 @@ class MainWindow(QMainWindow):
                            ("line_mid", "Midpoint line — click the middle, then one end")])
         self._sk_group(h, [("rect", "Corner rectangle (R)"), ("center_rect", "Center rectangle"),
                            ("rect3", "Aligned rectangle — two corners for one side, then the width")])
-        self._sk_group(h, [("hexagon", "Hexagon — click the centre, then a corner (Shift+X)"),
-                           ("polygon", "Inscribed polygon — corners on a circle; type the number of sides"),
+        self._sk_group(h, [("polygon", "Inscribed polygon (Shift+X) — corners on a circle; type the number of "
+                                       "sides (6 to start: a hexagon)"),
                            ("polygon_out", "Circumscribed polygon — sides touch a circle (size across flats); "
                                            "type the number of sides")])
         self._sk_group(h, [("circle", "Circle (C)"), ("ellipse", "Ellipse")])
@@ -1038,6 +1053,8 @@ class MainWindow(QMainWindow):
         sc("Ctrl+Space", self.open_command_search)
         sc("Alt+`", self.open_command_search)
         sc("Ctrl+Z", self.undo)
+        sc("Ctrl+C", self.copy_features)
+        sc("Ctrl+V", self.paste_features)
         sc("Ctrl+Y", self.redo)
         sc("Ctrl+Shift+Z", self.redo)
         sc("Shift+S", lambda: self._sk_key("Shift+S") or (
@@ -1133,13 +1150,9 @@ class MainWindow(QMainWindow):
         again if it's all hidden."""
         if self.is_dwg or self.is_asm:
             return
-        fids = self._construction_ids()
-        shown = self.act_planes.isChecked() or any(f not in self.doc.hidden_features for f in fids)
-        self.act_planes.setChecked(not shown)
-        if fids:
-            self.doc.set_features_hidden(fids, shown)
-        else:
-            self._toggle_planes()
+        fids = list(STD_PLANES) + self._construction_ids()
+        shown = any(f not in self.doc.hidden_features for f in fids)
+        self.doc.set_features_hidden(fids, shown)
 
     def rename_selected(self):
         """Shift+N: rename the feature selected in the list, else the selected part."""
@@ -1322,15 +1335,15 @@ class MainWindow(QMainWindow):
             editing = self.sk_ctx["feature"]["id"]
         self.left.features.populate(self.doc, editing)
         self.left.parts.populate(self.doc)
+        self._sync_planes_action()
 
     def _planes_for(self, state):
         half = self.viewport.plane_half()
         planes = []
-        if self.act_planes.isChecked():
-            for name in STD_PLANES:
-                if name not in self.doc.hidden_features:
-                    planes.append((("std", name), K.std_plane(name), name,
-                                   self.doc.plane_rect(("std", name), half)))
+        for name in STD_PLANES:
+            if name not in self.doc.hidden_features:
+                planes.append((("std", name), K.std_plane(name), name,
+                               self.doc.plane_rect(("std", name), half)))
         for fid, pl in state.planes.items():
             if fid not in self.doc.hidden_features:
                 f = self.doc.feature(fid)
@@ -1358,6 +1371,10 @@ class MainWindow(QMainWindow):
                 continue
             sketches.append((fid, sr))
         self.viewport.set_scene(parts, self._planes_for(state), sketches)
+        # mate connectors: small X / Y / Z triads (hidden ones and those past the rollback bar left out)
+        self.viewport.triads = [dict(o=fr["o"], x=fr["x"], y=fr["y"], z=fr["z"], size_px=26, width=2.2)
+                                for fid, fr in getattr(state, "connectors", {}).items()
+                                if fid not in self.doc.hidden_features]
 
     # ================================================================== feature dialogs
     def start_feature(self, ftype, edit_fid=None):
@@ -1562,7 +1579,7 @@ class MainWindow(QMainWindow):
         self.dialog.show_regions.toggled.connect(self._sketch_display_toggles)
         self.viewport.pick_handler = self.dialog.handle_pick
         if has_plane:
-            self._enter_sketcher(animate=is_new)
+            self._enter_sketcher(animate=True)            # new or edited: face it (if that option is on)
         else:
             self.viewport.status_text = "Select a plane or planar face to sketch on"
             self.dialog.set_status("Select a plane or a planar face in the graphics area.")
@@ -1606,6 +1623,8 @@ class MainWindow(QMainWindow):
         sk = Sketch.from_dict(feat["params"]["sketch"])
         self.sketcher = Sketcher(plane, sk, feat["id"], self._sketch_changed, self._sketch_tool_changed)
         self.sketcher.variables = dict(ctx["base"].vars)
+        self.sketcher.variable_kinds = dict(getattr(ctx["base"], "var_kinds", {}))
+        self.sketcher.on_new_variable = self._sketch_new_variable
         self._sketch_display_toggles()
         vp = self.viewport
         vp.sketcher = self.sketcher
@@ -1615,6 +1634,7 @@ class MainWindow(QMainWindow):
         self.tool_stack.setCurrentIndex(1)
         self._sketch_tool_changed("select")
         if animate and self.orient_on_sketch:
+            self._view_before_sketch = vp.cam.state()   # (turning the option off goes back to this)
             vp.normal_to(plane)
         self._sketch_changed(True)
         vp.setFocus()
@@ -1855,7 +1875,15 @@ class MainWindow(QMainWindow):
         if key == "perspective":
             vp.set_perspective(value)
         elif key == "orient_on_sketch":
+            was = self.orient_on_sketch
             self.orient_on_sketch = bool(value)
+            if self.mode == "sketch" and self.sketcher is not None and was != self.orient_on_sketch:
+                # as Onshape: switching it on faces the sketch now; off goes back to the view you had
+                if self.orient_on_sketch:
+                    self._view_before_sketch = vp.cam.state()
+                    vp.normal_to(self.sketcher.plane)
+                elif getattr(self, "_view_before_sketch", None) is not None:
+                    vp.animate_to(self._view_before_sketch)
         elif key == "translucency":
             vp.translucency = float(min(max(value, 0.05), 0.95))
             vp.update()
@@ -2676,7 +2704,7 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ feature-list highlighting (like Onshape)
     def _std_plane_shown(self, name):
-        return self.act_planes.isChecked() and self.doc is not None and name not in self.doc.hidden_features
+        return self.doc is not None and name not in self.doc.hidden_features
 
     def _feature_hovered(self, fid):
         self._hl_hover = fid
@@ -2854,6 +2882,13 @@ class MainWindow(QMainWindow):
             return
         m.addAction("Edit…", lambda: self.edit_feature(fid))
         m.addAction("Rename…", lambda: self._rename_feature(fid))
+        sel_ids = self.left.features.selected_feature_ids()
+        copy_ids = sel_ids if fid in sel_ids else [fid]
+        m.addAction(f"Copy{' ' + str(len(copy_ids)) + ' features' if len(copy_ids) > 1 else ''}\tCtrl+C",
+                    lambda: self.copy_features(copy_ids))
+        if self._clipboard_features() is not None:
+            idx_after = self.doc.feature_index(fid) + 1
+            m.addAction("Paste after this\tCtrl+V", lambda: self.paste_features(index=idx_after))
         if f["type"] in ("sketch", "plane"):
             sel = [i for i in self.left.features.selected_feature_ids()
                    if (self.doc.feature(i) or {}).get("type") in ("sketch", "plane")]
@@ -3005,7 +3040,18 @@ class MainWindow(QMainWindow):
         self.doc.notify()
 
     def _toggle_planes(self):
-        self._show_state(self.doc.state)
+        """P / View ▸ Show default planes: hide the Top, Front and Right planes, or show them all again. It sets the
+        same per-plane state as their eyes in the feature list, so the list, the eyes and the view always agree (the
+        tick, already flipped by the time this runs, says which way to go)."""
+        if self.doc is None or self.is_dwg or self.is_asm or not hasattr(self.doc, "set_features_hidden"):
+            self.act_planes.setChecked(not self.act_planes.isChecked())    # nothing to hide here: undo the tick
+            return
+        self.doc.set_features_hidden(STD_PLANES, not self.act_planes.isChecked())
+
+    def _sync_planes_action(self):
+        """The Show default planes tick follows the planes: on while any of them is shown."""
+        if self.doc is not None and hasattr(self.doc, "hidden_features"):
+            self.act_planes.setChecked(any(n not in self.doc.hidden_features for n in STD_PLANES))
 
     def _explode_part(self, pid):
         """Right-click ▸ Explode into solids: open Explode with this part picked."""
@@ -3368,7 +3414,7 @@ class MainWindow(QMainWindow):
         if getattr(self, "_deriving", None) and studio.uid in self._deriving:
             raise K.KernelError("A Part Studio can't derive from itself (directly or round a loop)")
         st = studio.state_for(params.get("config"))
-        want = params.get("parts") or ["*"]
+        want = [studio.part_id(w) if hasattr(studio, "part_id") else w for w in (params.get("parts") or ["*"])]
         parts = [p for p in st.parts.values() if "*" in want or p.id in want]
         return [(p.name, p.shape, p.color, p.face_colors) for p in parts]
 
@@ -3505,7 +3551,11 @@ class MainWindow(QMainWindow):
         return doc is not None and not self._has_content(doc) and not doc.path and not doc.dirty
 
     def _fresh_view(self):
-        """The first view of a document: isometric, fitted, with nothing for Previous view to go back to."""
+        """The first view of a document: isometric, fitted, with nothing for Previous view to go back to. It runs
+        a moment after a tab opens; if the view is already on its way somewhere (a sketch opened straight away
+        turns to face it) or a sketch is open, it leaves the view alone rather than snapping it back."""
+        if self.viewport._anim is not None or self.mode == "sketch":
+            return
         self.viewport.set_standard_view("Isometric", animate=False)
         self.viewport.reset_view_history()
 
@@ -3771,7 +3821,8 @@ class MainWindow(QMainWindow):
         if src.get("part") in (None, "*"):
             parts = [p for p in st.parts.values() if p.id not in studio.hidden_parts]
         else:
-            parts = [st.parts[src["part"]]] if src["part"] in st.parts else []
+            pid = studio.part_id(src["part"]) if hasattr(studio, "part_id") else src["part"]
+            parts = [st.parts[pid]] if pid in st.parts else []
         return [{"name": p.name, "qty": 1, "shapes": [p.shape]} for p in parts]
 
     def _resolve_drawing_source(self, src):
@@ -3810,6 +3861,7 @@ class MainWindow(QMainWindow):
             if key not in cache:
                 cache[key] = K.compound([p.shape for p in parts])
             return cache[key]
+        src["part"] = studio.part_id(src["part"])          # (an id from before part ids were per feature)
         p = studio.state_for(src.get("config")).parts.get(src["part"])
         if p is None:
             raise K.KernelError(f"The part no longer exists in “{studio.name}”")
@@ -3905,6 +3957,8 @@ class MainWindow(QMainWindow):
         if studio.uid != src.get("uid"):
             src["uid"] = studio.uid
         state = studio.state_for(src.get("config")) if hasattr(studio, "state_for") else studio.state
+        if hasattr(studio, "part_id") and src.get("part"):
+            src["part"] = studio.part_id(src["part"])      # (an id from before part ids were per feature)
         p = state.parts.get(src.get("part"))
         if p is None:
             raise K.KernelError(f"The part no longer exists in “{studio.name}”")
@@ -4245,6 +4299,94 @@ class MainWindow(QMainWindow):
             "<p>Built on open-source libraries including the Open CASCADE Technology geometry kernel (LGPL 2.1) "
             "and Qt / PySide6 (LGPL 3) — see THIRD-PARTY-NOTICES.txt.</p>"
             "<p><a href='https://github.com/richiewillmott/FreeShape'>github.com/richiewillmott/FreeShape</a></p>"))
+
+    # ------------------------------------------------------------------ variables table
+    def show_variables(self):
+        """Variable ▾ → Variables table: every variable in this Part Studio, editable in place."""
+        if self.is_asm or self.is_dwg or self.doc is None:
+            return
+        from .variables_ui import VariablesTable
+        t = getattr(self, "_variables_table", None)
+        if t is not None and t.doc is not self.doc:
+            t.close()
+            t = None
+        if t is None:
+            t = self._variables_table = VariablesTable(self)
+        t.show()
+        t.raise_()
+        t.activateWindow()
+
+    # ------------------------------------------------------------------ copy / paste features
+    def copy_features(self, fids=None):
+        """Ctrl+C: the features selected in the feature list go on the clipboard (the system one too, so another
+        FreeShape window can paste them)."""
+        from .. import feature_clipboard as FC
+        if self.is_asm or self.is_dwg or self.mode != "idle" or self.doc is None:
+            return
+        fids = list(fids) if fids else self.left.features.selected_feature_ids()
+        if not fids:
+            self.status.showMessage("Select features in the feature list to copy them", 4000)
+            return
+        payload = FC.copy_features(self.doc, fids)
+        self._feature_clip = payload
+        QApplication.clipboard().setText(FC.to_text(payload))
+        n = len(payload["features"])
+        self.status.showMessage(f"Copied {n} feature{'s' if n != 1 else ''} — Ctrl+V pastes them at the rollback "
+                                "bar (here or in another Part Studio)", 5000)
+
+    def _clipboard_features(self):
+        from .. import feature_clipboard as FC
+        got = FC.from_text(QApplication.clipboard().text())
+        return got if got is not None else getattr(self, "_feature_clip", None)
+
+    def paste_features(self, index=None):
+        """Ctrl+V: copies of the copied features, at the rollback bar (or `index`), one step to undo."""
+        from .. import feature_clipboard as FC
+        if self.is_asm or self.is_dwg or self.mode != "idle" or self.doc is None:
+            return
+        payload = self._clipboard_features()
+        if payload is None:
+            return
+        new = FC.paste(self.doc, payload, index)
+        if not new:
+            return
+        bad = [f["name"] for f in new if self.doc.errors.get(f["id"])]
+        msg = f"Pasted {len(new)} feature{'s' if len(new) != 1 else ''}"
+        if bad:
+            msg += f" — {len(bad)} need attention (red in the feature list: pick what they use again)"
+        self.status.showMessage(msg, 8000)
+
+    # ------------------------------------------------------------------ variables made on the fly
+    def create_variable_before(self, index, name, kind, value):
+        """Type an unknown #name in a box → this makes it: a Variable feature inserted at `index` (just before the
+        feature being edited), holding `value` (mm / degrees / a number, or an expression text). kind: length,
+        angle, number or any. Returns the new feature."""
+        from .numparse import fmt
+        f = self.doc.make_feature("measure_value")
+        mtype = {"length": "fixed_length", "angle": "fixed_angle", "number": "fixed_number"}.get(kind, "expression")
+        if isinstance(value, str):
+            expr = value
+        elif mtype == "fixed_length":
+            expr = U.num(float(value))                   # in the document's unit (the variable's unit below)
+        else:
+            expr = fmt(float(value))
+        f["params"].update(name=name, mtype=mtype, expr=expr, unit=U.unit(), aunit="deg")
+        f["name"] = f"#{name}"
+        self.doc.insert_feature(f, index)
+        self.status.showMessage(f"Variable #{name} = {expr}{(' ' + U.unit()) if mtype == 'fixed_length' else ''} "
+                                "added before this feature — edit it in the feature list", 8000)
+        return f
+
+    def _sketch_new_variable(self, name, kind, value):
+        """A sketch dimension used an unknown #name and you said make it: insert it before this sketch."""
+        ctx = self.sk_ctx
+        if not ctx or self.sketcher is None:
+            return None
+        self.create_variable_before(ctx["index"], name, kind, value)
+        ctx["index"] += 1                                # the sketch now comes one later
+        ctx["base"] = self.doc.state_before(ctx["index"])
+        self.sketcher.variable_kinds = dict(getattr(ctx["base"], "var_kinds", {}))
+        return dict(ctx["base"].vars)
 
     # ------------------------------------------------------------------ Python scripts
     def _open_docs(self):

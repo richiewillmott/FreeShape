@@ -141,7 +141,8 @@ FEATURES = {
         ("Constant radius", None, DONE, ""),
         ("Tangent propagation", "edge_chains", DONE, ""),
         ("Conic / curvature cross-section", None, TODO, "OpenCascade fillets are circular-section only"),
-        ("Variable radius", None, PARTIAL, "start and end radii; Onshape also allows radii at points"),
+        ("Variable radius", None, PARTIAL, "start and end radii (either can be an expression); Onshape also allows "
+         "radii at points"),
     ]),
     "chamfer": ("Chamfer", [
         ("Edges and faces", None, DONE, ""),
@@ -187,6 +188,48 @@ FEATURES = {
         ("Angle and count", None, DONE, ""),
         ("New / Add / Remove / Intersect", "merge", DONE, ""),
         ("Merge scope", "merge_scope", DONE, ""),
+    ]),
+    "curve_pattern": ("Curve pattern", [
+        ("Parts", None, DONE, ""),
+        ("Features", None, DONE, ""),
+        ("Faces", "pattern_faces", DONE, ""),
+        ("Path (sketch curves or edges)", None, DONE, ""),
+        ("Count, spread or distance apart", None, DONE, ""),
+        ("Turn with the path / keep orientation", None, DONE, ""),
+        ("New / Add / Remove / Intersect", "merge", DONE, ""),
+        ("Merge scope", "merge_scope", DONE, ""),
+    ]),
+    "point_pattern": ("Point pattern", [
+        ("Parts", None, DONE, ""),
+        ("Features", None, DONE, ""),
+        ("Faces", "pattern_faces", DONE, ""),
+        ("Locations (vertices, sketch points)", None, DONE, ""),
+        ("Reference point", None, DONE, "optional: else the middle of what's patterned"),
+        ("New / Add / Remove / Intersect", "merge", DONE, ""),
+        ("Merge scope", "merge_scope", DONE, ""),
+    ]),
+    "move": ("Transform", [
+        ("Translate by line", "axis", DONE, "by the line's own length"),
+        ("Translate by distance", "axis", DONE, ""),
+        ("Translate by XYZ", None, DONE, ""),
+        ("Transform by mate connectors", None, DONE, ""),
+        ("Rotate", "axis", DONE, ""),
+        ("Copy in place", None, DONE, ""),
+        ("Scale", None, DONE, "uniform, about a point or the origin; a scaled sheet metal part becomes a plain "
+         "part"),
+        ("Copy part", None, DONE, "'Keep the original'; sheet metal parts moved, turned or copied stay sheet metal"),
+        ("Translate from point to point", None, DONE, "FreeShape extra"),
+    ]),
+    "mate_connector": ("Mate connector", [
+        ("On a face, edge or vertex", None, DONE, ""),
+        ("Points of the face to choose from (Shift)", None, DONE, "middle, corners, edge middles, round-edge "
+                                                                  "centres; a round face's axis ends"),
+        ("Flip primary axis", "flip", DONE, ""),
+        ("Rotate about Z", None, DONE, ""),
+        ("Move along X / Y / Z", None, DONE, ""),
+        ("Used by Transform", None, DONE, ""),
+        ("Used in assemblies", None, TODO, "assemblies make their own from what you click"),
+        ("Owner part / Point pattern of mate connectors", None, TODO, ""),
     ]),
     "mirror": ("Mirror", [
         ("Parts", None, DONE, ""),

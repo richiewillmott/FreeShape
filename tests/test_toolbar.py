@@ -22,7 +22,7 @@ def test_sketch_comes_first_with_its_name_and_tools_are_grouped():
     sk = _buttons(w, 0)[2]
     assert sk.text() == "Sketch"
     groups = {b.property("icon_name"): b.property("group") for b in _buttons(w, 0) if b.property("group")}
-    assert groups["linear_pattern"] == ["linear_pattern", "circular_pattern"]
+    assert groups["linear_pattern"] == ["linear_pattern", "circular_pattern", "curve_pattern", "point_pattern"]
     assert groups["thicken"] == ["thicken", "enclose"] and "sm_flange" in groups["sm_base"]
     assert "circular_pattern" not in names and "enclose" not in names       # only in the ▾ menus
     acts = {a.property("icon_name"): a for b in _buttons(w, 0) if b.menu() for a in b.menu().actions()}
@@ -40,7 +40,8 @@ def test_sketch_variants_share_a_button_that_remembers_the_last_one():
     app, w, vp = _window()
     rect = w._sketch_buttons["rect"]
     assert w._sketch_buttons["center_rect"] is rect is w._sketch_buttons["rect3"]
-    poly = w._sketch_buttons["hexagon"]                       # polygons have their own button, not rectangle's
+    poly = w._sketch_buttons["polygon"]                       # polygons have their own button (no separate hexagon)
+    assert "hexagon" not in w._sketch_buttons
     assert poly is not rect and w._sketch_buttons["polygon"] is poly is w._sketch_buttons["polygon_out"]
     assert w._sketch_buttons["line"] is w._sketch_buttons["line_mid"]
     assert w._sketch_buttons["sk_fillet"] is w._sketch_buttons["sk_chamfer"]

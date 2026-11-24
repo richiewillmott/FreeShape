@@ -25,7 +25,10 @@ import os
 import re
 import sys
 
-SCRIPT_VERSION = 1
+# 2: part ids are per feature ("F4:p1"). A script written for format 1 has the old ids ("F4:2") in it: its Part
+#    Studios are read as files from before the change, so the ids are converted the same way.
+SCRIPT_VERSION = 2
+_RUNNING = [SCRIPT_VERSION]          # the format of the script being run (set by its script.require(…) line)
 
 
 # =========================================================================== running a script
@@ -109,13 +112,15 @@ class PartStudio(_Builder):
     def to_dict(self):
         from .document import FILE_VERSION
         s = self.settings_
-        return {"format": "freeshape", "version": FILE_VERSION, "name": self.name, "uid": self.uid,
+        version = FILE_VERSION if _RUNNING[0] >= 2 else 1      # format 1 scripts: part ids the old way
+        return {"format": "freeshape", "version": version, "name": self.name, "uid": self.uid,
                 "features": self.features, "rollback": s.get("rollback"),
                 "overrides": s.get("overrides", {}), "hidden": s.get("hidden_parts", []),
                 "hidden_features": s.get("hidden_features", []), "folders": s.get("folders", {}),
                 "configs": s.get("configs", {"rows": [], "active": 0}), "plane_sizes": s.get("plane_sizes", {}),
                 "named_views": s.get("named_views", {}), "units": s.get("units", "mm"),
-                "derived_copies": s.get("derived_copies", {}), "plugin_copies": s.get("plugin_copies", {})}
+                "derived_copies": s.get("derived_copies", {}), "plugin_copies": s.get("plugin_copies", {}),
+                "part_aliases": s.get("part_aliases", {})}
 
     def _make(self):
         from .document import Document
@@ -240,7 +245,7 @@ class Workspace:
         from . import kernel as K
         studio = self.studio(src)
         st = studio.state_for(src.get("config"))
-        p = st.parts.get(src.get("part"))
+        p = st.parts.get(studio.part_id(src.get("part")))
         if p is None:
             raise K.KernelError(f"The part no longer exists in “{studio.name}”")
         return p
@@ -270,7 +275,7 @@ class Workspace:
             if not parts:
                 raise K.KernelError(f"“{studio.name}” has no parts")
             return parts[0].shape if len(parts) == 1 else K.compound([p.shape for p in parts])
-        p = st.parts.get(src["part"])
+        p = st.parts.get(studio.part_id(src["part"]))
         if p is None:
             raise K.KernelError(f"The part no longer exists in “{studio.name}”")
         if src.get("flat"):
@@ -318,6 +323,7 @@ def run_file(path) -> Workspace:
     """Run a FreeShape script file (its build function) and return what it made. The script is ordinary Python,
     so only run scripts you trust — as with plugins."""
     import runpy
+    _RUNNING[0] = SCRIPT_VERSION                 # until the script's require(…) line says otherwise
     ns = runpy.run_path(path, run_name="freeshape_script")
     build = ns.get("build")
     if not callable(build):
@@ -369,6 +375,22 @@ def _facing(n):
 
 _FACE_KIND = {0: "flat", 1: "cylinder", 2: "cone", 3: "sphere", 4: "torus"}
 _EDGE_KIND = {0: "line", 1: "circle", 2: "ellipse"}
+
+
+
+# Characters that end a line of Python source (or can't be in it): a name holding one must never reach a comment
+# or the docstring of a written script as it is, or the rest of the name would become code.
+_BREAKS = re.compile(r"[\r\n\x00\x0b\x0c\x1c-\x1e\x85  ]")
+
+
+def _one_line(text) -> str:
+    """Text from a document (a name), safe to put in a # comment: always one line."""
+    return _BREAKS.sub(" ", str(text))
+
+
+def _doc_text(text) -> str:
+    """Text from a document, safe inside the script's docstring: one line, no double quote or backslash."""
+    return _one_line(text).replace("\\", "/").replace('"', "'")
 
 
 def _noted(key, text, ind):
@@ -474,7 +496,7 @@ class _Writer:
                 pad = " " * (ind + 4)
                 body = "{\n" + "".join(f"{pad}{x},\n" for x in items) + " " * ind + "}"
             # what a picked face / edge / area is, in words, on the line above its fingerprint
-            return f"# {note}\n{' ' * ind}{body}" if note else body
+            return f"# {_one_line(note)}\n{' ' * ind}{body}" if note else body
         return repr(v)
 
     def kwargs(self, d, ind, width=110):
@@ -550,18 +572,18 @@ def _studio_lines(w, doc, var, top, taken):
     """The lines that build one Part Studio; fixed variables go to `top` as name = value."""
     ind = 4
     pad = " " * ind
-    lines = [f"{pad}# ---- Part Studio “{doc.name}”",
+    lines = [f"{pad}# ---- Part Studio “{_one_line(doc.name)}”",
              f"{pad}{var} = ws.part_studio({doc.name!r}, uid={doc.uid!r}, units={getattr(doc, 'units', 'mm')!r})"]
     hoisted = {}
     fixed = _fixed_variables(doc.features)
     if fixed:
-        top.append(f"# Part Studio “{doc.name}” — its variables. Change a value and run the script again.")
+        top.append(f"# Part Studio “{_one_line(doc.name)}” — its variables. Change a value and run the script again.")
     for f, key, unit in fixed:
         p = f["params"]
         py = _ident(p.get("name", "v"), taken)
         val = _number(p[key])
         txt = repr(int(val)) if float(val).is_integer() and "." not in str(p[key]) else repr(val)
-        note = f"   # #{p.get('name')}" + (f" ({unit})" if unit else "")
+        note = f"   # #{_one_line(p.get('name'))}" + (f" ({unit})" if unit else "")
         top.append(f"{py} = {txt}{note}")
         hoisted[f["id"]] = py
     if fixed:
@@ -590,7 +612,8 @@ def _studio_lines(w, doc, var, top, taken):
                               ("plane_sizes", getattr(doc, "plane_sizes", {}), {}),
                               ("named_views", doc.named_views, {}),
                               ("derived_copies", doc._derived_copies(), {}),
-                              ("plugin_copies", doc._plugin_copies(), {})):
+                              ("plugin_copies", doc._plugin_copies(), {}),
+                              ("part_aliases", getattr(doc, "part_aliases", {}), {})):
         if val != default:
             s[key] = val
     if s:
@@ -601,7 +624,7 @@ def _studio_lines(w, doc, var, top, taken):
 
 def _assembly_lines(w, asm, var, names):
     pad = "    "
-    lines = [f"{pad}# ---- Assembly “{asm.name}”",
+    lines = [f"{pad}# ---- Assembly “{_one_line(asm.name)}”",
              f"{pad}{var} = ws.assembly({asm.name!r}, uid={asm.uid!r}, units={getattr(asm, 'units', 'mm')!r})"]
     import base64
     from . import kernel as K
@@ -654,7 +677,7 @@ def _drawing_lines(w, dwg, var, names):
         except Exception:
             pass
     s.update(source=src, sheet=dwg.sheet, title=dwg.title, views=dwg.views, annots=dwg.annots, bom=dwg.bom)
-    return [f"{pad}# ---- Drawing “{dwg.name}”",
+    return [f"{pad}# ---- Drawing “{_one_line(dwg.name)}”",
             f"{pad}{var} = ws.drawing({dwg.name!r}, uid={dwg.uid!r}, {w.kwargs(s, 4)})", ""]
 
 
@@ -686,7 +709,7 @@ def dump(docs) -> str:
         body.append("    # ======================================================== 3. Drawing")
         for k, g in enumerate(dwgs, 1):
             body += _drawing_lines(w, g, f"dwg{k}", names)
-    title = ", ".join(d.name for d in docs)
+    title = _doc_text(", ".join(d.name for d in docs))
     out = [f'"""FreeShape script: {title}.',
            "",
            f"Made by FreeShape {__version__} (Document → Export as Python script). Run it from FreeShape (Document →",
@@ -719,6 +742,7 @@ def require(version):
     if int(version) > SCRIPT_VERSION:
         raise RuntimeError(f"This script needs a newer FreeShape (script format {version}; this one reads "
                            f"{SCRIPT_VERSION}).")
+    _RUNNING[0] = int(version)
 
 
 def linked(docs, start):

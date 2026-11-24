@@ -229,6 +229,30 @@ def draw(name: str, p: QPainter):
             p.setBrush(FACE if k == 0 else QColor(240, 138, 36, 80))
             p.drawEllipse(QPointF(x, y), 3.4, 3.4)
         _dot(p, 16, 16, INK, 1.6)
+    elif name == "mate_connector":
+        p.setPen(_pen(QColor(214, 58, 58), 2.0))
+        p.drawLine(QPointF(14, 18), QPointF(27, 18))
+        p.setPen(_pen(QColor(46, 160, 70), 2.0))
+        p.drawLine(QPointF(14, 18), QPointF(8, 27))
+        p.setPen(_pen(BLUE, 2.0))
+        p.drawLine(QPointF(14, 18), QPointF(14, 4))
+        _dot(p, 14, 18, ORANGE, 3.0)
+    elif name == "curve_pattern":
+        path = QPainterPath(QPointF(4, 26))
+        path.cubicTo(QPointF(10, 4), QPointF(22, 4), QPointF(28, 24))
+        p.setPen(_pen(BLUE, 1.2))
+        p.setBrush(Qt.NoBrush)
+        p.drawPath(path)
+        for k, (x, y) in enumerate(((5.5, 22), (12, 11), (21, 11), (27, 21))):
+            p.setPen(_pen(INK if k == 0 else ORANGE, 1.2))
+            p.setBrush(FACE if k == 0 else QColor(240, 138, 36, 80))
+            p.drawRect(QRectF(x - 2.6, y - 2.6, 5.2, 5.2))
+    elif name == "point_pattern":
+        for k, (x, y) in enumerate(((7, 8), (24, 9), (9, 24), (22, 23))):
+            p.setPen(_pen(INK if k == 0 else ORANGE, 1.2))
+            p.setBrush(FACE if k == 0 else QColor(240, 138, 36, 80))
+            p.drawRect(QRectF(x - 3.5, y - 3.5, 7, 7))
+            _dot(p, x, y, BLUE, 1.3)
     elif name == "boolean":
         p.setPen(_pen(INK, 1.3))
         p.setBrush(FACE)
@@ -416,6 +440,18 @@ def draw(name: str, p: QPainter):
         p.drawArc(QRectF(3, 5, 10, 22), 100 * 16, 160 * 16)
         p.drawArc(QRectF(19, 5, 10, 22), -80 * 16, 160 * 16)
         _text(p, "x", BLUE, 15, True, QRectF(6, 4, 20, 22))
+    elif name == "variables_table":
+        # a little table: a # column and values
+        p.setPen(_pen(INK, 1.4))
+        p.setBrush(QColor("white"))
+        p.drawRect(QRectF(4, 5, 24, 22))
+        p.setBrush(QColor("#dbe8f8"))
+        p.drawRect(QRectF(4, 5, 24, 6))
+        p.setBrush(Qt.NoBrush)
+        for y in (16.5, 22):
+            p.drawLine(QPointF(4, y), QPointF(28, y))
+        p.drawLine(QPointF(13, 5), QPointF(13, 27))
+        _text(p, "#", BLUE, 9, True, QRectF(4, 11, 9, 16))
     elif name == "measure":
         p.setPen(_pen(INK, 1.3))
         p.setBrush(QColor("#f5d77a"))
@@ -1031,7 +1067,7 @@ def draw(name: str, p: QPainter):
 CONSTRAINT_GLYPHS = {
     "coincident": "●", "horizontal": "H", "vertical": "V", "parallel": "∥", "perpendicular": "⊥",
     "tangent": "◡", "equal": "=", "midpoint": "M", "concentric": "◎", "fix": "⚓", "point_on": "●",
-    "symmetric": "⋈",
+    "symmetric": "⋈", "normal": "⊾",
 }
 
 

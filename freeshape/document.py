@@ -4,12 +4,20 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
+import re
 import traceback
 
 from . import kernel as K
 from .features import RUNNERS, FEATURE_LABELS, ModelState, default_params, Part, prepare, carry_face_colors
 
-FILE_VERSION = 1
+# 2: part ids are per feature ("F4:p1"); files from version 1 ("F4:2", numbered across the whole model) are
+#    converted when they're read (see Document.migrate_part_ids)
+FILE_VERSION = 2
+PART_IDS_VERSION = 2
+
+# a part id as files before version 2 made it: feature id, ":", a number (and ".n" for the pieces of a split body)
+_LEGACY_PART_ID = re.compile(r"^([A-Za-z_]+\d+:\d+)((?:\.\d+)*)$")
 
 
 # Set by the window while it waits on a rebuild: callable(i, n, text). Lets the progress bar move feature by
@@ -65,6 +73,10 @@ class Document:
         self.plugin_fallback: dict = {}           # plugin feature id -> saved copy of what it made (from the file)
         self.versions: list = []                  # version history (see history.py), oldest first
         self.version_blobs: dict = {}             # big imported geometry shared by the versions
+        # part ids from before they were per feature -> the id the part has now ("F4:2" -> "F4:p1"), so assemblies,
+        # drawings and derived parts saved with an old id still find their part (see part_id)
+        self.part_aliases: dict = {}
+        self._legacy_map = None                   # set while converting an old file's part ids
         self.path = None
         self.dirty = False
         self._undo: list[str] = []
@@ -182,6 +194,25 @@ class Document:
             self.rollback = index + 1
             if self.rollback >= len(self.features):
                 self.rollback = None
+        self.rebuild()
+
+    def insert_features(self, feats, index):
+        """Put several features in at `index`, in order, as one undo step (Paste)."""
+        if not feats:
+            return
+        self.checkpoint()
+        self.features[index:index] = list(feats)
+        if self.rollback is not None and self.rollback >= index:
+            self.rollback += len(feats)
+        self.rebuild()
+
+    def insert_feature(self, feat, index):
+        """Put a feature in at `index` (before the one there), leaving the rollback bar where it was relative to
+        the other features — for a variable made on the fly while another feature is open."""
+        self.checkpoint()
+        self.features.insert(index, feat)
+        if self.rollback is not None and self.rollback > index:
+            self.rollback += 1
         self.rebuild()
 
     def replace_feature(self, feat):
@@ -385,7 +416,7 @@ class Document:
 
     def compute(self, features, upto=None, errors=None, config=None):
         """Replay features (with caching). Returns the resulting ModelState."""
-        state = ModelState()
+        state = ModelState(legacy_map=self._legacy_map)
         from . import plugins as _P
         _P.CURRENT_DOC[0] = self.uid
         h = hashlib.sha1()
@@ -445,6 +476,10 @@ class Document:
                     if err is None:
                         # remembered so later features (feature patterns, mirror) can repeat what this one did
                         state.history[f["id"]] = (prev, state)
+                    else:
+                        # a feature that fails has no effect: drop whatever it changed before it failed (a fillet
+                        # done on one part of two), so the model never shows a half-applied feature marked as failed
+                        state = prev.copy()
             new_cache[key] = (state, err)
             if errors is not None and err:
                 errors[f["id"]] = err
@@ -648,7 +683,7 @@ class Document:
                            "hidden_features": sorted(self.hidden_features), "folders": self.folders,
                            "configs": self.configs, "versions": self.versions, "plane_sizes": self.plane_sizes,
                            "named_views": self.named_views, "units": self.units,
-                           "version_blobs": self.version_blobs}, indent=1)
+                           "version_blobs": self.version_blobs, "part_aliases": self.part_aliases}, indent=1)
 
     def save(self, path=None, version=True):
         """Write the file. Unless version=False (autosave), a save also records an automatic version when the
@@ -658,8 +693,22 @@ class Document:
         if version:
             from . import history
             history.create(self, auto=True)
-        with open(path, "w") as fh:
-            fh.write(self.to_json())
+        # write the whole file next to the old one and swap it in, so a failed or interrupted save never leaves a
+        # truncated file behind (the old one stays as it was)
+        text = self.to_json()
+        tmp = os.fspath(path) + ".tmp"
+        try:
+            with open(tmp, "w") as fh:
+                fh.write(text)
+                fh.flush()
+                os.fsync(fh.fileno())
+            os.replace(tmp, path)
+        except BaseException:
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            raise
         self.path = path
         self.dirty = False
 
@@ -731,11 +780,81 @@ class Document:
         doc.plugin_fallback = d.get("plugin_copies", {})
         doc.versions = d.get("versions", [])
         doc.version_blobs = d.get("version_blobs", {})
+        doc.part_aliases = dict(d.get("part_aliases", {}))
         doc.path = path
         nums = [int("".join(c for c in f["id"] if c.isdigit()) or 0) for f in doc.features]
         doc._counter = max(nums + [0])
+        if int(d.get("version", 1) or 1) < PART_IDS_VERSION:
+            doc.migrate_part_ids()
         doc.rebuild()
         return doc
+
+    # ------------------------------------------------------------------ part ids
+    def part_id(self, pid):
+        """The id a part has now, for an id saved elsewhere (an assembly, drawing or derived feature) that may be
+        from before part ids were per feature."""
+        if not isinstance(pid, str) or not self.part_aliases:
+            return pid
+        if pid in self.part_aliases:
+            return self.part_aliases[pid]
+        m = _LEGACY_PART_ID.match(pid)
+        if m and m.group(1) in self.part_aliases:
+            return self.part_aliases[m.group(1)] + m.group(2)
+        return pid
+
+    def migrate_part_ids(self):
+        """Convert the part ids in a document from before part ids were per feature. The model is rebuilt the old
+        way (in each configuration, the active one last so it wins), noting which part each old id was; then every
+        reference to an old id in the features, the part names / colours and the hidden parts is changed to the
+        part's new id. The old -> new ids are kept (part_aliases) for other files that refer to these parts.
+        Returns the number of ids converted."""
+        if not self.features:
+            return 0
+        amap = {}
+        saved_cache, saved_errors = self._cache, self.errors
+        self._cache = {}                     # parts with old ids must never be cached for the normal rebuild
+        try:
+            active = self.active_config()
+            names = [r["name"] for r in self.configs.get("rows", []) if r.get("name") != active]
+            for config in names + [None]:
+                self._legacy_map = {}
+                try:
+                    self.compute(self.features, None, None, config=config)
+                except Exception:
+                    traceback.print_exc()
+                amap.update(self._legacy_map)
+        finally:
+            self._legacy_map = None
+            self._cache = saved_cache if saved_cache is not None else {}
+            self._cache.clear()
+            self.errors = saved_errors
+        amap = {k: v for k, v in amap.items() if k != v}
+        if not amap:
+            return 0
+
+        def new_id(value):
+            m = _LEGACY_PART_ID.match(value)
+            if m and m.group(1) in amap:
+                return amap[m.group(1)] + m.group(2)
+            return value
+
+        def walk(value):
+            if isinstance(value, str):
+                return new_id(value)
+            if isinstance(value, list):
+                return [walk(v) for v in value]
+            if isinstance(value, dict):
+                return {k: walk(v) for k, v in value.items()}
+            return value
+
+        for i, f in enumerate(self.features):
+            if f.get("type") == "derived":       # its part ids are the other Part Studio's, not this one's
+                continue
+            self.features[i] = dict(f, params=walk(f.get("params", {})))
+        self.part_overrides = {new_id(k): v for k, v in self.part_overrides.items()}
+        self.hidden_parts = {new_id(k) for k in self.hidden_parts}
+        self.part_aliases.update(amap)
+        return len(amap)
 
     def visible_parts(self):
         return [p for p in self.state.parts.values() if p.id not in self.hidden_parts]

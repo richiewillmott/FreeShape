@@ -7,7 +7,7 @@ The loading steps call step(text, fraction) to move the bar; the window closes i
 import os
 import time
 
-from PySide6.QtCore import QPointF, QRectF, Qt
+from PySide6.QtCore import QEvent, QObject, QPointF, QRectF, Qt
 from PySide6.QtGui import (QBrush, QColor, QFont, QGuiApplication, QLinearGradient, QPainter, QPainterPath, QPen,
                            QPixmap, QRadialGradient)
 from PySide6.QtWidgets import QApplication, QWidget
@@ -38,7 +38,12 @@ class Splash(QWidget):
         self.text = "Starting…"
         self.frac = 0.0
         self.t0 = time.monotonic()
+        self._gone = False
         self._bg = self._make_background()
+        # a message box or any other window shown while starting (a file that needs a rebuild, a recovered
+        # autosave, an error) must never be hidden behind the splash, which stays on top: step aside for it
+        self._watch = _WindowWatcher(self)
+        QApplication.instance().installEventFilter(self._watch)
         scr = QGuiApplication.primaryScreen()
         if scr is not None:
             g = scr.availableGeometry()
@@ -46,6 +51,8 @@ class Splash(QWidget):
 
     # ------------------------------------------------------------------ progress
     def step(self, text, frac):
+        if self._gone:
+            return
         self.text = text
         self.frac = max(self.frac, min(1.0, frac))
         self.repaint()
@@ -55,11 +62,25 @@ class Splash(QWidget):
         self.step("Ready", 1.0)
         left = self.MIN_SECONDS - (time.monotonic() - self.t0)
         end = time.monotonic() + max(0.0, left)
-        while time.monotonic() < end:
+        while time.monotonic() < end and not self._gone:
             QApplication.processEvents()
             time.sleep(0.01)
-        window.raise_()
-        window.activateWindow()
+        was_gone = self._gone
+        self.dismiss()
+        if not was_gone:            # a dialog that took over keeps the focus
+            window.raise_()
+            window.activateWindow()
+
+    def dismiss(self):
+        """Close the splash now (safe to call more than once)."""
+        if self._gone:
+            return
+        self._gone = True
+        try:
+            QApplication.instance().removeEventFilter(self._watch)
+        except Exception:
+            pass
+        self.hide()
         self.close()
 
     # ------------------------------------------------------------------ drawing
@@ -182,6 +203,29 @@ class Splash(QWidget):
             p.setBrush(rg)
             p.drawEllipse(QPointF(gx - 2, by + bh / 2), 14, 6)
         p.end()
+
+
+class _WindowWatcher(QObject):
+    """Closes the splash as soon as a dialog or message box opens (the main window itself doesn't count, so the
+    splash still covers its first paint)."""
+
+    def __init__(self, splash):
+        super().__init__(splash)
+        self.splash = splash
+
+    def eventFilter(self, obj, ev):
+        if ev.type() == QEvent.Show and isinstance(obj, QWidget) and obj is not self.splash and obj.isWindow():
+            flags = obj.windowFlags()
+            kind = flags & Qt.WindowType_Mask
+            if kind in (Qt.Dialog, Qt.Sheet) or obj.isModal() or obj.inherits("QDialog") \
+                    or obj.inherits("QMessageBox"):
+                self.splash.dismiss()
+                try:
+                    obj.raise_()
+                    obj.activateWindow()
+                except Exception:
+                    pass
+        return False
 
 
 def show_splash():

@@ -47,7 +47,17 @@ def snapshot(doc) -> dict:
     """The parts of a document a version keeps (not the view: hidden parts, camera …)."""
     return {"features": _blobify(doc.features, doc.version_blobs), "configs": copy.deepcopy(doc.configs),
             "folders": copy.deepcopy(doc.folders), "overrides": copy.deepcopy(doc.part_overrides),
-            "rollback": doc.rollback}
+            "rollback": doc.rollback, "part_ids": _part_ids_version()}
+
+
+def _part_ids_version():
+    from .document import PART_IDS_VERSION
+    return PART_IDS_VERSION
+
+
+def _old_part_ids(snap) -> bool:
+    """A version saved before part ids were per feature: its references use the old ids."""
+    return int(snap.get("part_ids", 1) or 1) < _part_ids_version()
 
 
 def _same(a, b) -> bool:
@@ -136,6 +146,8 @@ def restore(doc, vid):
     doc.rollback = s.get("rollback")
     nums = [int("".join(c for c in f["id"] if c.isdigit()) or 0) for f in doc.features]
     doc._counter = max([doc._counter] + nums)
+    if _old_part_ids(s):
+        doc.migrate_part_ids()
     doc.rebuild()
 
 
@@ -152,6 +164,10 @@ def state_of(doc, snap):
     d.derived_fallback = doc.derived_fallback
     d.plugin_fallback = doc.plugin_fallback
     d._cache = doc._cache                     # unchanged features aren't rebuilt
+    if _old_part_ids(snap):
+        d._cache = {}
+        d.migrate_part_ids()
+        d._cache = doc._cache
     d.rebuild()
     return d.state, d.errors
 
