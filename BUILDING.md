@@ -44,6 +44,15 @@ run **`bash packaging/linux/build_appimage.sh`**. It packs FreeShape, checks the
 makes **`dist/FreeShape-2.1.0-x86_64.AppImage`** (about 200 MB). An AppImage runs on Linux systems at least as new as the
 one it was built on, so build on the oldest distro you want to support.
 
+## Make a Debian / Ubuntu package (.deb)
+
+On Debian or Ubuntu, with the same requirements installed, run **`bash packaging/linux/build_deb.sh`**. It makes
+**`dist/freeshape_<version>_amd64.deb`**: FreeShape in `/opt/freeshape`, a `freeshape` command, the menu entry and
+icons, and `.fshape` / `.fasm` / `.fdwg` files set to open with it. Install it with
+`sudo apt install ./dist/freeshape_<version>_amd64.deb`. (`SKIP_PYINSTALLER=1` reuses the app the AppImage build
+just packed.) Releases get a .deb automatically; for a release made before that, run **Actions → Debian package →
+Run workflow** with its tag (e.g. `v2.6.0`), and the .deb is attached to that release.
+
 ## Where things are in the code
 
 ```

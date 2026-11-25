@@ -72,6 +72,7 @@ Grab the file for your system from the [latest release](https://github.com/richi
 | **Windows** | `FreeShape-Setup-<version>.exe` (or the portable zip) | SmartScreen warning: **More info → Run anyway** |
 | **Mac** (Apple Silicon) | `FreeShape-<version>-mac-arm64.dmg` | Drag to Applications, then right-click → **Open** |
 | **Linux** | `FreeShape-<version>-x86_64.AppImage` | `chmod +x` it and run; or `am -i freeshape` |
+| **Debian / Ubuntu** | `freeshape_<version>_amd64.deb` | `sudo apt install ./freeshape_<version>_amd64.deb`, then FreeShape is in your app menu |
 
 The installers aren't code-signed yet, hence the warnings. If the AppImage says FUSE is missing, run it with
 `--appimage-extract-and-run` or install `libfuse2`. To run from source or build it yourself, see

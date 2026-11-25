@@ -2,7 +2,7 @@
 # downloads to the release — so there's nothing to build by hand.
 #   - Publishing a release: builds all three and attaches
 #       FreeShape-Setup-<rev>.exe, FreeShape-portable-<rev>.zip (Windows, no install),
-#       FreeShape-<rev>-mac-arm64.dmg and FreeShape-<rev>-x86_64.AppImage
+#       FreeShape-<rev>-mac-arm64.dmg, FreeShape-<rev>-x86_64.AppImage and freeshape_<rev>_amd64.deb
 #   - Actions tab → "Build (Windows, Mac, Linux)" → Run workflow: a test build. The files, a screenshot of
 #     FreeShape running on the Mac and the logs go on a "Test builds" DRAFT release instead — drafts are only
 #     visible to you (Releases page), never to the public. Each test run replaces the previous test files.
@@ -158,13 +158,17 @@ jobs:
           python -m pip install -r requirements.txt pyinstaller
       - name: Build the AppImage
         run: PYTHON=python bash packaging/linux/build_appimage.sh
+      - name: Build the Debian / Ubuntu package (.deb), from the same packed app
+        run: SKIP_PYINSTALLER=1 PYTHON=python bash packaging/linux/build_deb.sh
       - uses: actions/upload-artifact@v4
         with:
           name: freeshape-linux
-          path: dist/*.AppImage
+          path: |
+            dist/*.AppImage
+            dist/*.deb
       - name: Attach to the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           if [ "${{ github.event_name }}" = "release" ]; then TAG="${{ github.event.release.tag_name }}"; else TAG=test-builds; fi
-          gh release upload "$TAG" dist/*.AppImage --clobber
+          gh release upload "$TAG" dist/*.AppImage dist/*.deb --clobber
