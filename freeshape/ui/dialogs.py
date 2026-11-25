@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 
 import numpy as np
 from PySide6.QtCore import Qt, QTimer, Signal, QSize, QEvent
@@ -10,12 +11,12 @@ from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, QToolButton, QLineEdit, QComboBox, QCheckBox,
     QListWidget, QListWidgetItem, QWidget, QButtonGroup, QSizePolicy, QGraphicsDropShadowEffect, QApplication,
-    QPushButton,
+    QPushButton, QStyledItemDelegate, QStyleOptionViewItem,
 )
 
 from .. import kernel as K
 from .. import features as F
-from .icons import icon
+from .icons import icon, dialog_button
 from . import theme
 from .numparse import parse_number, fmt, has_vars
 from .viewport import Pick
@@ -264,6 +265,103 @@ def item_geometry(state, item, plane_half=40.0, plane_rect=None):
 
 # ---------------------------------------------------------------------- selection field widget
 
+class _PickList(QListWidget):
+    """The picks in a selection box, one per row, each with a × at its right end to take it out again (as in
+    Onshape): faint while the mouse is elsewhere, red under the mouse. Delete removes the highlighted row, and a
+    double-click still works."""
+    removeRequested = Signal(int)
+    X_W = 20
+
+    def __init__(self):
+        super().__init__()
+        self.setMouseTracking(True)
+        self._hover = -1
+        self.setItemDelegate(_PickRowDelegate(self))
+
+    def _x_rect(self, row):
+        r = self.visualItemRect(self.item(row))
+        right = min(r.right(), self.viewport().rect().right())
+        from PySide6.QtCore import QRect
+        return QRect(right - self.X_W + 1, r.top(), self.X_W, r.height())
+
+    def removable(self, row):
+        it = self.item(row)
+        return it is not None and it.data(Qt.UserRole) is not None
+
+    def _x_at(self, pos):
+        it = self.itemAt(pos)
+        if it is None:
+            return -1
+        row = self.row(it)
+        return row if self.removable(row) and self._x_rect(row).contains(pos) else -1
+
+    def mouseMoveEvent(self, e):
+        super().mouseMoveEvent(e)
+        it = self.itemAt(e.position().toPoint())
+        row = self.row(it) if it is not None else -1
+        if row != self._hover:
+            self._hover = row
+            self.viewport().update()
+        over = self._x_at(e.position().toPoint()) >= 0
+        self.viewport().setCursor(Qt.PointingHandCursor if over else Qt.ArrowCursor)
+
+    def leaveEvent(self, e):
+        super().leaveEvent(e)
+        self._hover = -1
+        self.viewport().update()
+
+    def mousePressEvent(self, e):
+        row = self._x_at(e.position().toPoint()) if e.button() == Qt.LeftButton else -1
+        if row >= 0:
+            self.removeRequested.emit(int(self.item(row).data(Qt.UserRole)))
+            e.accept()
+            return
+        super().mousePressEvent(e)
+
+    def event(self, e):
+        # Delete / Backspace on a pick belong to this list, not the window's Delete shortcut
+        if e.type() == QEvent.ShortcutOverride and e.key() in (Qt.Key_Delete, Qt.Key_Backspace):
+            it = self.currentItem()
+            if it is not None and it.data(Qt.UserRole) is not None:
+                e.accept()
+                return True
+        return super().event(e)
+
+    def keyPressEvent(self, e):
+        if e.key() in (Qt.Key_Delete, Qt.Key_Backspace):
+            it = self.currentItem()
+            if it is not None and it.data(Qt.UserRole) is not None:
+                self.removeRequested.emit(int(it.data(Qt.UserRole)))
+                return
+        super().keyPressEvent(e)
+
+
+class _PickRowDelegate(QStyledItemDelegate):
+    def paint(self, p, opt, index):
+        o = QStyleOptionViewItem(opt)
+        o.rect = opt.rect.adjusted(0, 0, -_PickList.X_W, 0)      # the name stops short of the ×
+        super().paint(p, o, index)
+        view = self.parent()
+        if index.data(Qt.UserRole) is None:
+            return
+        hover = view._hover == index.row()
+        r = view._x_rect(index.row())
+        from PySide6.QtCore import QPointF
+        from PySide6.QtGui import QPen
+        c = QColor(theme.ERROR) if hover else QColor("#9aa3ae")
+        if not hover:
+            c.setAlpha(150)
+        pen = QPen(c, 1.6)
+        pen.setCapStyle(Qt.RoundCap)
+        p.save()
+        p.setRenderHint(p.RenderHint.Antialiasing)
+        p.setPen(pen)
+        cx, cy, h = r.center().x() + 0.5, r.center().y() + 0.5, 3.6
+        p.drawLine(QPointF(cx - h, cy - h), QPointF(cx + h, cy + h))
+        p.drawLine(QPointF(cx + h, cy - h), QPointF(cx - h, cy + h))
+        p.restore()
+
+
 class SelectionField(QFrame):
     activated = Signal(object)
     changed = Signal()
@@ -287,12 +385,13 @@ class SelectionField(QFrame):
         self.clear_btn.clicked.connect(self.clear)
         top.addWidget(self.clear_btn)
         lay.addLayout(top)
-        self.list = QListWidget()
+        self.list = _PickList()
         self.list.setFixedHeight(22)
         self.extra = 0              # extra height (px) the dialog has been dragged taller by
         self._base_h = 22
         self.list.setStyleSheet("QListWidget { background: transparent; }")
         self.list.itemDoubleClicked.connect(self._remove_item)
+        self.list.removeRequested.connect(self.remove_at)
         lay.addWidget(self.list)
         self.set_active(False)
 
@@ -311,12 +410,14 @@ class SelectionField(QFrame):
             it.setForeground(QColor("#8a94a3"))
             self.list.addItem(it)
         for i, item in enumerate(self.items):
-            it = QListWidgetItem(item_label(doc, item))
+            label = item_label(doc, item)
+            it = QListWidgetItem(label)
+            it.setData(Qt.UserRole, i)                          # which pick the row is (its × removes it)
             if i in missing:
                 it.setForeground(QColor("#d93025"))
-                it.setToolTip("Reference could not be found — double-click to remove")
+                it.setToolTip(f"{label} — its reference could not be found. Click × to remove it")
             else:
-                it.setToolTip("Double-click to remove")
+                it.setToolTip(f"Click × to remove {label}")
             self.list.addItem(it)
         n = max(1, len(self.items))
         self._base_h = min(6, n) * 20 + 4
@@ -329,9 +430,14 @@ class SelectionField(QFrame):
         self.updateGeometry()
 
     def _remove_item(self, it):
-        row = self.list.row(it)
-        if 0 <= row < len(self.items):
-            self.items.pop(row)
+        i = it.data(Qt.UserRole)
+        if i is not None:
+            self.remove_at(int(i))
+
+    def remove_at(self, i):
+        """Take one pick out of the box (its row's ×, Delete, or a double-click)."""
+        if 0 <= i < len(self.items):
+            self.items.pop(i)
             self.changed.emit()
 
     def clear(self):
@@ -440,7 +546,8 @@ def _ops(options=None):
 
 SURFACE_OPS = [("new", "New"), ("add", "Add")]
 # features whose selection boxes are stored as they are: [[kind, ref], ...] per box
-PAIR_FEATURES = ("measure_value", "thicken", "enclose", "rib", "delete_part", "helix", "bounding_box", "compound", "explode_part")
+PAIR_FEATURES = ("measure_value", "thicken", "enclose", "rib", "delete_part", "helix", "bounding_box", "compound",
+                 "explode_part", "fill", "constrained_surface")
 
 
 def _segments(key, options, default=None):
@@ -666,6 +773,7 @@ SCHEMAS = {
         _num("distance2", "Second distance", visible=lambda p: p.get("type") == "two", minimum=1e-6),
         _num("angle", "Angle", unit="deg", visible=lambda p: p.get("type") == "angle", minimum=1e-6),
         _check("flip", "Flip sides", visible=lambda p: p.get("type") in ("two", "angle")),
+        _check("tangent", "Tangent propagation (carry on round smooth corners)"),
     ],
     "shell": [
         _sel("faces", "Faces to remove", {"face"}),
@@ -864,6 +972,20 @@ SCHEMAS = {
         _check("keep_tools", "Keep the surfaces"),
         _ops(),
         _scope_field(),
+    ],
+    "fill": [
+        _sel("edges", "Edges and sketch curves around the area (a closed loop)", {"path"}),
+        _choice("continuity", "Meets the surfaces around it", _mf().FILL_CONTINUITY),
+        _sel("points", "Points it must pass through (optional)", {"vertex"}),
+        _segments("surface_op", SURFACE_OPS, "new"),
+        {"t": "info", "key": "_info", "text": lambda p: "Tangent: edges of a surface body are met smoothly; sketch "
+                                                       "curves and edges between two faces are just met."},
+    ],
+    "constrained_surface": [
+        _sel("points", "Points it goes through", {"vertex"}),
+        _sel("parts", "…or parts (all their vertices — a point cloud or scan)", {"part"}),
+        _num("tolerance", "Tolerance (furthest a point may be)", minimum=1e-6),
+        _segments("surface_op", SURFACE_OPS, "new"),
     ],
     "rib": [
         _sel("curves", "Sketch lines for the rib", {"path"}),
@@ -1397,14 +1519,10 @@ class FeatureDialog(_ResizableFrame):
         self.title.setStyleSheet("QLineEdit { border: none; font-weight: 700; background: transparent; }"
                                  "QLineEdit:focus { border: 1px solid #1f6fd1; background: white; }")
         head.addWidget(self.title, 1)
-        ok = QToolButton()
-        ok.setObjectName("okButton")
-        ok.setText("✓")
+        ok = dialog_button(QToolButton(), "ok")
         ok.setToolTip("Accept (Enter)")
         ok.clicked.connect(self.accept)
-        cancel = QToolButton()
-        cancel.setObjectName("cancelButton")
-        cancel.setText("✕")
+        cancel = dialog_button(QToolButton(), "cancel")
         cancel.setToolTip("Cancel (Esc)")
         cancel.clicked.connect(self.reject)
         head.addWidget(ok)
@@ -2344,6 +2462,8 @@ class FeatureDialog(_ResizableFrame):
         except K.KernelError:
             return []
         try:
+            if self.ftype == "fillet":
+                return self._fillet_arrow(p)
             if self.ftype == "split":
                 return self._split_arrows(p)
             if self.ftype == "revolve":
@@ -2410,6 +2530,66 @@ class FeatureDialog(_ResizableFrame):
         except (K.KernelError, KeyError, IndexError):
             return []
         return []
+
+    def _first_fillet_edge(self, p):
+        """(part shape, edge) of the first edge picked for a fillet, in the model before it; or None."""
+        for ref in p.get("edges", []):
+            try:
+                pid, e = F.resolve(self.base_state, ref, "edge")
+            except K.KernelError:
+                continue
+            return self.base_state.parts[pid].shape, e
+        return None
+
+    def _fillet_arrow(self, p):
+        """An arrow on the round at the first picked edge, as Onshape's: its tip sits on the middle of the round
+        and points into the corner it cuts away, so dragging it in makes the radius bigger."""
+        got = self._first_fillet_edge(p)
+        if got is None:
+            return []
+        fr = K.fillet_frame(*got)
+        if fr is None:
+            return []
+        pt, _t, n1, n2, convex = fr
+        inward = -(n1 + n2) if convex else (n1 + n2)       # from the edge towards the ball's centre
+        if np.linalg.norm(inward) < 1e-9:
+            return []
+        inward = inward / np.linalg.norm(inward)
+        # the middle of a round of radius r is r * (1 / sin(half the angle between the faces) - 1) in from the edge
+        half = 0.5 * (math.pi - math.acos(max(-1.0, min(1.0, float(np.dot(n1, n2))))))
+        k = 1.0 / max(math.sin(half), 1e-6) - 1.0
+        if k < 1e-6:
+            return []                                      # (faces almost flat to each other: no corner to show)
+        r = float(p.get("radius", 1) or 1)
+        arrow = {"origin": pt, "dir": inward, "value": r * k, "on_done": self.schedule_preview,
+                 "snap": self._snap_step() * k, "min": 1e-3 * k, "on_click": None, "label": U.length(r, 4)}
+
+        def on_drag(v):
+            radius = round(abs(v) / k, 6)
+            self._set_quiet("radius", radius)
+            arrow["label"] = U.length(radius, 4)
+            self.schedule_preview()
+        arrow["on_drag"] = on_drag
+        return [arrow]
+
+    def fillet_failure_outlines(self):
+        """When the fillet can't be made: where its rounds would run, in purple, and its edges in red (Onshape)."""
+        try:
+            p = F.prepare(self.feature, self.base_state)["params"]
+        except K.KernelError:
+            return []
+        r = float(p.get("radius", 1) or 1)
+        purple, red = (0.78, 0.18, 0.86), (0.86, 0.15, 0.13)
+        out = []
+        for ref in p.get("edges", [])[:40]:
+            try:
+                pid, e = F.resolve(self.base_state, ref, "edge")
+            except K.KernelError:
+                continue
+            shape = self.base_state.parts[pid].shape
+            out += [(poly, purple, 2.5) for poly in K.fillet_outline(shape, e, r)]
+            out.append((np.asarray(K.discretize_edge(e), float), red, 3.5))
+        return out
 
     def _second_arrow(self, p, origin, n):
         """Extrude with a second end position at a Blind depth: a second arrow, the other way to the first, that
@@ -2507,6 +2687,9 @@ class FeatureDialog(_ResizableFrame):
         if vp._manip_drag is None:          # don't rebuild the arrow while it's being dragged
             vp.manipulators = self.manipulators()
         err = self.main.show_preview(self.feature, self.index, self.overlays())
+        # a fillet too big to make: show where it would run (purple) and its edges (red), as Onshape does
+        vp.outlines = self.fillet_failure_outlines() if (err and self.ftype == "fillet") else []
+        vp.update()
         if self._field_errors:
             self._show_field_errors()
         elif err:
@@ -2611,14 +2794,10 @@ class SketchDialog(_ResizableFrame):
         self.title.setStyleSheet("QLineEdit { border: none; font-weight: 700; background: transparent; }"
                                  "QLineEdit:focus { border: 1px solid #1f6fd1; background: white; }")
         head.addWidget(self.title, 1)
-        ok = QToolButton()
-        ok.setObjectName("okButton")
-        ok.setText("✓")
+        ok = dialog_button(QToolButton(), "ok")
         ok.setToolTip("Finish sketch")
         ok.clicked.connect(self.accepted.emit)
-        cancel = QToolButton()
-        cancel.setObjectName("cancelButton")
-        cancel.setText("✕")
+        cancel = dialog_button(QToolButton(), "cancel")
         cancel.setToolTip("Cancel sketch")
         cancel.clicked.connect(self.rejected.emit)
         head.addWidget(ok)

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal, QSize, QRect, QPointF
-from PySide6.QtGui import QColor, QIcon, QPixmap, QPainter, QFont, QBrush, QPainterPath, QPen
+from PySide6.QtGui import QColor, QIcon, QPixmap, QPainter, QFont, QBrush, QPainterPath, QPen, QMouseEvent
 from PySide6.QtWidgets import (
     QTabBar, QWidget, QVBoxLayout, QLabel, QListWidget, QListWidgetItem, QLineEdit, QFrame, QAbstractItemView,
     QMenu, QHBoxLayout, QToolButton, QStyledItemDelegate, QStyleOptionViewItem, QStyle,
@@ -16,6 +16,8 @@ ROLE_ID = Qt.UserRole + 1
 ROLE_EYE = Qt.UserRole + 2        # None (no eye), "shown" or "hidden"
 ROLE_INDENT = Qt.UserRole + 3     # True for a feature shown inside a folder
 ROLE_OPEN = Qt.UserRole + 4       # a folder row: True if expanded
+ROLE_RELATED = Qt.UserRole + 5    # a feature row: True while it made what's picked in the view (drawn as a band)
+ROLE_EDITING = Qt.UserRole + 6    # a feature row: True while its dialog / sketch is open (shaded)
 CHEVRON_W = 16                    # px: the expand / collapse arrow at the left of a folder row
 INDENT_W = 20                     # px: how far a folder's features are indented
 STD_PLANES = ("Top", "Front", "Right")
@@ -102,6 +104,14 @@ class _EyeDelegate(QStyledItemDelegate):
                        opt.rect.height())
         style = self.view.style()
         style.drawPrimitive(QStyle.PE_PanelItemViewItem, o, p, self.view)
+        if index.data(ROLE_EDITING):
+            p.fillRect(o.rect, QColor(theme.SELECTED_ROW))      # the feature being edited (style sheet: see below)
+        elif index.data(ROLE_RELATED) and not (opt.state & QStyle.State_Selected):
+            # the feature that made what's picked in the view: a light band (painted here — the list's style
+            # sheet styles rows itself, so a row's own background colour would never show)
+            band = QColor(self.view.palette().highlight().color())
+            band.setAlpha(70)
+            p.fillRect(o.rect, band)
         is_folder = index.data(ROLE_KIND) in ("folder", "group")
         if is_folder:
             paint_chevron(p, chevron_rect(opt.rect), bool(index.data(ROLE_OPEN)))
@@ -163,6 +173,17 @@ class _EyeMixin:
             self.viewport().update()
 
 
+def adding_click(view, e):
+    """Clicks in the feature and parts lists add to the selection, as in Onshape: a plain click on a row picks it as
+    well (or drops it, if it was picked), like Ctrl+click. Shift+click still picks a run; a click on empty space
+    still clears. Returns the event to hand on to the list."""
+    if e.button() == Qt.LeftButton and e.modifiers() == Qt.NoModifier and \
+            view.itemAt(e.position().toPoint()) is not None:
+        return QMouseEvent(e.type(), e.position(), e.scenePosition(), e.globalPosition(), e.button(), e.buttons(),
+                           Qt.ControlModifier)
+    return e
+
+
 class RollbackBar(QFrame):
     def __init__(self):
         super().__init__()
@@ -197,10 +218,32 @@ class FeatureList(_EyeMixin, QListWidget):
         self._filter = ""
         self._folder_of = {}
         self._default_open = True            # the "Default geometry" group (origin and the three planes)
+        self._related = set()                # features that made what's picked in the view (marked, not selected)
+        self._editing = None
         self._eye_setup()
+
+    def mark_related(self, fids):
+        """Mark the features that made what's picked in the view — a light band on their rows, as Onshape does
+        when you click a face or edge — without selecting them."""
+        fids = set(fids)
+        if fids != self._related:
+            self._related = fids
+            self._apply_related()
+
+    def _apply_related(self):
+        for i in range(self.count()):
+            it = self.item(i)
+            kind = it.data(ROLE_KIND)
+            if kind in ("feature", "std_plane"):
+                key = it.data(ROLE_ID) if kind == "feature" else f"std:{it.data(ROLE_ID)}"   # (Top, Front, Right)
+                on = key in self._related and it.data(ROLE_ID) != self._editing
+                if bool(it.data(ROLE_RELATED)) != on:
+                    it.setData(ROLE_RELATED, on)
+        self.viewport().update()
 
     def populate(self, doc, editing_id=None):
         self.blockSignals(True)
+        self._editing = editing_id
         self.clear()
         self._folder_of = {f["id"]: f.get("folder") for f in doc.features}
         bold = QFont()
@@ -286,13 +329,16 @@ class FeatureList(_EyeMixin, QListWidget):
             elif f["id"] in doc.hidden_features:
                 it.setForeground(QColor("#8a94a3"))
             if f["id"] == editing_id:
-                it.setBackground(QColor(theme.SELECTED_ROW))
+                it.setData(ROLE_EDITING, True)
                 it.setFont(bold)
             self.addItem(it)
             if fo and not (folders[fo].get("open", True) or fo in forced or flt):
                 it.setHidden(True)
         if active >= len(doc.features):
             self._add_rollback()
+        self._related &= {f["id"] for f in doc.features} | {f"std:{n}" for n in STD_PLANES}
+        if self._related:
+            self._apply_related()
         self.blockSignals(False)
 
     def _add_folder(self, doc, fo, info, members, force_open):
@@ -391,7 +437,10 @@ class FeatureList(_EyeMixin, QListWidget):
                 self.folderToggled.emit(it.data(ROLE_ID))
             e.accept()
             return
-        super().mousePressEvent(e)
+        super().mousePressEvent(adding_click(self, e))
+
+    def mouseReleaseEvent(self, e):
+        super().mouseReleaseEvent(adding_click(self, e))
 
     def mouseDoubleClickEvent(self, e):
         pos = e.position().toPoint()
@@ -502,7 +551,10 @@ class PartsList(_EyeMixin, QListWidget):
             self.eyeClicked.emit(it.data(ROLE_ID))
             e.accept()
             return
-        super().mousePressEvent(e)
+        super().mousePressEvent(adding_click(self, e))
+
+    def mouseReleaseEvent(self, e):
+        super().mouseReleaseEvent(adding_click(self, e))
 
     def mouseMoveEvent(self, e):
         super().mouseMoveEvent(e)
@@ -511,6 +563,15 @@ class PartsList(_EyeMixin, QListWidget):
     def leaveEvent(self, e):
         super().leaveEvent(e)
         self._eye_leave()
+
+    def select_parts(self, pids):
+        """Show these parts as the selected ones (to match what's picked in the view), without signalling."""
+        pids = set(pids)
+        self.blockSignals(True)
+        for i in range(self.count()):
+            self.item(i).setSelected(self.item(i).data(ROLE_ID) in pids)
+        self.blockSignals(False)
+        self.viewport().update()
 
     def populate(self, doc):
         self.blockSignals(True)

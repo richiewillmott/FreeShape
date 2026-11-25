@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
 from .. import kernel as K
 from .. import assembly as A
 from . import filedlg
-from .icons import icon
+from .icons import icon, dialog_button
 from .menus import submenu
 from .numparse import parse_number, fmt
 from .panels import swatch
@@ -47,15 +47,11 @@ def _head(frame, title, ic, on_ok, on_cancel, ok_tip="Accept (Enter)", cancel_ti
                     "QLineEdit:focus { border: 1px solid #1f6fd1; background: white; }")
     head.addWidget(t, 1)
     if on_ok is not None:
-        ok = QToolButton()
-        ok.setObjectName("okButton")
-        ok.setText("✓")
+        ok = dialog_button(QToolButton(), "ok")
         ok.setToolTip(ok_tip)
         ok.clicked.connect(on_ok)
         head.addWidget(ok)
-    cancel = QToolButton()
-    cancel.setObjectName("cancelButton")
-    cancel.setText("✕")
+    cancel = dialog_button(QToolButton(), "cancel")
     cancel.setToolTip(cancel_tip)
     cancel.clicked.connect(on_cancel)
     head.addWidget(cancel)

@@ -27,7 +27,7 @@ from . import filedlg
 from .icons import icon
 from .menus import submenu
 from .viewport import Viewport, Pick, plane_corners
-from .panels import LeftPanel, STD_PLANES, DocTabBar
+from .panels import LeftPanel, STD_PLANES, DocTabBar, ROLE_ID, ROLE_KIND
 from .dialogs import FeatureDialog, SketchDialog, pick_to_item
 from .section import SectionPanel
 from .sketcher import Sketcher, CONSTRAINT_TOOLS
@@ -287,6 +287,7 @@ class MainWindow(QMainWindow):
         lp.new_folder_btn.clicked.connect(lambda: self._new_folder(self.left.features.selected_feature_ids()))
         lp.parts.eyeClicked.connect(lambda pid: self.doc.toggle_part_hidden(pid) if self.doc is not None else None)
         lp.parts.partClicked.connect(self._part_clicked)
+        lp.parts.itemSelectionChanged.connect(self._parts_list_selection)
         lp.parts.contextRequested.connect(self._part_context)
         self.viewport.selectionChanged.connect(self._selection_changed)
         self.viewport.contextRequested.connect(self._viewport_context)
@@ -500,6 +501,12 @@ class MainWindow(QMainWindow):
               "or two thicknesses).", lambda: F_("thicken"), "surface solid wall skin"),
             C("enclose", "Enclose", "A solid from the space that surfaces, faces and planes close off between them.",
               lambda: F_("enclose"), "surface solid close fill volume"),
+            C("fill", "Fill", "A surface patch over a closed loop of edges or sketch curves, just meeting or "
+              "tangent to the surfaces around it, through any points you pick.", lambda: F_("fill"),
+              "surface patch cap boundary hole"),
+            C("constrained_surface", "Constrained surface", "A smooth surface fitted through points, or through a "
+              "part's vertices (a point cloud or scan), within a tolerance.", lambda: F_("constrained_surface"),
+              "surface fit points cloud scan"),
             C("rib", "Rib", "A wall of a thickness from sketch lines, grown out until it meets the part.",
               lambda: F_("rib"), "gusset stiffener web"),
             C("delete_part", "Delete part", "Remove parts from the model from this point on.",
@@ -743,9 +750,14 @@ class MainWindow(QMainWindow):
                                             "edges", F_("explode_part"))])
         self._tb_group(h, [("delete_face", "Delete face — remove fillets, chamfers, bosses and holes from imported "
                                            "parts (heal, cap or leave open)", F_("delete_face")),
-                           ("move_face", "Move face — push or pull flat faces", F_("move_face")),
-                           ("offset_surface", "Offset surface — a new surface a set distance from faces",
-                            F_("offset_surface"))])
+                           ("move_face", "Move face — push or pull flat faces", F_("move_face"))])
+        # surfaces, as Onshape groups them: Offset surface on the button, the rest under its ▾
+        self._tb_group(h, [("offset_surface", "Offset surface — a new surface a set distance from faces (0: a copy)",
+                            F_("offset_surface")),
+                           ("fill", "Fill — a surface patch over a closed loop of edges or sketch curves",
+                            F_("fill")),
+                           ("constrained_surface", "Constrained surface — a surface fitted through points",
+                            F_("constrained_surface"))])
         h.addWidget(_sep())
         # construction
         self._tb_group(h, [("plane", "Plane", F_("plane")),
@@ -1298,6 +1310,11 @@ class MainWindow(QMainWindow):
             self._refresh_tab_title(self.doc)
             return
         self._populate_lists()
+        shown = getattr(self, "_interference_state", None)
+        if shown is not None and shown is not self.doc.state:
+            # the model changed since Check interference: its red overlaps no longer describe it
+            self._interference_state = None
+            self.viewport.ghosts = []
         if self.mode == "idle":
             self._show_state(self.doc.state)
         elif self.mode == "dialog" and self.dialog is not None:
@@ -1400,7 +1417,7 @@ class MainWindow(QMainWindow):
             is_new = True
             pre = list(self.viewport.selection)
         self.mode = "dialog"
-        self.viewport.feature_hl = None
+        self.viewport.feature_hl = self.viewport.feature_sel = None
         self.dialog = FeatureDialog(self, feat, is_new, index, pre)
         self._adapt_tree(self.dialog)
         self.dialog.accepted.connect(self.commit_dialog)
@@ -1463,6 +1480,7 @@ class MainWindow(QMainWindow):
         vp.pick_handler = None
         vp.select_filter = None
         vp.overlays = []
+        vp.outlines = []
         vp.manipulators = []
         vp._manip_drag = None
         vp.clear_selection()
@@ -1564,7 +1582,7 @@ class MainWindow(QMainWindow):
                         has_plane = True
                         break
         self.mode = "sketch"
-        self.viewport.feature_hl = None
+        self.viewport.feature_hl = self.viewport.feature_sel = None
         self.sk_ctx = {"feature": feat, "index": index, "is_new": is_new,
                        "extra": extra, "base": base if base is not None else self.doc.state_before(index)}
         self.viewport.clear_selection()
@@ -2719,25 +2737,31 @@ class MainWindow(QMainWindow):
         self._update_feature_hl()
 
     def _update_feature_hl(self):
-        """Show what the hovered / selected features made: their faces on the model, or a sketch's curves."""
+        """Show what the features made: the ones selected in the list exactly as selected faces are drawn (as in
+        Onshape), the one under the mouse tinted (its faces, or a sketch's curves)."""
         vp = self.viewport
         if self.is_asm or self.mode != "idle":
-            if vp.feature_hl is not None:
-                vp.feature_hl = None
+            if vp.feature_hl is not None or vp.feature_sel is not None:
+                vp.feature_hl = vp.feature_sel = None
                 vp.update()
             return
-        fids = list(self.left.features.selected_feature_ids())
-        if self._hl_hover and self._hl_hover not in fids:
-            fids.append(self._hl_hover)
-        faces, polys = {}, []
-        for fid in fids:
-            try:
-                f_, p_ = self._feature_geometry(fid)
-            except Exception:
-                continue
-            for pid, fis in f_.items():
-                faces.setdefault(pid, set()).update(fis)
-            polys += p_
+
+        def geometry(fids):
+            faces, polys = {}, []
+            for fid in fids:
+                try:
+                    f_, p_ = self._feature_geometry(fid)
+                except Exception:
+                    continue
+                for pid, fis in f_.items():
+                    faces.setdefault(pid, set()).update(fis)
+                polys += p_
+            return faces, polys
+        sel = list(self.left.features.selected_feature_ids())
+        faces, polys = geometry(sel)
+        vp.feature_sel = {"faces": faces, "polys": polys} if (faces or polys) else None
+        hover = [self._hl_hover] if self._hl_hover and self._hl_hover not in sel else []
+        faces, polys = geometry(hover)
         edges = {}
         many = sum(len(v) for v in faces.values()) > 3000      # huge imports: tint the faces, skip outlines
         for pid, fis in ({} if many else faces).items():
@@ -2746,6 +2770,46 @@ class MainWindow(QMainWindow):
                 edges[pid] = K.face_edge_indices(shp, fis)
         vp.feature_hl = {"faces": faces, "edges": edges, "polys": polys} if (faces or polys) else None
         vp.update()
+
+    def _feature_of_pick(self, pk):
+        """The feature that made what's picked in the view — a face, an edge, a part, a sketch's curve or area, a
+        plane — or None. A face belongs to the last feature that made or remade it; an edge to the last feature
+        that made either face it borders (so a fillet's edge is the fillet's)."""
+        doc = self.doc
+        kind = pk.kind
+        if kind in ("region", "sketch_line", "sketch_point"):
+            return pk.key[0]
+        if kind == "plane":                              # a plane feature, or a default plane ("std:Front")
+            return pk.key[1] if pk.key[0] == "plane" else f"std:{pk.key[1]}"
+        if kind not in ("face", "edge", "part", "vertex"):
+            return None
+        pid = pk.key[0]
+        if kind == "part":
+            fid = str(pid).split(":", 1)[0]
+            return fid if doc.feature(fid) is not None else None
+        shape = self.viewport.part_shapes.get(pid)
+        if shape is None:
+            return None
+        if kind == "face":
+            wanted = {pk.key[1]}
+        elif kind == "edge":
+            edge = K.edges(shape)[pk.key[1]]
+            all_faces = K.faces(shape)
+            wanted = {i for i, f in enumerate(all_faces)
+                      if any(f.IsSame(g) for g in K._faces_at_edge(shape, edge))}
+        else:
+            return None
+        found = None
+        for f in doc.features[:doc.active_count()]:
+            if f.get("suppressed") or f["type"] in ("sketch", "plane", "variable", "measure_value"):
+                continue
+            try:
+                faces, _p = self._feature_geometry(f["id"])
+            except Exception:
+                continue
+            if wanted & set(faces.get(pid, ())):
+                found = f["id"]                          # the last one wins
+        return found
 
     def _feature_geometry(self, fid):
         """(faces by part in the model shown now, world polylines) for one feature — cached per model state."""
@@ -2814,7 +2878,12 @@ class MainWindow(QMainWindow):
                 return
             pick = Pick("plane", ("plane", ident))
         if self.mode == "idle":
-            self.viewport.set_selection([pick])
+            # as in Onshape, a click in the list adds the plane to what's picked (or takes it out again)
+            row_selected = any(it.data(ROLE_KIND) in ("std_plane", "feature") and
+                               it.data(ROLE_ID) == ident and it.isSelected()
+                               for it in self.left.features.selectedItems())
+            others = [pk for pk in self.viewport.selection if pk != pick]
+            self.viewport.set_selection(others + [pick] if row_selected else others)
         elif self.viewport.pick_handler is not None:
             # an open dialog (e.g. a new sketch waiting for its plane) takes the plane
             self.viewport.pick_handler(pick)
@@ -2931,10 +3000,18 @@ class MainWindow(QMainWindow):
 
     # ================================================================== parts interactions
     def _part_clicked(self, pid, _):
-        if self.mode == "idle":
-            self.viewport.set_selection([Pick("part", (pid,))])
-        elif self.mode == "dialog" and self.dialog:
+        # (idle: the parts list's selection is the view's — see _parts_list_selection)
+        if self.mode == "dialog" and self.dialog:
             self.dialog.handle_pick(Pick("part", (pid,)))
+
+    def _parts_list_selection(self):
+        """The parts list and the view pick the same parts, as in Onshape: a click in the list adds the part to (or
+        takes it out of) the view's selection; other picks — faces, edges, planes — stay picked."""
+        if self.mode != "idle" or self.is_dwg or self.is_asm:
+            return
+        pids = self.left.parts.selected_part_ids()
+        keep = [pk for pk in self.viewport.selection if pk.kind != "part"]
+        self.viewport.set_selection(keep + [Pick("part", (pid,)) for pid in pids])
 
     def _part_context(self, pid, gpos):
         p = self.doc.state.parts.get(pid)
@@ -2947,6 +3024,7 @@ class MainWindow(QMainWindow):
             self._add_hide_actions(m, ids)
             m.addAction(f"Isolate {len(ids)} parts", lambda: self._isolate(ids))
             m.addAction(f"Auto colour {len(ids)} parts", lambda: self._auto_color(ids))
+            m.addAction("Check interference", lambda: self.check_interference(ids))
             m.addSeparator()
             m.addAction(f"Export {len(ids)} parts as STEP…", lambda: self.export(ids, "step"))
             m.addAction(f"Export {len(ids)} parts as STL…", lambda: self.export(ids, "stl"))
@@ -3025,6 +3103,47 @@ class MainWindow(QMainWindow):
                 if f not in sel:
                     sel.append(f)
         return sel if fid in sel else [fid]
+
+    def check_interference(self, pids):
+        """Right-click ▸ Check interference on several parts: where any two of them overlap, shown in red in the
+        view (until the model next changes), with each pair and its overlap volume listed."""
+        from ..interference import overlaps
+        from PySide6.QtWidgets import QProgressDialog, QApplication
+        parts = self.doc.state.parts
+        pids = [p for p in pids if p in parts]
+        if len(pids) < 2:
+            return []
+        prog = QProgressDialog("Checking for interference…", None, 0, 0, self)
+        prog.setWindowModality(Qt.WindowModal)
+        prog.setMinimumDuration(400)
+
+        def step(n, total):
+            prog.setMaximum(max(total, 1))
+            prog.setValue(n)
+            QApplication.processEvents()
+        try:
+            res = overlaps({p: parts[p].shape for p in pids}, step)
+        finally:
+            prog.close()
+        ghosts = []
+        for _a, _b, _v, ov in res:
+            try:
+                ghosts.append((K.tessellate(ov), (0.92, 0.15, 0.12, 0.55)))
+            except Exception:
+                pass
+        self.viewport.ghosts = ghosts
+        self._interference_state = self.doc.state if ghosts else None
+        self.viewport.update()
+        n = len(pids)
+        if not res:
+            self.status.showMessage(f"No interference between the {n} parts.", 6000)
+            QMessageBox.information(self, "Check interference", f"No interference — none of the {n} parts overlap.")
+            return res
+        lines = [f"• {parts[a].name}  ×  {parts[b].name}:  {fmt(v, 2)} mm³" for a, b, v, _ov in res]
+        self.status.showMessage(f"{len(res)} interference(s) found — shown in red until the model changes.", 8000)
+        QMessageBox.information(self, "Check interference", f"{len(res)} pair(s) of parts overlap (shown in red):\n\n"
+                                + "\n".join(lines[:30]))
+        return res
 
     def _add_hide_actions(self, m, pids):
         """Hide / show for several parts: Hide if any of them is showing, Show if they are all hidden."""
@@ -3141,6 +3260,7 @@ class MainWindow(QMainWindow):
                 if len(ids) > 1:
                     m.addAction(f"Isolate {len(ids)} parts", lambda: self._isolate(ids))
                     m.addAction(f"Auto colour {len(ids)} parts", lambda: self._auto_color(ids))
+                    m.addAction("Check interference", lambda: self.check_interference(ids))
                 else:
                     m.addAction("Isolate part", lambda: self._isolate(pid))
                     m.addAction("Select part", lambda: self.viewport.set_selection([Pick("part", (pid,))]))
@@ -3172,6 +3292,26 @@ class MainWindow(QMainWindow):
         if self.mode != "idle":
             return
         sel = self.viewport.selection
+        if not self.is_asm and not self.is_dwg:
+            # the parts list shows the parts picked in the view; nothing picked (Esc, a click on empty space)
+            # clears the feature list's selection too, as in Onshape
+            self.left.parts.select_parts(pk.key[0] for pk in sel if pk.kind == "part")
+            if not sel:
+                self.left.features.blockSignals(True)
+                self.left.features.clearSelection()
+                self.left.features.blockSignals(False)
+                self.left.features.viewport().update()
+                self._update_feature_hl()
+            # and, as Onshape does, the feature that made what's picked is marked in the feature list
+            made_by = set()
+            for pk in sel[:50]:
+                try:
+                    fid = self._feature_of_pick(pk)
+                except Exception:
+                    fid = None
+                if fid:
+                    made_by.add(fid)
+            self.left.features.mark_related(made_by)
         if self.is_asm:
             self.asm.panel.select_instances({pk.key[0] for pk in sel if pk.kind in ("face", "edge", "part")})
         text = self._measure_text(sel)

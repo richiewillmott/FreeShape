@@ -1586,26 +1586,8 @@ class AssemblyDoc:
     # ------------------------------------------------------------------ analysis
     def interferences(self, progress=None):
         """Pairs of visible instances whose solids overlap: [(iid_a, iid_b, volume, overlap shape)]."""
-        vis = self.visible_instances()
-        shapes = {i["id"]: self.world_shape(i["id"]) for i in vis}
-        boxes = {k: K.bbox(s) for k, s in shapes.items()}
-        out = []
-        ids = [i["id"] for i in vis]
-        pairs = [(a, b) for k, a in enumerate(ids) for b in ids[k + 1:]]
-        for n, (a, b) in enumerate(pairs):
-            if progress:
-                progress(n, len(pairs))
-            (la, ha), (lb, hb) = boxes[a], boxes[b]
-            if np.any(ha < lb - 1e-6) or np.any(hb < la - 1e-6):
-                continue
-            try:
-                ov = K.common(shapes[a], shapes[b])
-                v = K.volume(ov) if not ov.IsNull() else 0.0
-            except Exception:
-                continue
-            if v > 1e-3:
-                out.append((a, b, v, ov))
-        return out
+        from .interference import overlaps
+        return overlaps({i["id"]: self.world_shape(i["id"]) for i in self.visible_instances()}, progress)
 
     def bom(self):
         """Bill of materials: one row per distinct part, with how many times it is used."""

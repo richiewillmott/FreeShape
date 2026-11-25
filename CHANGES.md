@@ -1,5 +1,49 @@
 # FreeShape revisions
 
+## 2.6.0
+
+Selecting in the feature and parts lists works as in Onshape; Check interference for parts; Fill and Constrained
+surface; renaming a variable anywhere follows it everywhere.
+
+- **Check interference** in a Part Studio: select two or more parts, right-click ▸ *Check interference*, and
+  where they overlap is shown in red with each pair's overlap volume listed (the assembly's check, for parts).
+- **Fill** (in a new surface ▾ with Offset surface and Constrained surface, grouped as in Onshape): a surface patch over a closed loop of edges and sketch curves, just meeting or tangent to the surfaces
+  around it, through any points you pick; *Add* sews it into the surface it closes.
+- **Constrained surface**: a smooth surface fitted through points, or through every vertex of a part (a point
+  cloud or scan imported as STEP / BREP), within a tolerance.
+- **Renaming a variable** in its own dialog, or its name in the feature list, now renames it everywhere it's used
+  (features, sketch dimensions, configurations), as the Variables table does, in one undo step. It used to break
+  every use with "Unknown variable".
+- **The feature list and the view work together like Onshape**: a feature clicked in the list shows what it
+  made in the selection colour, exactly as picked geometry (it was a separate tint); picking a face or edge marks
+  the feature that made it in the list (a fillet's face or edge marks the Fillet; a plane marks Top, Front, Right or its Plane feature); and a click on empty space or
+  `Esc` deselects features in the list as well (it didn't when nothing was picked in the view).
+- **Chamfer: Tangent propagation**, as in Onshape (on for new chamfers): the bevel carries on along smooth
+  chains, or says it can't; untick it to bevel just the picked edges at any size. Before, a chamfer quietly
+  switched from the whole chain to just the picked edge once it got bigger than the round it ran into.
+  Chamfers in older files keep working as they did.
+- **Fillet radius arrow and over-the-limit preview**, like Onshape: drag the arrow on the round (at the first edge, pointing
+  into the corner) to set the radius — in for bigger (its size shows beside it); when the radius is too big to make, where the round would run is drawn in
+  purple and its edges in red, as well as the message.
+- **Fillets into a rounded corner**: an edge that runs into a corner an earlier fillet rounded can now take a
+  radius as big as that fillet's or bigger — it used to stop at just under it ("the largest that works here is
+  about 1.9 mm"). OpenCascade can't add such a fillet on its own, so when the earlier fillet is the last change to
+  that part the two are rounded together and the corner blends, as Onshape's edge overflow does; Fillet 1 and
+  Fillet 2 stay separate features.
+- **Take one pick out of a selection box**: each edge, face or part listed in a feature dialog has its own × at the
+  end of its row (red under the mouse), as in Onshape; `Delete` removes the highlighted one. (It took a hidden
+  double-click before.) Clicking a picked edge or face again in the view still drops it too.
+- Feature dialogs' **✓ and ✕** are drawn icons now — a clean tick and cross with round ends, in the theme's green and red,
+  with a soft round highlight under the mouse — instead of font characters that looked different on every screen.
+- Fixed: the feature being edited is shaded in the feature list again (the list's style sheet hid its colour).
+- **Variable suggestions without the #**: type `w` in a value box and `#wall`, `#width` … are offered; picking one
+  puts in the `#`. A letter straight after a number (`25 m`) is a unit, so it isn't offered variables.
+
+- Clicks in the **feature list and the parts list add to the selection**, as in Onshape: click Part 1 then
+  Part 2 and both are picked (for a Boolean, say) instead of the second replacing the first; click one again to
+  drop it. The parts list and the 3D view now pick the same parts both ways, and Esc clears the lists too.
+  ([#52](https://github.com/richiewillmott/FreeShape/issues/52))
+
 ## 2.5.0
 
 Variables made on the fly, a Variables table, copy and paste for features, Transform with Onshape's types, mate

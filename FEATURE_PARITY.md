@@ -4,7 +4,7 @@ Generated from `freeshape/parity.py` — edit that file, then run `python -m fre
 
 Following [issue #27](https://github.com/richiewillmott/FreeShape/issues/27): features are finished option by option, and any option more than one feature has is built **once** as a shared tool (below) and reused, so it behaves the same everywhere. Options not built yet are listed too.
 
-**Overall: 93%** of the listed options (partial counts half).
+**Overall: 92%** of the listed options (partial counts half).
 
 ✅ done · 🟡 partial · ⬜ to do
 
@@ -30,6 +30,8 @@ Following [issue #27](https://github.com/richiewillmott/FreeShape/issues/27): fe
 | [Mirror](#mirror) | 100% |
 | [Thicken](#thicken) | 92% |
 | [Enclose](#enclose) | 100% |
+| [Fill](#fill) | 58% |
+| [Constrained surface](#constrained-surface) | 75% |
 | [Rib](#rib) | 64% |
 | [Helix](#helix) | 83% |
 | [Delete part](#delete-part) | 100% |
@@ -134,7 +136,7 @@ Following [issue #27](https://github.com/richiewillmott/FreeShape/issues/27): fe
 - ✅ Equal distance
 - ✅ Two distances — with Flip sides
 - ✅ Distance and angle
-- ✅ Tangent propagation *(shared: Tangent chains)*
+- ✅ Tangent propagation *(shared: Tangent chains)* — a checkbox: off bevels just the picked edges
 
 ### Shell
 
@@ -272,6 +274,28 @@ Following [issue #27](https://github.com/richiewillmott/FreeShape/issues/27): fe
 - ✅ New / Add / Remove / Intersect *(shared: Merge with the model)*
 - ✅ Merge scope *(shared: Merge scope)*
 
+### Fill
+
+58% · shared tools used: Surface bodies
+
+- ✅ Boundary: edges and sketch curves — one closed loop
+- 🟡 Position / tangent continuity — one choice for the whole boundary (Onshape sets it edge by edge); tangent to surface bodies' edges
+- ⬜ Curvature continuity — OpenCascade's filling stops at tangent
+- ✅ Guide points
+- ⬜ Guide curves
+- ✅ Surface: New / Add *(shared: Surface bodies)*
+
+### Constrained surface
+
+75% · shared tools used: Surface bodies
+
+- ✅ Points (vertices, sketch points)
+- ✅ Parts (all their vertices) — dense ones are sampled (2000 points)
+- ⬜ Mesh (STL / OBJ) — FreeShape doesn't import meshes yet; a point cloud or scan imported as STEP / BREP works through its vertices
+- ✅ Tolerance — an error when the fit can't keep to it
+- 🟡 Trimmed to the points' outline — trimmed to a rectangle in the surface's own (u, v)
+- ✅ Surface: New / Add *(shared: Surface bodies)*
+
 ### Rib
 
 64% · shared tools used: Draft / taper, Opposite direction
@@ -346,6 +370,8 @@ Each is built once and used by every feature listed under it. A tool marked *to 
   - ✅ Sweep: Thin
   - ✅ Loft: Thin
 - **Surface bodies** — Open surfaces become their own surface bodies. `freeshape.body_options:apply`
+  - ✅ Fill: Surface: New / Add
+  - ✅ Constrained surface: Surface: New / Add
 - **Merge with the model** — New / Add / Remove / Intersect. `freeshape.features:apply_body`
   - ✅ Extrude: New / Add / Remove / Intersect
   - ✅ Revolve: New / Add / Remove / Intersect

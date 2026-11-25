@@ -8,6 +8,8 @@
     Bounding box a box part around parts (with optional clearance), for stock size or packaging
     Compound     several solids as one part that share their touching faces (SALOME's Glue faces / Partition)
     Explode      a part split into its solids — or its faces as surfaces, or its edges as curves (SALOME's Explode)
+    Fill         a surface patch over a closed loop of edges / sketch curves, meeting the faces around it (Onshape)
+    Constrained surface   a smooth surface fitted through points, or through a part's vertices (Onshape)
 
 Selections are stored as [[kind, ref], ...] per box (see ui/dialogs.PAIR_FEATURES).
 """
@@ -24,6 +26,7 @@ THICKEN_SIDES = [("one", "One side"), ("other", "Other side"), ("mid", "Both sid
 HELIX_MODES = [("turns_pitch", "Turns and pitch"), ("height_turns", "Height and turns"),
                ("height_pitch", "Height and pitch")]
 RIB_DIRECTIONS = [("parallel", "Parallel to the sketch plane"), ("normal", "Normal to the sketch plane")]
+FILL_CONTINUITY = [("position", "Position (just meets them)"), ("tangent", "Tangent (smoothly)")]
 
 DEFAULTS = {
     "thicken": {"items": [], "thickness": 2.0, "side": "one", "thickness2": 1.0, "op": "new", "scope": None},
@@ -35,6 +38,8 @@ DEFAULTS = {
     "bounding_box": {"parts": [], "clearance": 0.0, "op": "new"},
     "compound": {"parts": [], "glue": True, "tolerance": 0.0},
     "explode_part": {"parts": [], "what": "solid", "keep": False},
+    "fill": {"edges": [], "points": [], "continuity": "position", "surface_op": "new"},
+    "constrained_surface": {"points": [], "parts": [], "tolerance": 0.1, "surface_op": "new"},
 }
 EXPLODE_KINDS = [("solid", "Solids"), ("face", "Faces (as surfaces)"), ("edge", "Edges (as curves)")]
 
@@ -512,9 +517,157 @@ def run_explode(state, f):
                             "instead)" if what == "solid" else "These parts have no " + what + "s")
 
 
+# --------------------------------------------------------------------------- Fill
+def fill_face(bounds, continuity="position", points=()):
+    """A surface patch over a closed loop of edges: bounds = [(edge, the face it borders or None)]. "tangent"
+    makes it meet those faces smoothly (edges with no single face next to them — sketch curves, edges between two
+    faces of a solid — are just met). `points`: places it must pass through."""
+    from OCP.BRepOffsetAPI import BRepOffsetAPI_MakeFilling
+    from OCP.BRepTools import BRepTools_WireExplorer
+    from OCP.GeomAbs import GeomAbs_C0, GeomAbs_G1
+    from OCP.gp import gp_Pnt
+    uniq = []
+    for e, face in bounds:
+        if not any(e.IsSame(u) for u, _f in uniq):
+            uniq.append((e, face))
+    if not uniq:
+        raise K.KernelError("Pick the edges or sketch curves around the area to fill")
+    try:
+        wire = K.make_wire([e for e, _f in uniq])
+    except K.KernelError:
+        raise K.KernelError("The edges must join up into one closed loop")
+    from OCP.BRep import BRep_Tool
+    from OCP.TopExp import TopExp
+    from OCP.TopoDS import TopoDS_Vertex
+    v1, v2 = TopoDS_Vertex(), TopoDS_Vertex()
+    TopExp.Vertices_s(wire, v1, v2)
+    closed = BRep_Tool.IsClosed_s(wire) or (not v1.IsNull() and not v2.IsNull() and (
+        v1.IsSame(v2) or BRep_Tool.Pnt_s(v1).Distance(BRep_Tool.Pnt_s(v2)) < 1e-4))
+    if not closed or len(K.edges(wire)) != len(uniq):
+        raise K.KernelError("The edges must join up into one closed loop (a gap or a stray edge is in the way)")
+
+    def support(e):
+        mid = np.asarray(K.edge_info(e)["c"], float)
+        for u, face in uniq:
+            if u.IsSame(e) or np.linalg.norm(np.asarray(K.edge_info(u)["c"], float) - mid) < 1e-6:
+                return face
+        return None
+    mf = BRepOffsetAPI_MakeFilling()
+    ex = BRepTools_WireExplorer(wire)
+    while ex.More():
+        e = ex.Current()
+        face = support(e) if continuity == "tangent" else None
+        if face is not None:
+            mf.Add(e, face, GeomAbs_G1, True)
+        else:
+            mf.Add(e, GeomAbs_C0, True)
+        ex.Next()
+    for q in points:
+        mf.Add(gp_Pnt(*[float(x) for x in q]))
+    try:
+        mf.Build()
+        if not mf.IsDone():
+            raise RuntimeError
+        faces = K.faces(mf.Shape())
+    except Exception:
+        raise K.KernelError("Couldn't fill this loop" + (" with tangency — try Position" if continuity == "tangent"
+                                                          else ""))
+    if not faces:
+        raise K.KernelError("Couldn't fill this loop")
+    return faces[0]
+
+
+def run_fill(state, f):
+    from . import features as F
+    from .body_options import _sew_into_surfaces
+    p = f["params"]
+    bounds = []
+    for _kind, ref in _pairs(p, "edges"):
+        if ref.get("kind") == "edge":
+            pid, e = F.resolve(state, ref["edge"], "edge")
+            around = K._faces_at_edge(state.parts[pid].shape, e)
+            bounds.append((e, around[0] if len(around) == 1 else None))
+        else:
+            bounds += [(e, None) for e in K.edges(F._path_wire(state, [ref]))]
+    points = [F.resolve_point(state, ref) for _kind, ref in _pairs(p, "points")]
+    face = fill_face(bounds, p.get("continuity", "position"), points)
+    pieces = [face]
+    if p.get("surface_op", "new") == "add":
+        pieces = _sew_into_surfaces(state, pieces)
+    for piece in pieces:
+        state.new_part(piece, f["id"])
+
+
+# --------------------------------------------------------------------------- Constrained surface
+MAX_FIT_POINTS = 2000
+
+
+def fit_surface(points, tolerance=0.1):
+    """A smooth surface fitted through points (three or more, not all in a line), trimmed to the rectangle of its
+    own (u, v) they span — so it can reach a little past the outermost points at the corners. Returns (face, the
+    furthest any point is from it)."""
+    from OCP.BRepBuilderAPI import BRepBuilderAPI_MakeFace
+    from OCP.GeomAPI import GeomAPI_ProjectPointOnSurf
+    from OCP.GeomPlate import GeomPlate_BuildPlateSurface, GeomPlate_MakeApprox, GeomPlate_PointConstraint
+    from OCP.gp import gp_Pnt
+    pts = np.unique(np.round(np.asarray(points, float).reshape(-1, 3), 9), axis=0)
+    if len(pts) < 3:
+        raise K.KernelError("Pick at least three points (or a mesh) for the surface to go through")
+    c = pts.mean(axis=0)
+    sv = np.linalg.svd(pts - c, compute_uv=False)
+    if sv[1] < 1e-6 * max(sv[0], 1e-12):
+        raise K.KernelError("The points are all in a line: a surface needs them to spread out")
+    if len(pts) > MAX_FIT_POINTS:                    # a dense mesh: an even sample is plenty, and much quicker
+        pts = pts[np.linspace(0, len(pts) - 1, MAX_FIT_POINTS).astype(int)]
+    bps = GeomPlate_BuildPlateSurface(3, 15, 2)
+    for q in pts:
+        bps.Add(GeomPlate_PointConstraint(gp_Pnt(*q), 0))
+    try:
+        bps.Perform()
+        tol = max(float(tolerance), 1e-6)
+        surf = GeomPlate_MakeApprox(bps.Surface(), tol * 0.1, 30, 8, tol * 0.1, 0).Surface()
+    except Exception:
+        raise K.KernelError("Couldn't fit a surface through these points")
+    us, vs, dev = [], [], 0.0
+    for q in pts:
+        pr = GeomAPI_ProjectPointOnSurf(gp_Pnt(*q), surf)
+        if pr.NbPoints() == 0:
+            continue
+        u, v = pr.LowerDistanceParameters()
+        us.append(u)
+        vs.append(v)
+        dev = max(dev, pr.LowerDistance())
+    if len(us) < 3 or max(us) - min(us) < 1e-12 or max(vs) - min(vs) < 1e-12:
+        raise K.KernelError("Couldn't fit a surface through these points")
+    face = BRepBuilderAPI_MakeFace(surf, min(us), max(us), min(vs), max(vs), 1e-6).Face()
+    return face, dev
+
+
+def run_constrained_surface(state, f):
+    from . import features as F
+    from .body_options import _sew_into_surfaces
+    from .expr import fmt
+    p = f["params"]
+    pts = [F.resolve_point(state, ref) for _kind, ref in _pairs(p, "points")]
+    for _kind, pid in _pairs(p, "parts"):
+        if pid not in state.parts:
+            raise K.KernelError("A picked mesh or part no longer exists")
+        pts += list(K.vertex_points(state.parts[pid].shape))
+    tol = float(p.get("tolerance", 0.1) or 0.1)
+    face, dev = fit_surface(pts, tol)
+    if dev > tol:
+        raise K.KernelError(f"The closest fit passes {fmt(dev)} mm from a point — more than the {fmt(tol)} mm "
+                            "tolerance (raise the tolerance, or pick fewer, smoother points)")
+    pieces = [face]
+    if p.get("surface_op", "new") == "add":
+        pieces = _sew_into_surfaces(state, pieces)
+    for piece in pieces:
+        state.new_part(piece, f["id"])
+
+
 RUNNERS = {"thicken": run_thicken, "enclose": run_enclose, "rib": run_rib, "delete_part": run_delete_part,
            "helix": run_helix, "bounding_box": run_bounding_box, "compound": run_compound,
-           "explode_part": run_explode}
+           "explode_part": run_explode, "fill": run_fill, "constrained_surface": run_constrained_surface}
 LABELS = {"thicken": "Thicken", "enclose": "Enclose", "rib": "Rib", "delete_part": "Delete part",
           "helix": "Helix", "bounding_box": "Bounding box", "compound": "Compound",
-          "explode_part": "Explode"}
+          "explode_part": "Explode", "fill": "Fill", "constrained_surface": "Constrained surface"}

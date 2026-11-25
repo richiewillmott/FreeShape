@@ -80,6 +80,37 @@ def _rename_in(value, old, new):
 VALID = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
+def rename_refs(doc, old, new):
+    """Rewrite #old as #new everywhere it's used — every feature box and sketch dimension, and the configuration
+    table — and the variable itself (its name, and a feature-list label of "#old"). No undo step or rebuild: the
+    caller does those."""
+    for i, f in enumerate(doc.features):
+        p = f.get("params", {})
+        if f.get("type") in VAR_TYPES and str(p.get("name", "")).strip().lstrip("#") == old:
+            p = dict(p, name=new)
+            name = f.get("name", "")
+            f = dict(f, name=("#" + new) if name == "#" + old else name)
+        doc.features[i] = dict(f, params=_rename_in(p, old, new))
+    for row in doc.configs.get("rows", []):
+        vars_ = row.get("vars", {})
+        row["vars"] = {(new if k == old else k): (_rename_text(v, old, new) if isinstance(v, str) else v)
+                       for k, v in vars_.items()}
+
+
+def renamed(doc, before, after):
+    """If feature `after` is variable `before` with a new name — one that's free and valid — the (old, new) names;
+    else None. (A name another variable already has is left alone: its uses would silently switch over.)"""
+    if before is None or before.get("type") not in VAR_TYPES or after.get("type") not in VAR_TYPES:
+        return None
+    old = str(before.get("params", {}).get("name", "")).strip().lstrip("#")
+    new = str(after.get("params", {}).get("name", "")).strip().lstrip("#")
+    if not old or not new or old == new or not VALID.match(new):
+        return None
+    if any(v["name"] == new and v["fid"] != before["id"] for v in list_variables(doc)):
+        return None
+    return old, new
+
+
 def rename(doc, old, new):
     """Rename #old to #new everywhere: the variable itself, every feature box and sketch dimension that uses it,
     and the configuration table. One undo step."""
@@ -91,17 +122,7 @@ def rename(doc, old, new):
     if any(v["name"] == new for v in list_variables(doc)):
         raise ValueError(f"There's already a #{new}")
     doc.checkpoint()
-    for i, f in enumerate(doc.features):
-        p = f.get("params", {})
-        if f.get("type") in VAR_TYPES and str(p.get("name", "")).lstrip("#") == old:
-            p = dict(p, name=new)
-            name = f.get("name", "")
-            f = dict(f, name=("#" + new) if name == "#" + old else name)
-        doc.features[i] = dict(f, params=_rename_in(p, old, new))
-    for row in doc.configs.get("rows", []):
-        vars_ = row.get("vars", {})
-        row["vars"] = {(new if k == old else k): (_rename_text(v, old, new) if isinstance(v, str) else v)
-                       for k, v in vars_.items()}
+    rename_refs(doc, old, new)
     doc.rebuild()
 
 

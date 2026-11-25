@@ -123,7 +123,9 @@ says why (and ✓ waits until it's fixed). Variables appear in the feature list,
 through and use them in later features.
 
 **Variables on the fly** — type `#` in any value box and the variables you can use drop down, with their values;
-pick one with the mouse or the arrow keys and Enter. Type a name that doesn't exist yet — `#depth` in an Extrude's
+pick one with the mouse or the arrow keys and Enter. You can leave the `#` off: type `w` and `#wall`, `#width` …
+are offered, and picking one puts the `#` in (a letter straight after a number, as in `25 m`, is a unit, so it
+isn't offered variables). Type a name that doesn't exist yet — `#depth` in an Extrude's
 depth, say — and FreeShape offers **Create #depth = 25 mm** (what the box had): click it or press Enter and a
 Variable is added **just before the feature you're editing** (so it's defined in time, even for a feature far up the
 list), and the box uses it. A depth makes a Length (in the document's unit), an angle an Angle, a count a Number.
@@ -133,7 +135,8 @@ in the feature list.
 **Variables table** — Variable ▾ → *Variables table* lists every variable of the Part Studio: its value, kind, what
 it's set to and which features use it. Change a value in *Set to*, or a name, right in the table — a new name follows
 the variable into every feature, sketch dimension and configuration that uses it. *+ New variable* adds one; the
-window stays open while you work and follows the model.
+window stays open while you work and follows the model. Renaming a variable anywhere else — in its own dialog,
+or its name in the feature list — does the same: everything using it follows, in one undo step.
 
 **Text variables** — choose *Any expression* and type text in quotes (`"Rev B"`), or build it with `+`
 (`"PN-" + #part + "-" + #size`). Sketch text can use them: tick *From variables* in the Text dialog and type
@@ -145,6 +148,8 @@ icons there* writes them all as PNGs with the right names to start from; *Reload
 
 **Part features** — each opens a floating dialog with a live preview; ✓ (Enter) accepts, ✕ (Esc) cancels, and
 `Shift+Enter` accepts and starts another of the same. Things selected before opening a feature are pre-filled.
+Each pick in a selection box has its own row; click the **×** at its end (or press `Delete`) to take just that
+one out, or click it again in the view. The × at the box's top clears it.
 
 **Direction** — Extrude and Plane show a **blue arrow you can drag** to set the depth / offset (drag back past the
 start to flip the direction; hold Shift for finer, unsnapped values). **Click the arrow** to flip the direction;
@@ -169,13 +174,25 @@ arrow of its own, pointing the other way: drag it to set the Second depth.
 - **Revolve** — around a sketch line, a part edge, or the X/Y/Z axis; full, one direction, symmetric, **two
   directions** (a different angle each way), or up to a face, part or vertex.
 - **Fillet** — pick edges, or a face to do all its edges; smooth (tangent) chains are followed; constant or
-  **variable radius**.
-- **Chamfer** — equal distance, **two distances** or **distance and angle**, with *Flip sides*.
+  **variable radius**. Drag the **arrow** on the round (at the first edge) to set the radius — in for bigger, as in Onshape. Too big to make? The round is still
+  drawn, in **purple**, with its edges in **red**, so you can see where it runs into trouble. An edge that runs into a corner an earlier fillet rounded can take a radius as big as that
+  fillet's, or bigger (like Onshape's edge overflow): when the earlier fillet is the last change to that part,
+  the two are rounded together so the corner blends, and they stay separate features.
+- **Chamfer** — equal distance, **two distances** or **distance and angle**, with *Flip sides*. *Tangent
+  propagation* (on by default, as in Onshape) carries the bevel on round smooth corners — an edge that runs up
+  into a fillet continues along it; untick it to bevel just the edges you picked, at any size.
 - **Shell** — pick faces to remove, inward or outward.
 - **Thicken** — turn surfaces or faces into solids: along the normal, the other way, both ways equally or two
   thicknesses. Neighbouring flat faces are joined into one wall with filled corners.
 - **Enclose** — pick surfaces, faces and planes (they may cross each other) and get the solid they close off;
   the surfaces are used up unless *Keep the surfaces* is ticked.
+- **Fill** (in the surface ▾) — a surface patch over a closed loop of edges and sketch curves: an open end of a surface body, a
+  hole, a sketched outline. *Position* just meets the surfaces around it; *Tangent* meets a surface body's edges
+  smoothly. Pick points it must pass through to shape it. *Add* sews it into the surface it closes (fill all the
+  open ends of a surface body and Enclose or Thicken turns it into a solid).
+- **Constrained surface** — a smooth surface fitted through points (vertices, sketch points) or through every
+  vertex of a part — a point cloud or scanned shape brought in as STEP or BREP, say — within a tolerance. It's trimmed to the rectangle the
+  points span on the surface, so it can reach a little past the outermost points at its corners.
 - **Rib** — sketch a line across a corner and Rib grows a wall of a thickness from it until it meets the part,
   parallel to the sketch plane or along its normal.
 - **Helix** — around an axis, a circle edge or a cylinder, sized by turns and pitch, height and turns, or
@@ -219,8 +236,10 @@ arrow of its own, pointing the other way: drag it to set the Second depth.
   it about Z and move it along its own axes.
 - **Plane** — offset, plane + point, line + angle, point + edge normal, three points, mid plane, curve + point or
   tangent; *Automatic* picks the type from your selection.
-- **Delete face / Move face / Offset surface** — remove fillets, chamfers, bosses and holes from imported parts
-  (heal, cap or leave open), push or pull flat faces, or make a surface a set distance from faces.
+- **Delete face / Move face** — remove fillets, chamfers, bosses and holes from imported parts (heal, cap or
+  leave open), or push or pull flat faces.
+- **Surfaces** (one ▾ button, grouped as in Onshape) — **Offset surface** makes a surface a set distance from
+  faces (0: a copy); **Fill** and **Constrained surface** are below.
 - **Mirror**, **Linear / Circular / Curve / Point pattern** — of whole parts, of features (repeat a hole, pocket
   or boss; the copies follow when you edit the original), or of **faces** (pick all the faces of a boss, rib or
   pocket — handy on imported parts with no feature history). Linear patterns can have a **second direction**
@@ -246,11 +265,22 @@ Drag the blue **rollback bar** to see the model at any point in history; new fea
 Features that fail to regenerate turn red — hover them for the reason. A feature that fails changes nothing
 in the model (it never leaves half its result), and one whose edge or face has gone upstream — its pocket
 suppressed, say — says *Missing edge reference* rather than quietly using some other edge; re-pick it. A sketch
-whose dimensions a variable has pushed out of reach says so too. Hover or click a feature to see what it
-made highlighted on the model (its faces, or a sketch's curves), like Onshape.
+whose dimensions a variable has pushed out of reach says so too. Hover over a feature to see what it made
+tinted on the model (its faces, or a sketch's curves); click it and what it made is shown just as if you'd picked
+it there, in the selection colour, like Onshape. The other way round, pick a face or edge in the view and the
+feature that made it is marked in the list (a fillet's round face or its edges mark the Fillet; a plane marks
+Top, Front, Right or its Plane feature). A click on empty
+space, or `Esc`, deselects the features as well.
 
 **Parts list** — right-click for rename, colour, hide/isolate, mass properties and per-part export. Select several
 parts (here or in the 3D view) and right-click to hide, isolate, export or **Auto colour** them all at once.
+As in Onshape, each click in the parts list or the feature list **adds** to the selection (click again to drop
+one; Shift+click picks a run). The parts list and the 3D view pick the same parts, planes clicked in the list
+are picked in the view, and `Esc` or a click on empty space clears it all.
+
+**Check interference** — select two or more parts (in the list or the view), right-click ▸ *Check interference*:
+where any of them overlap is shown in red, with each pair and its overlap volume listed. The red goes when the
+model next changes. (Assemblies have the same check on their toolbar.)
 
 **Measure** — select anything and its main measurement shows in the bottom-right corner, as in Onshape
 (`Min dist: 107.521 mm`, `Area: …`, `Volume: …`); click it for everything else — the X/Y/Z offsets, the angle,
@@ -417,8 +447,8 @@ This is a capable hobby/prototyping tool, not a replacement for Onshape:
 
 - **No FeatureScript** (Python plugins cover some of the same ground — see [PLUGINS.md](../PLUGINS.md)).
 - Some feature options are still missing — conic fillets, loft guide curves and start / end tangency, and
-  parting-line draft; sweep takes one guide curve; Rib takes straight lines that already reach the part; and
-  there's no Fill, Extend surface, Replace face or Wrap yet. [FEATURE_PARITY.md](../FEATURE_PARITY.md) has the full list.
+  parting-line draft; sweep takes one guide curve; Rib takes straight lines that already reach the part; Fill
+  has no curvature continuity or guide curves; and there's no Extend surface, Replace face or Wrap yet. [FEATURE_PARITY.md](../FEATURE_PARITY.md) has the full list.
 - Sub-assemblies are rigid (no flexible sub-assemblies yet), and there are no mate limits.
 - Sheet metal has no rolled / conical sheet, and cuts that cross a bend are left out of the flat pattern.
 - Drawings have no broken views, angle dimensions, hole tables, GD&T or multiple sheets yet.

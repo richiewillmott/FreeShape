@@ -24,6 +24,8 @@ def test_sketch_comes_first_with_its_name_and_tools_are_grouped():
     groups = {b.property("icon_name"): b.property("group") for b in _buttons(w, 0) if b.property("group")}
     assert groups["linear_pattern"] == ["linear_pattern", "circular_pattern", "curve_pattern", "point_pattern"]
     assert groups["thicken"] == ["thicken", "enclose"] and "sm_flange" in groups["sm_base"]
+    assert groups["offset_surface"] == ["offset_surface", "fill", "constrained_surface"]    # as Onshape groups them
+    assert "offset_surface" not in groups["delete_face"]
     assert "circular_pattern" not in names and "enclose" not in names       # only in the ▾ menus
     acts = {a.property("icon_name"): a for b in _buttons(w, 0) if b.menu() for a in b.menu().actions()}
     started = []

@@ -149,7 +149,7 @@ FEATURES = {
         ("Equal distance", None, DONE, ""),
         ("Two distances", None, DONE, "with Flip sides"),
         ("Distance and angle", None, DONE, ""),
-        ("Tangent propagation", "edge_chains", DONE, ""),
+        ("Tangent propagation", "edge_chains", DONE, "a checkbox: off bevels just the picked edges"),
     ]),
     "shell": ("Shell", [
         ("Faces to remove", None, DONE, ""),
@@ -253,6 +253,24 @@ FEATURES = {
         ("Keep tools", None, DONE, ""),
         ("New / Add / Remove / Intersect", "merge", DONE, ""),
         ("Merge scope", "merge_scope", DONE, ""),
+    ]),
+    "fill": ("Fill", [
+        ("Boundary: edges and sketch curves", None, DONE, "one closed loop"),
+        ("Position / tangent continuity", None, PARTIAL, "one choice for the whole boundary (Onshape sets it "
+         "edge by edge); tangent to surface bodies' edges"),
+        ("Curvature continuity", None, TODO, "OpenCascade's filling stops at tangent"),
+        ("Guide points", None, DONE, ""),
+        ("Guide curves", None, TODO, ""),
+        ("Surface: New / Add", "surface_result", DONE, ""),
+    ]),
+    "constrained_surface": ("Constrained surface", [
+        ("Points (vertices, sketch points)", None, DONE, ""),
+        ("Parts (all their vertices)", None, DONE, "dense ones are sampled (2000 points)"),
+        ("Mesh (STL / OBJ)", None, TODO, "FreeShape doesn't import meshes yet; a point cloud or scan imported as "
+         "STEP / BREP works through its vertices"),
+        ("Tolerance", None, DONE, "an error when the fit can't keep to it"),
+        ("Trimmed to the points' outline", None, PARTIAL, "trimmed to a rectangle in the surface's own (u, v)"),
+        ("Surface: New / Add", "surface_result", DONE, ""),
     ]),
     "rib": ("Rib", [
         ("Sketch lines", None, PARTIAL, "straight lines; arcs and splines not yet"),

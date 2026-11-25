@@ -173,11 +173,16 @@ class ModelState:
     # Reading a file saved before part ids were per feature: ids are made the old way ("<feature id>:<n>", n
     # counting every part in the model), and each old id -> the id the part has now is noted in legacy_map.
     legacy_map: dict | None = None
+    # the last fillet(s) done to each part: part id -> {"base": the shape before them, "specs": [(edge of base,
+    # radius, radius2)], "result": the shape they made}. A later fillet that runs into their corner is redone
+    # together with them (see run_fillet).
+    blends: dict = field(default_factory=dict)
 
     def copy(self):
         return ModelState(dict(self.parts), dict(self.sketches), dict(self.planes), self.part_counter,
                           dict(self.vars), dict(self.sheet), dict(self.history), dict(self.measured),
-                          dict(self.var_kinds), dict(self.connectors), dict(self.part_seq), self.legacy_map)
+                          dict(self.var_kinds), dict(self.connectors), dict(self.part_seq), self.legacy_map,
+                          dict(self.blends))
 
     def new_part(self, shape, fid, color=DEFAULT_COLOR):
         self.part_counter += 1
@@ -751,7 +756,8 @@ def param_kind(key) -> str:
 
 
 # numeric params of plugin features: feature type -> set of keys (filled in by freeshape.plugins)
-EXTRA_NUMERIC: dict = {"measure_value": {"round_to", "ray_offset", "ray_index", "density"}, "compound": {"tolerance"}}
+EXTRA_NUMERIC: dict = {"measure_value": {"round_to", "ray_offset", "ray_index", "density"}, "compound": {"tolerance"},
+                       "constrained_surface": {"tolerance"}}
 
 
 def prepare(f, state):
@@ -1185,9 +1191,36 @@ def run_fillet(state, f):
         raise K.KernelError("Select edges to fillet")
     for pid, es in groups.items():
         part = state.parts[pid]
+        r = float(p.get("radius", 1))
         r2 = float(p.get("radius2", 1)) if p.get("variable") else None
-        state.parts[pid] = Part(pid, part.name, K.fillet(part.shape, es, float(p.get("radius", 1)), r2),
-                                part.color)
+        try:
+            out = K.fillet(part.shape, es, r, r2)
+            state.blends[pid] = {"base": part.shape, "specs": [(e, r, r2) for e in es], "result": out}
+        except K.KernelError as err:
+            out = _fillet_into_corner(state, pid, es, r, r2)
+            if out is None:
+                raise err
+        state.parts[pid] = Part(pid, part.name, out, part.color)
+
+
+def _fillet_into_corner(state, pid, es, r, r2):
+    """A fillet OpenCascade can't add on its own — typically an edge running into a corner an earlier fillet
+    rounded, with a radius as big as that fillet's or bigger (Onshape's kernel lets it overflow into the round).
+    If the part's last change was a fillet, do both together on the part as it was before it: rounded in one go,
+    OpenCascade blends the corner. Fillet 1 and Fillet 2 stay separate features. None if that doesn't apply."""
+    rec = state.blends.get(pid)
+    part = state.parts[pid]
+    if rec is None or not rec["result"].IsSame(part.shape):
+        return None                         # something else has changed the part since that fillet
+    mapped = K.edges_on(rec["base"], es)
+    if mapped is None:
+        return None                         # an edge the earlier fillet made: there's nothing to redo it on
+    specs = rec["specs"] + [(e, r, r2) for e in mapped]
+    out = K.fillet_specs(rec["base"], specs)
+    if out is None:
+        return None
+    state.blends[pid] = {"base": rec["base"], "specs": specs, "result": out}
+    return out
 
 
 def run_chamfer(state, f):
@@ -1198,8 +1231,9 @@ def run_chamfer(state, f):
     for pid, es in groups.items():
         part = state.parts[pid]
         mode = p.get("type", "equal")
+        tp = p.get("tangent")                     # None: a chamfer from before the option (see K.chamfer)
         shape = K.chamfer(part.shape, es, float(p.get("distance", 1)), mode, float(p.get("distance2", 1)),
-                          float(p.get("angle", 45)), bool(p.get("flip")))
+                          float(p.get("angle", 45)), bool(p.get("flip")), None if tp is None else bool(tp))
         state.parts[pid] = Part(pid, part.name, shape, part.color)
 
 
@@ -2433,7 +2467,8 @@ def default_params(ftype: str, state: ModelState | None = None) -> dict:
                     "thickness2": 1.0, "thin_side": "mid", "axis": {}, "end": "full", "angle": 180.0, "angle2": 90.0, "flip": False,
                     "op": op},
         "fillet": {"edges": [], "radius": 2.0, "variable": False, "radius2": 1.0},
-        "chamfer": {"edges": [], "type": "equal", "distance": 1.0, "distance2": 2.0, "angle": 45.0, "flip": False},
+        "chamfer": {"edges": [], "type": "equal", "distance": 1.0, "distance2": 2.0, "angle": 45.0, "flip": False,
+                    "tangent": True},
         "shell": {"faces": [], "thickness": 2.0, "outward": False},
         "delete_face": {"faces": [], "mode": "heal"},
         "move_face": {"faces": [], "distance": 2.0, "flip": False},

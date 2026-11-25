@@ -8,6 +8,7 @@ LIGHT = {
     "ACCENT": "#1f6fd1", "ACCENT_DARK": "#155bb0", "ACCENT_LIGHT": "#e3eefb", "ACCENT_SOFT": "#d3e4f8",
     "ACCENT_BORDER": "#c4d9f3", "TEXT": "#1f2328", "TEXT_MUTED": "#6a737d", "BORDER": "#d5d9de",
     "PANEL": "#ffffff", "PANEL_ALT": "#f5f6f8", "INPUT": "#ffffff", "ERROR": "#d93025", "OK_GREEN": "#2e9e44",
+    "OK_TINT": "#e6f4e9", "OK_TINT_DOWN": "#cde9d3", "ERROR_TINT": "#fbe7e5", "ERROR_TINT_DOWN": "#f5cdc9",
     "SELECTED_ROW": "#ffe9b8", "INVALID_BG": "#fdecea", "ACTIVE_FIELD": "#f2f8ff", "LOGO_TEXT": "#3b4250",
     "BG_TOP": (1.0, 1.0, 1.0), "BG_BOTTOM": (1.0, 1.0, 1.0), "EDGE": (0.10, 0.11, 0.13),
     "PLANE": (0.55, 0.70, 0.90), "SKETCH_FREE": (0.12, 0.42, 0.85), "SKETCH_DEFINED": (0.08, 0.08, 0.10),
@@ -19,6 +20,7 @@ DARK = {
     "ACCENT": "#4c8ff0", "ACCENT_DARK": "#3a7be0", "ACCENT_LIGHT": "#2a3a52", "ACCENT_SOFT": "#2f4566",
     "ACCENT_BORDER": "#3d5a85", "TEXT": "#e6e8eb", "TEXT_MUTED": "#9aa3ae", "BORDER": "#3a3f46",
     "PANEL": "#23262b", "PANEL_ALT": "#1b1d21", "INPUT": "#2b2f35", "ERROR": "#ff6b5e", "OK_GREEN": "#4cc66a",
+    "OK_TINT": "#22382a", "OK_TINT_DOWN": "#2c4a36", "ERROR_TINT": "#3d2625", "ERROR_TINT_DOWN": "#52302e",
     "SELECTED_ROW": "#5a4720", "INVALID_BG": "#4a2522", "ACTIVE_FIELD": "#22324a", "LOGO_TEXT": "#e6e8eb",
     "BG_TOP": (0.22, 0.235, 0.26), "BG_BOTTOM": (0.11, 0.12, 0.135), "EDGE": (0.04, 0.04, 0.05),
     "PLANE": (0.45, 0.62, 0.90), "SKETCH_FREE": (0.42, 0.68, 1.0), "SKETCH_DEFINED": (0.93, 0.94, 0.96),
@@ -105,8 +107,11 @@ QScrollBar::add-line, QScrollBar::sub-line {{ width: 0; height: 0; }}
 QFrame#featureDialog {{ background: {g['PANEL']}; border: 1px solid {g['BORDER']}; border-radius: 6px; }}
 QLabel#dialogTitle {{ font-weight: 700; font-size: 13px; }}
 QLabel#dialogError {{ color: {g['ERROR']}; }}
-QToolButton#okButton {{ color: {g['OK_GREEN']}; font-size: 18px; font-weight: 800; padding: 0 6px; }}
-QToolButton#cancelButton {{ color: {g['ERROR']}; font-size: 18px; font-weight: 800; padding: 0 6px; }}
+QToolButton#okButton, QToolButton#cancelButton {{ border: none; border-radius: 15px; padding: 0; background: transparent; }}
+QToolButton#okButton:hover {{ background: {g['OK_TINT']}; }}
+QToolButton#okButton:pressed {{ background: {g['OK_TINT_DOWN']}; }}
+QToolButton#cancelButton:hover {{ background: {g['ERROR_TINT']}; }}
+QToolButton#cancelButton:pressed {{ background: {g['ERROR_TINT_DOWN']}; }}
 QToolButton#segment {{ border: 1px solid {g['BORDER']}; border-radius: 0; padding: 4px 8px; background: {g['PANEL']}; }}
 QToolButton#segment:checked {{ background: {g['ACCENT']}; color: white; border-color: {g['ACCENT']}; }}
 QLineEdit, QComboBox, QDoubleSpinBox {{ border: 1px solid {g['BORDER']}; border-radius: 4px; padding: 3px 6px; background: {g['INPUT']}; }}

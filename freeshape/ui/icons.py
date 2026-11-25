@@ -479,6 +479,33 @@ def draw(name: str, p: QPainter):
         p.setPen(_pen(INK, 1.3))
         p.setBrush(FACE)
         p.drawEllipse(QRectF(8, 8, 16, 17))
+    elif name == "fill":
+        # a patch filling a loop: the loop's edges in blue, the patch shaded inside them
+        path = QPainterPath(QPointF(5, 20))
+        path.cubicTo(QPointF(8, 6), QPointF(24, 4), QPointF(27, 14))
+        path.cubicTo(QPointF(29, 24), QPointF(12, 30), QPointF(5, 20))
+        p.setPen(Qt.NoPen)
+        p.setBrush(FACE)
+        p.drawPath(path)
+        p.setPen(_pen(INK, 1.0))
+        p.setBrush(Qt.NoBrush)
+        p.drawArc(QRectF(8, 10, 18, 10), 20 * 16, 140 * 16)
+        p.setPen(_pen(BLUE, 2.0))
+        p.drawPath(path)
+    elif name == "constrained_surface":
+        # a curved surface drawn through scattered points
+        path = QPainterPath(QPointF(3, 22))
+        path.cubicTo(QPointF(10, 10), QPointF(20, 26), QPointF(29, 12))
+        path.lineTo(QPointF(29, 18))
+        path.cubicTo(QPointF(20, 32), QPointF(10, 16), QPointF(3, 28))
+        path.closeSubpath()
+        p.setPen(_pen(INK, 1.2))
+        p.setBrush(FACE)
+        p.drawPath(path)
+        p.setPen(Qt.NoPen)
+        p.setBrush(BLUE)
+        for x, y in ((6, 19), (12, 16), (18, 20), (24, 17), (28, 13), (9, 24), (21, 25)):
+            p.drawEllipse(QPointF(x, y), 1.8, 1.8)
     elif name == "rib":
         p.setPen(_pen(INK, 1.3))
         p.setBrush(FACE_DARK)
@@ -1153,3 +1180,49 @@ def export_builtin(names, folder, size=64) -> int:
         fh.write("Icon file names (add .svg or .png):\n\n" + "\n".join(file_stem(x) for x in sorted(set(names))) + "\n")
     return n
 
+
+
+# ---------------------------------------------------------------------- a dialog's ✓ and ✕ (drawn, not font glyphs)
+def _dialog_mark(kind: str, size: int) -> QIcon:
+    """A clean tick (green) or cross (red) for a dialog's Accept / Cancel button, in the theme's colours: one
+    smooth stroke with round ends, the same weight on every screen and font (the ✓ / ✕ characters weren't)."""
+    from . import theme
+    col = QColor(theme.OK_GREEN if kind == "ok" else theme.ERROR)
+    ic = QIcon()
+    for scale in (1, 2, 3):
+        pm = QPixmap(size * scale, size * scale)
+        pm.fill(Qt.transparent)
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.scale(size * scale / 24, size * scale / 24)
+        pen = QPen(col, 2.6 if kind == "ok" else 2.4)
+        pen.setCapStyle(Qt.RoundCap)
+        pen.setJoinStyle(Qt.RoundJoin)
+        p.setPen(pen)
+        p.setBrush(Qt.NoBrush)
+        if kind == "ok":
+            path = QPainterPath(QPointF(5.0, 12.6))
+            path.lineTo(QPointF(9.8, 17.2))
+            path.lineTo(QPointF(19.0, 7.0))
+            p.drawPath(path)
+        else:
+            p.drawLine(QPointF(6.5, 6.5), QPointF(17.5, 17.5))
+            p.drawLine(QPointF(17.5, 6.5), QPointF(6.5, 17.5))
+        p.end()
+        pm.setDevicePixelRatio(scale)
+        ic.addPixmap(pm)
+    return ic
+
+
+def dialog_button(btn, kind: str, size: int = 18):
+    """Make a QToolButton a dialog's Accept ("ok") or Cancel ("cancel") button: the drawn tick / cross, a round
+    tinted hover (see theme: #okButton / #cancelButton)."""
+    from PySide6.QtCore import QSize
+    btn.setObjectName("okButton" if kind == "ok" else "cancelButton")
+    btn.setText("")
+    btn.setIcon(_dialog_mark(kind, size))
+    btn.setIconSize(QSize(size, size))
+    btn.setFixedSize(size + 12, size + 12)
+    btn.setAutoRaise(True)
+    btn.setCursor(Qt.PointingHandCursor)
+    return btn

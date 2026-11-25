@@ -169,6 +169,9 @@ class Viewport(QOpenGLWidget):
         self.hidden_sketch_regions = False
         self.preview_tool = None  # mesh of a translucent tool body
         self.overlays = []        # [((field_key, index), ("mesh", Mesh) | ("poly", ndarray))] dialog selections
+        # lines a dialog draws to show something that isn't (yet) geometry — a fillet too big to make, in purple,
+        # its edges in red, as Onshape does: [(polyline, (r, g, b), width)]. Not picked.
+        self.outlines = []
         self.face_colors = {}     # part id -> {face index: (r, g, b)}
         self.section = None       # K.Plane when the section view is on (material on the -normal side is kept)
         self._section_cache_key = None
@@ -200,6 +203,9 @@ class Viewport(QOpenGLWidget):
         self._placed_cache = {}
         self.progress_cb = None   # callable(i, n, text) while a long import fills the scene
         self.feature_hl = None    # {"faces": {pid: {i}}, "edges": {pid: {i}}, "polys": [pts]} from the feature list
+        # what the features selected in the list made, drawn exactly as selected faces are (as Onshape does):
+        # {"faces": {pid: {i}}, "polys": [pts]} or None. (feature_hl is then just the hovered feature.)
+        self.feature_sel = None
         self._batch = None
         self._batch_version = 0
         self._gpu_version = -1
@@ -1055,6 +1061,19 @@ class Viewport(QOpenGLWidget):
                 if b_ > a_ and col:
                     GL.glColor4f(*col, 1.0)
                     GL.glDrawElements(GL.GL_TRIANGLES, (b_ - a_) * 3, GL.GL_UNSIGNED_INT, self._idx_ptr(base + a_))
+            # faces of the features selected in the feature list: the same as selected faces
+            for pid, fis in ((self.feature_sel or {}).get("faces") or {}).items():
+                rng = b["ranges"].get(pid)
+                if rng is None:
+                    continue
+                base, m, _color = rng
+                GL.glColor4f(*theme.SELECT, 1.0)
+                for fi in fis:
+                    if fi < len(m.face_ranges):
+                        a_, b_ = m.face_ranges[fi]
+                        if b_ > a_:
+                            GL.glDrawElements(GL.GL_TRIANGLES, (b_ - a_) * 3, GL.GL_UNSIGNED_INT,
+                                              self._idx_ptr(base + a_))
             self._unbind_batch()
             self._use_shiny(False)
         GL.glDisable(GL.GL_POLYGON_OFFSET_FILL)
@@ -1188,6 +1207,15 @@ class Viewport(QOpenGLWidget):
                     self._draw_polyline(poly)
                 GL.glEnable(GL.GL_DEPTH_TEST)
             GL.glLineWidth(1.4)
+        if self.feature_sel and self.feature_sel.get("polys"):
+            # a selected sketch's curves (or plane outline) in the selection colour
+            GL.glDisable(GL.GL_DEPTH_TEST)
+            GL.glLineWidth(3.0)
+            GL.glColor3f(*theme.SELECT)
+            for poly in self.feature_sel["polys"]:
+                self._draw_polyline(poly)
+            GL.glEnable(GL.GL_DEPTH_TEST)
+            GL.glLineWidth(1.4)
 
         # ---- section caps (solid faces where the plane cuts)
         if self.section is not None:
@@ -1262,6 +1290,16 @@ class Viewport(QOpenGLWidget):
                     GL.glColor3f(*col)
                     self._draw_polyline(g)
             GL.glDepthRange(0, 1)
+            GL.glLineWidth(1.4)
+
+        # ---- a dialog's outlines (a fillet too big to make), over everything so they can be seen
+        if self.outlines:
+            GL.glDisable(GL.GL_DEPTH_TEST)
+            for poly, rgb, width in self.outlines:
+                GL.glLineWidth(float(width))
+                GL.glColor3f(*rgb)
+                self._draw_polyline(poly)
+            GL.glEnable(GL.GL_DEPTH_TEST)
             GL.glLineWidth(1.4)
 
         # ---- translucent things last
@@ -2109,10 +2147,11 @@ class Viewport(QOpenGLWidget):
         self.update()
 
     def clear_selection(self):
-        if self.selection:
-            self.selection = []
-            self.selectionChanged.emit()
-            self.update()
+        """Deselect everything — and say so even when nothing was picked here: a feature may be selected in the
+        feature list, and a click on empty space (or Esc) clears that too, as in Onshape."""
+        self.selection = []
+        self.selectionChanged.emit()
+        self.update()
 
     def toggle(self, pick: Pick):
         if pick in self.selection:
@@ -2348,12 +2387,15 @@ class Viewport(QOpenGLWidget):
         if not self.parts and not self.sketches:
             return None
         saved = (self.cam.state(), self.show_planes, self.selection, self.hover, self.feature_hl,
-                 self.measure_line, self.triads, self.ghosts, self.overlays, self.manipulators, self.sketches)
+                 self.measure_line, self.triads, self.ghosts, self.overlays, self.manipulators, self.sketches,
+                 self.feature_sel)
         try:
             self._thumb = True
             self.show_planes = False
             self.selection, self.hover, self.feature_hl, self.measure_line = [], None, None, None
+            self.feature_sel = None
             self.triads, self.ghosts, self.overlays, self.manipulators = [], [], [], []
+            saved_outlines, self.outlines = self.outlines, []
             if self.parts:
                 self.sketches = []          # just the parts, like Onshape's thumbnails
             back, up = STANDARD_VIEWS["Isometric"]
@@ -2372,7 +2414,8 @@ class Viewport(QOpenGLWidget):
         finally:
             self._thumb = False
             (st, self.show_planes, self.selection, self.hover, self.feature_hl, self.measure_line, self.triads,
-             self.ghosts, self.overlays, self.manipulators, self.sketches) = saved
+             self.ghosts, self.overlays, self.manipulators, self.sketches, self.feature_sel) = saved
+            self.outlines = saved_outlines
             self.cam.set_state(st)
             self.update()
         dpr = img.devicePixelRatio() or 1.0

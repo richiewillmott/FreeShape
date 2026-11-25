@@ -81,8 +81,10 @@ def test_sketch_text_follows_a_text_variable():
     assert not doc.errors and res.sketch.entities[tid]["text"] == "PN-WXYZ" and len(res.regions) > n_a
     f3 = copy.deepcopy(f2)
     f3["params"]["name"] = "other"
-    doc.replace_feature(f3)
-    assert "#rev isn't defined" in doc.errors[s["id"]]
+    doc.replace_feature(f3)                     # renaming the variable: the sketch text follows it
+    assert not doc.errors
+    assert doc.state.sketches[s["id"]].sketch.entities[tid]["text"] == "PN-WXYZ"
+    assert Sketch.from_dict(doc.feature(s["id"])["params"]["sketch"]).entities[tid]["expr"] == '"PN-" + #other'
 
 
 def test_number_variables_still_work_with_text_ones():

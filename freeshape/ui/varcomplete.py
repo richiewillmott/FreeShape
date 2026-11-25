@@ -1,5 +1,7 @@
 """Type # in a value box and a list of the variables you can use drops down (with their values); pick one with the
-mouse or the arrow keys and Enter. Works part-way through an expression too: `#wall * 2 + #g` offers #gap …"""
+mouse or the arrow keys and Enter. Works part-way through an expression too: `#wall * 2 + #g` offers #gap … And,
+as in Onshape, the # can be left off: type `w` and #wall, #width … are offered (picking one puts in the #). A word
+right after a number is a unit (`25 m`), so it isn't offered variables."""
 from __future__ import annotations
 
 import re
@@ -9,6 +11,24 @@ from PySide6.QtGui import QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import QCompleter
 
 _TOKEN = re.compile(r"#(\w*)$")
+# a bare name being typed: a word at the cursor that isn't part of a #name, a number or a unit after a number
+_BARE = re.compile(r"(?<![\w#.])([A-Za-z_]\w*)$")
+_AFTER_NUMBER = re.compile(r"[\d.)]\s*$")
+
+
+class _Token:
+    """What's being typed at the cursor: where it starts and the name so far (without any #)."""
+
+    def __init__(self, start, name):
+        self.start_, self.name = start, name
+
+    def start(self):
+        return self.start_
+
+    def group(self, _i=1):
+        return self.name
+
+
 NAME_ROLE = Qt.UserRole + 1
 
 
@@ -45,7 +65,14 @@ class VarCompleter(QObject):
 
     def _token(self):
         text, pos = self.edit.text(), self.edit.cursorPosition()
-        return _TOKEN.search(text[:pos])
+        before = text[:pos]
+        m = _TOKEN.search(before)
+        if m:
+            return m
+        m = _BARE.search(before)
+        if m and not _AFTER_NUMBER.search(before[:m.start()]):
+            return _Token(m.start(), m.group(1))
+        return None
 
     def _fill(self):
         self.model.clear()

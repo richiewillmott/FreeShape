@@ -1282,10 +1282,136 @@ def fillet(shape, edge_list, radius: float, radius2: float | None = None):
     return out
 
 
+def fillet_specs(shape, specs):
+    """Round several edges at once, each with its own radius: specs = [(edge, radius, radius2 or None)]. The
+    result, or None if it doesn't work (same checks as fillet). Edges rounded together can meet at a corner
+    that edges rounded one feature at a time can't (see features.run_fillet)."""
+    mk = BRepFilletAPI_MakeFillet(shape)
+    for e, r, r2 in specs:
+        if r2 is None:
+            mk.Add(float(r), e)
+        else:
+            mk.Add(float(r), float(r2), e)
+    try:
+        mk.Build()
+    except Exception:
+        return None
+    if not mk.IsDone():
+        return None
+    out = mk.Shape()
+    return out if _blend_ok(shape, out) else None
+
+
+def fillet_frame(shape, edge, t_frac=0.5):
+    """At a point along an edge (t_frac of the way): (point, unit tangent, outward normals n1, n2 of its two faces,
+    convex?) — or None for an edge without two faces (or where the faces' normals can't be found)."""
+    fs = _faces_at_edge(shape, edge)
+    if len(fs) != 2:
+        return None
+    ad = BRepAdaptor_Curve(edge)
+    t0, t1 = ad.FirstParameter(), ad.LastParameter()
+    pp, vv = gp_Pnt(), gp_Vec()
+    ad.D1(t0 + (t1 - t0) * t_frac, pp, vv)
+    p, tan = _np(pp), np.array([vv.X(), vv.Y(), vv.Z()])
+    if np.linalg.norm(tan) < 1e-12:
+        return None
+    n1, n2 = _normal_at(fs[0], p), _normal_at(fs[1], p)
+    if n1 is None or n2 is None or abs(float(np.dot(n1, n2))) > 1 - 1e-9:
+        return None
+    convex = edge_context(shape, edge)["convex"]
+    return p, tan / np.linalg.norm(tan), n1, n2, convex is not False
+
+
+def fillet_outline(shape, edge, radius, samples=16, arcs=(0.0, 0.5, 1.0)):
+    """Where a round of `radius` on this edge would run, without making it (so it can be shown even when it's too
+    big to make): the two lines where a ball rolled along the edge touches its faces, and arcs across the round at a
+    few places. Returns a list of polylines (world points); [] when it can't be told."""
+    lines_a, lines_b, cross = [], [], []
+    r = float(radius)
+    for k in range(samples + 1):
+        f = k / samples
+        fr = fillet_frame(shape, edge, f)
+        if fr is None:
+            return []
+        p, t, n1, n2, convex = fr
+        s = -1.0 if convex else 1.0                 # the ball sits inside an outside corner, outside an inside one
+        A = np.array([n1, n2, t])
+        try:
+            c = p + np.linalg.solve(A, np.array([s * r, s * r, 0.0]))
+        except np.linalg.LinAlgError:
+            return []
+        a, b = c - s * r * n1, c - s * r * n2       # where the ball touches each face
+        lines_a.append(a)
+        lines_b.append(b)
+        if any(abs(f - x) < 0.5 / samples for x in arcs):
+            u, v = a - c, b - c
+            ang = math.acos(max(-1.0, min(1.0, float(np.dot(u, v)) / (r * r))))
+            if ang < 1e-9:
+                continue
+            w = np.cross(np.cross(u, v), u)
+            w = w / np.linalg.norm(w) * r
+            cross.append(np.array([c + math.cos(ang * i / 12) * u + math.sin(ang * i / 12) * w for i in range(13)]))
+    return [np.array(lines_a), np.array(lines_b)] + cross
+
+
+def edges_on(shape, edge_list, tol=None):
+    """For each edge, the edge of `shape` it lies along (the same curve, perhaps longer — an edge an earlier
+    fillet or chamfer trimmed back); None if any of them isn't one of shape's edges trimmed (a fillet's own
+    edge, say)."""
+    from OCP.GeomAPI import GeomAPI_ProjectPointOnCurve
+    lo, hi = bbox(shape)
+    tol = tol or max(1e-6, 1e-6 * float(np.linalg.norm(hi - lo)))
+    cands = []
+    for b in edges(shape):
+        try:
+            ad = BRepAdaptor_Curve(b)
+            t0, t1 = ad.FirstParameter(), ad.LastParameter()
+            crv = BRep_Tool.Curve_s(b, t0, t1)            # (located: in the shape's own position)
+        except Exception:
+            continue
+        if crv is None:
+            continue
+        cands.append((b, crv, min(t0, t1), max(t0, t1)))
+    out = []
+    for e in edge_list:
+        pts = np.asarray(discretize_edge(e), float)
+        samples = [pts[0], pts[len(pts) // 2], pts[-1]]
+        found = None
+        for b, crv, t0, t1 in cands:
+            ok = True
+            for q in samples:
+                pr = GeomAPI_ProjectPointOnCurve(_pnt(q), crv, t0, t1)      # within the edge, not its extension
+                if pr.NbPoints() == 0 or pr.LowerDistance() > tol:
+                    ok = False
+                    break
+            if ok:
+                found = b
+                break
+        if found is None:
+            return None
+        out.append(found)
+    return out
+
+
+def _has_smooth_neighbours(shape, edge_list):
+    """True if any of the edges carries on smoothly into an edge that isn't one of them (round a fillet, say) —
+    so a chamfer that follows tangent chains would bevel more than was picked."""
+    from .selection_tools import tangent_edges
+    all_e = edges(shape)
+    picked = {i for i, e in enumerate(all_e) if any(e.IsSame(x) for x in edge_list)}
+    for i in picked:
+        if set(tangent_edges(shape, i)) - picked:
+            return True
+    return False
+
+
 def chamfer(shape, edge_list, dist: float, mode="equal", dist2: float | None = None, angle: float | None = None,
-            flip=False):
+            flip=False, propagate=None):
     """Bevel the edges. mode: 'equal' (dist on both faces), 'two' (dist on one face, dist2 on the other) or
-    'angle' (dist on one face, at `angle` degrees to it). flip swaps which face is measured from."""
+    'angle' (dist on one face, at `angle` degrees to it). flip swaps which face is measured from.
+    propagate (Onshape's Tangent propagation): True — the bevel follows each edge's smooth chain, or it's an
+    error; False — just the picked edges, at any size; None (chamfers from before the option) — the chain if that
+    works, else just the picked edges."""
     if not edge_list:
         raise KernelError("Select edges to chamfer")
     if dist <= 0 or (mode == "two" and (dist2 or 0) <= 0):
@@ -1307,6 +1433,18 @@ def chamfer(shape, edge_list, dist: float, mode="equal", dist2: float | None = N
                 mk.Add(d, d * ratio, e, face)
             else:
                 mk.AddDA(d, math.radians(float(angle)), e, face)
+    if propagate is False and _has_smooth_neighbours(shape, edge_list):
+        # just these edges, though they carry on smoothly into others: OpenCascade's chamfer always follows the
+        # chain, so cut the bevel along the picked edges instead
+        out = None
+        try:
+            out = _chamfer_by_cut(shape, edge_list, dist, mode, dist2, angle, flip)
+        except Exception:
+            out = None
+        if out is None:
+            raise KernelError("Without Tangent propagation only straight edges between flat faces can be chamfered "
+                              "on their own here — tick Tangent propagation to bevel the whole smooth chain")
+        return out
     out = _try_blend(BRepFilletAPI_MakeChamfer, shape, edge_list, dist, add)
     if out is None and not is_valid(shape):
         fixed = _repair(shape)                       # (as for fillets: an invalid solid can't be bevelled)
@@ -1315,10 +1453,11 @@ def chamfer(shape, edge_list, dist: float, mode="equal", dist2: float | None = N
             if moved:
                 shape, edge_list = fixed, moved
                 out = _try_blend(BRepFilletAPI_MakeChamfer, shape, edge_list, dist, add)
-    if out is None:
+    if out is None and (propagate is None or not _has_smooth_neighbours(shape, edge_list)):
         # OpenCascade's chamfer often gives up where a straight edge between two flat faces runs into a
         # rounded corner (a fillet made earlier). Cut the bevel as a prism instead, carried on through the
-        # rounded corner it runs into, like Onshape.
+        # rounded corner it runs into. (With Tangent propagation on and a smooth chain beyond the picked edges,
+        # that would bevel less than asked for: an error instead, as in Onshape.)
         try:
             out = _chamfer_by_cut(shape, edge_list, dist, mode, dist2, angle, flip)
         except Exception:
@@ -1328,8 +1467,11 @@ def chamfer(shape, edge_list, dist: float, mode="equal", dist2: float | None = N
         if not best:
             raise KernelError("Couldn't chamfer these edges at any size — they may meet very narrow faces or slivers "
                               "left by earlier features. Try a different edge.")
+        chain = propagate is True and _has_smooth_neighbours(shape, edge_list)
         raise KernelError(f"Chamfer too large for these edges (the cuts would overlap or not fit) — the largest "
-                          f"that works here is about {_nice_down(best):g} mm")
+                          f"that works here is about {_nice_down(best):g} mm"
+                          + (". It carries on along the smooth chain from them (Tangent propagation): untick that "
+                             "to bevel just the picked edges" if chain else ""))
     return out
 
 

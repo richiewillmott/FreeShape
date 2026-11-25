@@ -36,7 +36,16 @@ OpenCascade kernel FreeCAD uses, so you get real B-rep solids and proper STEP fi
 |---|---|---|---|
 | ![](docs/screenshot.png) | ![](docs/images/assembly.png) | ![](docs/images/drawing.png) | ![](docs/images/sheet_metal.png) |
 
-## New in 2.5
+## New in 2.6
+
+- **Selecting like Onshape in the lists** — each click in the feature list or the parts list adds to the
+  selection (click Part 1, then Part 2: both picked), and the parts list and the 3D view pick the same parts.
+- **Check interference** for parts in a Part Studio — right-click several parts, see their overlaps in red.
+- **Fill** (a surface patch over a closed loop, tangent if you like) and **Constrained surface** (a surface fitted
+  through points, or a part's vertices).
+- **Variables follow a rename** wherever you rename them, and value boxes offer `#variables` as you type a name.
+
+### New in 2.5
 
 - **Variables on the fly** — type an unknown `#name` in any value box and FreeShape offers to create it, just
   before that feature, with the value the box had; type `#` for a list of the variables there are.
@@ -52,22 +61,7 @@ OpenCascade kernel FreeCAD uses, so you get real B-rep solids and proper STEP fi
   metal that follows Transform, and saves that can't leave an empty file. Files are saved in a new format; older
   ones convert as they open ([upgrading](docs/releases/2.5.0.md#upgrading-from-24)).
 
-### New in 2.4
-
-- **A fuller sketcher** — polygons with any number of sides (inscribed or circumscribed), midpoint line, aligned
-  rectangle, tangent and elliptical arcs, conics, control-point splines, chamfer, split, extend, transform, intersect,
-  and DXF / image import; the toolbar grouped like other CAD programs, with Extrude / Revolve / Sweep right on it.
-- **Selecting like Onshape** — planes come last, **Tab** steps through what's under the mouse, **Select other…**
-  lists it all, and right-click selects tangent-connected faces, loops or everything of the same size.
-- **The S menu and Onshape's keys** — your own tools at the mouse, one menu per sketch / Part Studio / assembly /
-  drawing; P, Y, Shift+I, Shift+H and many more, all in a searchable list (`?`).
-- **Direction arrows like Onshape's** — Up to face / next turn towards their target, click the arrow to flip.
-- **Separate** — Extrude, Revolve or Sweep sketch areas that touch into one part each, instead of one fused part.
-- **Resizable planes** — drag the dots at a selected plane's corners.
-- **Export as Python script** — a whole project (model, assembly, drawing) as a script that builds it again, with
-  your variables at the top.
-
-Release notes: [2.5.0](docs/releases/2.5.0.md), [2.4.0](docs/releases/2.4.0.md). Full history in [CHANGES.md](CHANGES.md).
+Release notes: [2.6.0](docs/releases/2.6.0.md), [2.5.0](docs/releases/2.5.0.md). Full history in [CHANGES.md](CHANGES.md).
 
 ## Install
 

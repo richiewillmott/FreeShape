@@ -216,11 +216,21 @@ class Document:
         self.rebuild()
 
     def replace_feature(self, feat):
+        from . import variables as _V
         self.checkpoint()
+        old = self.feature(feat["id"])
+        rn = _V.renamed(self, old, feat)
         for i, f in enumerate(self.features):
             if f["id"] == feat["id"]:
                 self.features[i] = feat
                 break
+        if rn:
+            # a Variable given a new name in its dialog: everything using it follows (as in the Variables table),
+            # rather than every use breaking with "Unknown variable"; so does its "#name" label in the list
+            _V.rename_refs(self, *rn)
+            g = self.feature(feat["id"])
+            if g.get("name") == "#" + rn[0]:
+                g["name"] = "#" + rn[1]
         self.rebuild()
 
     @staticmethod
@@ -269,6 +279,19 @@ class Document:
         self.rebuild()
 
     def rename_feature(self, fid, name):
+        from . import variables as _V
+        f = self.feature(fid)
+        if f is not None and f.get("type") in _V.VAR_TYPES:
+            # a variable's name in the list is its #name: renaming it there renames the variable, and its uses
+            new = str(name).strip().lstrip("#")
+            rn = _V.renamed(self, f, dict(f, params=dict(f.get("params", {}), name=new)))
+            if rn:
+                self.checkpoint()
+                _V.rename_refs(self, *rn)
+                g = self.feature(fid)
+                g["name"] = "#" + rn[1]
+                self.rebuild()
+                return
         self.checkpoint()
         for f in self.features:
             if f["id"] == fid:
