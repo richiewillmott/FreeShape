@@ -14,6 +14,10 @@ cd "$SRC"
 PY="${PYTHON:-python3}"
 REV="$("$PY" -c 'import freeshape; print(freeshape.__version__)')"
 OUT="dist/freeshape_${REV}_amd64.deb"
+if [ "$(dpkg --print-architecture)" != "amd64" ]; then
+  echo "[FreeShape] The DEB build currently supports amd64 only." >&2
+  exit 1
+fi
 
 if [ "${SKIP_PYINSTALLER:-0}" != 1 ] || [ ! -x build/linux-dist/FreeShape/FreeShape ]; then
   echo "[FreeShape] Packing FreeShape $REV with PyInstaller (a few minutes)..."
@@ -22,8 +26,7 @@ fi
 
 echo "[FreeShape] Checking the packed app..."
 rm -f build/selftest.txt
-build/linux-dist/FreeShape/FreeShape --self-test "$SRC/build/selftest.txt" || true
-if ! grep -q '^OK' build/selftest.txt 2>/dev/null; then
+if ! build/linux-dist/FreeShape/FreeShape --self-test "$SRC/build/selftest.txt" || ! grep -qx OK build/selftest.txt; then
   cat build/selftest.txt 2>/dev/null || true
   echo "[FreeShape] The packed app failed its self-test." >&2
   exit 1
@@ -97,6 +100,12 @@ License: GPL-3+
  On Debian systems the full text is in /usr/share/common-licenses/GPL-3.
  Third-party notices are in /opt/freeshape (THIRD-PARTY-NOTICES.txt, where included).
 EOF
+
+for notice in LICENSE THIRD-PARTY-NOTICES.txt; do
+  if [ -f "$notice" ]; then
+    install -m 0644 "$notice" "$PKG/usr/share/doc/freeshape/$notice"
+  fi
+done
 
 SIZE="$(du -sk --exclude=DEBIAN "$PKG" | cut -f1)"
 cat > "$PKG/DEBIAN/control" <<EOF
