@@ -1,7 +1,12 @@
 name: Keyboard shortcut regression tests
 on:
   push:
-    branches: [contrib/layout-independent-shortcuts]
+    paths:
+      - 'freeshape/ui/keyboard.py'
+      - 'freeshape/ui/mainwindow.py'
+      - 'freeshape/ui/sketcher.py'
+      - 'tests/test_keyboard_layout.py'
+      - '.github/workflows/keyboard-regressions.yml'
   pull_request:
     paths:
       - 'freeshape/ui/keyboard.py'
