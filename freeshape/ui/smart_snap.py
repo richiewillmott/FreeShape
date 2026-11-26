@@ -212,31 +212,3 @@ def axis_distance(screen, src, xy, axis):
     d = screen(src+np.array([1.,0.] if axis=="H" else [0.,1.]))-a
     v = np.asarray(xy)-a
     return abs(d[0]*v[1]-d[1]*v[0])/max(np.linalg.norm(d),1e-12)
-
-
-def direction_target(sk, screen, xy, uv, anchor, refs, excluded=()):
-    """Parallel/perpendicular/equal length using explicitly awakened lines."""
-    v = uv-anchor
-    length = float(np.linalg.norm(v))
-    if length < 1e-9:
-        return None
-    options = []
-    for eid in refs:
-        e = sk.entities.get(eid,{})
-        if eid in excluded or e.get("type") != "line":
-            continue
-        d = sk.P(e["p2"])-sk.P(e["p1"])
-        L = np.linalg.norm(d)
-        if L < 1e-9:
-            continue
-        unit = d/L
-        for kind,vec in (("parallel",unit),("perpendicular",np.array([-unit[1],unit[0]]))):
-            q = anchor+vec*(v@vec)
-            dist = np.linalg.norm(screen(q)-xy)
-            if dist <= GUIDE_PX and np.linalg.norm(q-anchor)>1e-9:
-                options.append((dist,kind,eid,q))
-        q = anchor+v/length*L
-        dist = np.linalg.norm(screen(q)-xy)
-        if dist <= GUIDE_PX:
-            options.append((dist,"equal",eid,q))
-    return min(options,key=lambda x:(x[0],x[1],x[2]))[1:] if options else None

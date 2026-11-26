@@ -5,7 +5,7 @@ import math
 
 import numpy as np
 from OpenGL import GL
-from PySide6.QtCore import Qt, QPointF, QRectF
+from PySide6.QtCore import Qt, QPointF, QRectF, QCoreApplication
 from PySide6.QtGui import QColor, QFont, QPen, QPainterPath, QPolygonF, QFontMetricsF
 from PySide6.QtWidgets import QLineEdit
 
@@ -165,11 +165,8 @@ class Sketcher:
         self._infer_src = []    # points / line midpoints hovered recently (alignment sources)
         self.infer_hits = []
         self._infer_cons = []
-        self._wake_entities = []
         self._snap_disabled = False
         self._snap_sources = []
-        self._direction_infer = None
-        self._equal_circle = None
         self._rectangle_snap_cache = None
 
     def set_tool(self, tool):
@@ -314,8 +311,6 @@ class Sketcher:
         self.model_hover = None     # (part id, edge index) of the part edge being snapped to
         self._snap_vp = vp
         self._snap_sources = []
-        self._direction_infer = None
-        self._equal_circle = None
         if getattr(self, "_snap_disabled", False) or not self.snap_enabled:
             return uv, None
         if uv is None:
@@ -341,8 +336,6 @@ class Sketcher:
             q, ref = target
             self._acquire_source(ref, anchor_uv)
             self._snap_sources = self._ref_entities(ref)
-            for eid in self._snap_sources:
-                self._wake_entity(eid)
             return q, ref
         mp = self._model_point_hit(vp, x, y)
         if mp:
@@ -356,10 +349,7 @@ class Sketcher:
                 self.infer_tan = eid
                 self.infer_hits.append((np.asarray(anchor_uv, float), "T"))
                 return t_uv, (("tan", eid) if kind == "on" else None)
-        # Only explicitly hovered curves become direction/equal-size references.
         curve_hit = self.hit(vp, x, y, kinds=("entity",), exclude=exclude)
-        if curve_hit:
-            self._wake_entity(curve_hit[1])
         # candidate alignment sources: the line's start point first, then points/midpoints hovered earlier
         cands = []
         if anchor_uv is not None:
@@ -402,33 +392,6 @@ class Sketcher:
             if SS.contains(self.sk, h[1], uv):
                 self._snap_sources = [h[1]]
                 return uv, ("on", h[1])
-        if self.snap_relations and not pick and self.tool == "line" and anchor_uv is not None:
-            relation = SS.direction_target(self.sk, screen, xy, uv, np.asarray(anchor_uv),
-                                           self._wake_entities, exclude)
-            if relation:
-                kind, eid, uv = relation
-                self._direction_infer = (kind, eid)
-                self._snap_sources = [eid]
-                self.infer_hits.append((np.asarray(anchor_uv), {"parallel": "∥", "perpendicular": "⊥", "equal": "="}[kind]))
-                return uv, None
-        if self.snap_relations and not pick and not h and self.tool == "circle" and self.temp:
-            center = np.asarray(self.temp[0][0])
-            d = uv - center
-            length = np.linalg.norm(d)
-            if length > 1e-9:
-                choices = []
-                for eid in self._wake_entities:
-                    e = self.sk.entities.get(eid, {})
-                    if e.get("type") in ("circle", "arc"):
-                        q = center + d / length * self.sk.radius(eid)
-                        dist = np.linalg.norm(screen(q) - xy)
-                        if dist <= SS.GUIDE_PX:
-                            choices.append((dist, eid, q))
-                if choices:
-                    _, self._equal_circle, uv = min(choices, key=lambda a: (a[0], a[1]))
-                    self._snap_sources = [self._equal_circle]
-                    self.infer_hits.append((center, "="))
-                    return uv, None
         me = self._model_edge_hit(vp, x, y) if not pick else (
             self._model_edge_on_guide(vp, x, y, uv, pick) if len(pick) == 1 else None)
         if me:
@@ -608,14 +571,6 @@ class Sketcher:
             self._infer_src.remove(ref)
         self._infer_src.append(ref)
         del self._infer_src[:-8]
-
-    def _wake_entity(self, eid):
-        if self.sk.entities.get(eid, {}).get("type") not in ("line", "circle", "arc"):
-            return
-        if eid in self._wake_entities:
-            self._wake_entities.remove(eid)
-        self._wake_entities.append(eid)
-        del self._wake_entities[:-6]
 
     def _ref_entities(self, ref):
         if ref[0] == "intersection":
@@ -1293,9 +1248,6 @@ class Sketcher:
                 sk.add_constraint("horizontal", lid)
             elif self.infer == "V":
                 sk.add_constraint("vertical", lid)
-            if self._direction_infer and self._direction_infer[1] in sk.entities:
-                kind, ref = self._direction_infer
-                sk.add_constraint(kind, lid, ref)
             self.changed(True)
             pa, pb = sk.P(a), sk.P(b)
             d = pb - pa
@@ -1555,9 +1507,7 @@ class Sketcher:
             self.push_undo()
             c = self._point_at(c_uv, cs, first_cons)
             cid = sk.add_circle(c, r, cons)
-            if self._equal_circle and self._equal_circle in sk.entities:
-                sk.add_constraint("equal", cid, self._equal_circle)
-            elif snap and snap[0] in ("point", "mid", "intersection", "quadrant", "rect_center", "on"):
+            if snap and snap[0] in ("point", "mid", "intersection", "quadrant", "rect_center", "on"):
                 rim = self._point_at(uv, snap, icons)
                 if rim != c:
                     sk.add_constraint("point_on", rim, cid)
@@ -2895,33 +2845,28 @@ class Sketcher:
             return
         xy = self.scr(vp, self.cursor_uv)
         kind = ref[0] if ref else ""
-        labels = {"mid": ("△", "Midpoint"), "intersection": ("×", "Intersection"),
-                  "quadrant": ("◇", "Quadrant"), "rect_center": ("⊕", "Rectangle centre"),
-                  "on": ("○", "Point on curve"), "tan": ("T", "Tangent"),
-                  "medge": ("○", "Point on edge"), "mpt": ("□", "Model point"),
-                  "point": ("□", "Endpoint")}
+        labels = {"mid": ("△", QCoreApplication.translate("FreeShape", "Midpoint")), "intersection": ("×", QCoreApplication.translate("FreeShape", "Intersection")),
+                  "quadrant": ("◇", QCoreApplication.translate("FreeShape", "Quadrant")), "rect_center": ("⊕", QCoreApplication.translate("FreeShape", "Rectangle centre")),
+                  "on": ("○", QCoreApplication.translate("FreeShape", "Point on curve")), "tan": ("T", QCoreApplication.translate("FreeShape", "Tangent")),
+                  "medge": ("○", QCoreApplication.translate("FreeShape", "Point on edge")), "mpt": ("□", QCoreApplication.translate("FreeShape", "Model point")),
+                  "point": ("□", QCoreApplication.translate("FreeShape", "Endpoint"))}
         if kind == "point":
             pid = ref[1]
             if pid == ORIGIN:
-                labels["point"] = ("⊕", "Origin")
+                labels["point"] = ("⊕", QCoreApplication.translate("FreeShape", "Origin"))
             elif any(e.get("c") == pid for e in self.sk.entities.values()):
-                labels["point"] = ("⊕", "Curve centre")
+                labels["point"] = ("⊕", QCoreApplication.translate("FreeShape", "Curve centre"))
             elif any(c["type"] == "midpoint" and c["refs"][0] == pid
                      and self.sk.entities.get(c["refs"][1], {}).get("helper")
                      for c in self.sk.constraints):
-                labels["point"] = ("⊕", "Rectangle centre")
+                labels["point"] = ("⊕", QCoreApplication.translate("FreeShape", "Rectangle centre"))
             elif any(c["type"] in ("midpoint", "arc_midpoint") and c["refs"][0] == pid for c in self.sk.constraints):
-                labels["point"] = ("△", "Midpoint")
+                labels["point"] = ("△", QCoreApplication.translate("FreeShape", "Midpoint"))
         if kind == "mpt":
             typ = ref[2][2]
-            labels["mpt"] = {"mid": ("△", "Midpoint"), "centre": ("⊕", "Curve centre")}.get(typ, labels["mpt"])
+            labels["mpt"] = {"mid": ("△", QCoreApplication.translate("FreeShape", "Midpoint")), "centre": ("⊕", QCoreApplication.translate("FreeShape", "Curve centre"))}.get(typ, labels["mpt"])
         glyph, name = labels.get(kind, ("", ""))
-        if self._direction_infer:
-            name = {"parallel": "Parallel", "perpendicular": "Perpendicular", "equal": "Equal length"}[self._direction_infer[0]]
-        elif self._equal_circle:
-            name = "Equal radius"
-        hints = {"H": "Horizontal", "V": "Vertical", "T": "Tangent",
-                 "∥": "Parallel", "⊥": "Perpendicular", "=": "Equal"}
+        hints = {"H": QCoreApplication.translate("FreeShape", "Horizontal"), "V": QCoreApplication.translate("FreeShape", "Vertical"), "T": QCoreApplication.translate("FreeShape", "Tangent")}
         names = [name] if name else []
         for _q, code in self.infer_hits:
             h = hints.get(code, code)

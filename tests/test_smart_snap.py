@@ -99,22 +99,6 @@ def test_quadrant_and_shift_bypass():
     assert any(t=="horizontal" and r[0]==c for t,r in _cons(s))
 
 
-def test_parallel_direction_uses_awakened_line():
-    sk=Sketch()
-    a,b=sk.add_point(10,10),sk.add_point(30,20)
-    ref=sk.add_line(a,b)
-    s=_sketcher(sk)
-    s.set_tool("line")
-    s.mouse_move(VP,*_at(s,[15,12.5]),_Ev())
-    assert ref in s._wake_entities
-    _click(s,*_at(s,[10,40]))
-    x,y=_at(s,[26,48],0,2)
-    s.mouse_move(VP,x,y,_Ev())
-    assert s._direction_infer==("parallel",ref)
-    s.mouse_press(VP,x,y,_Ev())
-    assert any(t=="parallel" and r[1]==ref for t,r in _cons(s))
-
-
 def test_screen_pixel_tolerance():
     src=np.array([0.,0.])
     screen=lambda q:np.asarray(q)*10
@@ -216,3 +200,43 @@ def test_explicit_inferences_survive_coordinate_copy():
     uv = np.array([30., 20.])
     pid = s._point_at(uv.copy(), None, (("horizontal", src),))
     assert any(t == "horizontal" and set(r) == {pid, src} for t,r in _cons(s))
+
+
+def test_projected_arc_endpoint_only_reuses_matching_point():
+    for target_y, reuse in ((20, True), (25, False)):
+        sk = Sketch()
+        c, a, b = [sk.add_point(*q) for q in [(10,10),(20,10),(10,target_y)]]
+        for pid in (c,a,b):
+            sk.add_constraint("fix", pid, value=list(sk.P(pid)))
+        s = _sketcher(sk)
+        s._offer_arc = lambda *args: None
+        s.set_tool("arc_center")
+        for pid in (c,a,b):
+            _click(s, *_at(s, sk.P(pid)))
+        arc = next(e for e in sk.entities.values() if e["type"] == "arc")
+        ends = {arc["p1"], arc["p2"]}
+        assert (b in ends) == reuse
+        assert a in ends
+        end = next(iter(ends - {a}))
+        assert np.allclose(sk.P(end), [10,20])
+
+
+def test_affine_prefilter_preserves_candidates_with_skewed_projection():
+    sk = Sketch()
+    a,b,c,d = [sk.add_point(*q) for q in [(-10,-10),(10,10),(-10,10),(10,-10)]]
+    sk.add_line(a,b)
+    sk.add_line(c,d)
+    center=sk.add_point(16,7)
+    sk.add_circle(center,4)
+    sk.add_arc(center,sk.add_point(20,7),sk.add_point(16,11))
+    screen=lambda q: np.array([[8.,3.],[-2.,5.]]) @ q + [50.,120.]
+    for pos in [(0,0),(16,11),(20,7),(16,3),(12,7),(18.8,9.8),(30,30)]:
+        xy=screen(np.array(pos))
+        expected=SS.direct_targets(sk,screen,xy,rectangles=[],affine=False)
+        actual=SS.direct_targets(sk,screen,xy,rectangles=[],affine=True)
+        if expected is None:
+            assert actual is None
+        else:
+            assert actual is not None
+            assert actual[1] == expected[1]
+            assert np.allclose(actual[0],expected[0])
