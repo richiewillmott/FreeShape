@@ -1,6 +1,8 @@
 """Left-hand panels: the feature list (with rollback bar) and the parts list."""
 from __future__ import annotations
 
+from PySide6.QtCore import QCoreApplication
+
 from ..i18n import tr
 
 from PySide6.QtCore import Qt, Signal, QSize, QRect, QPointF
@@ -191,7 +193,7 @@ class RollbackBar(QFrame):
         super().__init__()
         self.setFixedHeight(8)
         self.setStyleSheet("background: #1f6fd1; border-radius: 2px; margin: 2px 4px;")
-        self.setToolTip(tr("Rollback bar — drag to roll the model back"))
+        self.setToolTip(QCoreApplication.translate("FreeShape", "Rollback bar — drag to roll the model back"))
         self.setCursor(Qt.SizeVerCursor)
 
 
@@ -251,14 +253,14 @@ class FeatureList(_EyeMixin, QListWidget):
         bold = QFont()
         bold.setBold(True)
         # like Onshape: the origin and the three planes sit in a "Default geometry" group that folds away
-        g = QListWidgetItem(tr("Default geometry"))
+        g = QListWidgetItem(QCoreApplication.translate("FreeShape", "Default geometry"))
         g.setData(ROLE_KIND, "group")
         g.setData(ROLE_ID, "default")
         g.setData(ROLE_OPEN, self._default_open)
         g.setFlags(Qt.ItemIsEnabled)
-        g.setToolTip(tr("The origin and the Top, Front and Right planes (click the arrow to fold them away)"))
+        g.setToolTip(QCoreApplication.translate("FreeShape", "The origin and the Top, Front and Right planes (click the arrow to fold them away)"))
         self.addItem(g)
-        it = QListWidgetItem(icon("origin"), tr("Origin"))
+        it = QListWidgetItem(icon("origin"), QCoreApplication.translate("FreeShape", "Origin"))
         it.setData(ROLE_KIND, "origin")
         it.setData(ROLE_INDENT, True)
         it.setFlags(Qt.ItemIsEnabled)
@@ -324,10 +326,10 @@ class FeatureList(_EyeMixin, QListWidget):
                 font = QFont()
                 font.setStrikeOut(True)
                 it.setFont(font)
-                it.setToolTip(tr("Suppressed"))
+                it.setToolTip(QCoreApplication.translate("FreeShape", "Suppressed"))
             elif i >= active:
                 it.setForeground(QColor("#9aa3ae"))
-                it.setToolTip(tr("Rolled back"))
+                it.setToolTip(QCoreApplication.translate("FreeShape", "Rolled back"))
             elif f["id"] in doc.hidden_features:
                 it.setForeground(QColor("#8a94a3"))
             if f["id"] == editing_id:
@@ -360,7 +362,7 @@ class FeatureList(_EyeMixin, QListWidget):
             font = QFont()
             font.setStrikeOut(True)
             it.setFont(font)
-            it.setToolTip(tr("All suppressed"))
+            it.setToolTip(QCoreApplication.translate("FreeShape", "All suppressed"))
         self.addItem(it)
 
     def folder_layout(self):
@@ -584,7 +586,7 @@ class PartsList(_EyeMixin, QListWidget):
             it.setData(ROLE_EYE, "hidden" if p.id in doc.hidden_parts else "shown")
             if p.id in doc.hidden_parts:
                 it.setForeground(QColor("#9aa3ae"))
-                it.setToolTip(tr("Hidden"))
+                it.setToolTip(QCoreApplication.translate("FreeShape", "Hidden"))
             self.addItem(it)
         self.blockSignals(False)
 
@@ -604,7 +606,7 @@ class LeftPanel(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
-        self.feat_header = QLabel(tr("Features"))
+        self.feat_header = QLabel(QCoreApplication.translate("FreeShape", "Features"))
         self.feat_header.setObjectName("sectionHeader")
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 6, 0)
@@ -613,12 +615,12 @@ class LeftPanel(QWidget):
         self.new_folder_btn = QToolButton()
         self.new_folder_btn.setIcon(icon("new_folder", 18))
         self.new_folder_btn.setAutoRaise(True)
-        self.new_folder_btn.setToolTip(tr("New folder from the selected features"))
+        self.new_folder_btn.setToolTip(QCoreApplication.translate("FreeShape", "New folder from the selected features"))
         row.addWidget(self.new_folder_btn)
         lay.addLayout(row)
         self.filter = QLineEdit()
         self.filter.setObjectName("filter")
-        self.filter.setPlaceholderText(tr("Filter by name"))
+        self.filter.setPlaceholderText(QCoreApplication.translate("FreeShape", "Filter by name"))
         lay.addWidget(self.filter)
         self.features = FeatureList()
         lay.addWidget(self.features, 3)
@@ -626,7 +628,7 @@ class LeftPanel(QWidget):
         sep.setFixedHeight(1)
         sep.setStyleSheet("background:#d5d9de;")
         lay.addWidget(sep)
-        self.parts_header = QLabel(tr("Parts"))
+        self.parts_header = QLabel(QCoreApplication.translate("FreeShape", "Parts"))
         self.parts_header.setObjectName("sectionHeader")
         lay.addWidget(self.parts_header)
         self.parts = PartsList()

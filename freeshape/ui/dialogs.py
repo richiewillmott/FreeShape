@@ -1,6 +1,9 @@
 """Floating, Onshape-style feature dialogs (green check / red X), built from small schemas."""
 from __future__ import annotations
 
+from PySide6.QtCore import QCoreApplication
+from ..i18n import QT_TRANSLATE_NOOP
+
 from ..i18n import tr
 
 import copy
@@ -23,7 +26,7 @@ from . import theme
 from .numparse import parse_number, fmt, has_vars
 from .viewport import Pick
 
-OP_LABELS = [("new", "New"), ("add", "Add"), ("remove", "Remove"), ("intersect", "Intersect")]
+OP_LABELS = [("new", QT_TRANSLATE_NOOP("FreeShape", "New")), ("add", "Add"), ("remove", QT_TRANSLATE_NOOP("FreeShape", "Remove")), ("intersect", QT_TRANSLATE_NOOP("FreeShape", "Intersect"))]
 
 
 from .. import units as U  # noqa: E402
@@ -187,7 +190,7 @@ def item_label(doc, item):
             return f"{ref['name']} plane"
         if ref["kind"] == "plane":
             f = doc.feature(ref["fid"])
-            return f["name"] if f else "Plane"
+            return f["name"] if f else QT_TRANSLATE_NOOP("FreeShape", "Plane")
         return "Planar face"
     if kind == "path":
         if ref["kind"] == "outline":
@@ -383,7 +386,7 @@ class SelectionField(QFrame):
         top.addWidget(self.title, 1)
         self.clear_btn = QToolButton()
         self.clear_btn.setText("✕")
-        self.clear_btn.setToolTip(tr("Clear selections"))
+        self.clear_btn.setToolTip(QCoreApplication.translate("FreeShape", "Clear selections"))
         self.clear_btn.clicked.connect(self.clear)
         top.addWidget(self.clear_btn)
         lay.addLayout(top)
@@ -408,7 +411,7 @@ class SelectionField(QFrame):
     def refresh(self, doc, missing=()):
         self.list.clear()
         if not self.items:
-            it = QListWidgetItem(tr("Click to select") if self.property("active") == "true" else "—")
+            it = QListWidgetItem(QCoreApplication.translate("FreeShape", "Click to select") if self.property("active") == "true" else "—")
             it.setForeground(QColor("#8a94a3"))
             self.list.addItem(it)
         for i, item in enumerate(self.items):
@@ -546,7 +549,7 @@ def _ops(options=None):
     return {"t": "ops", "key": "op", "options": options or OP_LABELS}
 
 
-SURFACE_OPS = [("new", "New"), ("add", "Add")]
+SURFACE_OPS = [("new", QT_TRANSLATE_NOOP("FreeShape", "New")), ("add", "Add")]
 # features whose selection boxes are stored as they are: [[kind, ref], ...] per box
 PAIR_FEATURES = ("measure_value", "thicken", "enclose", "rib", "delete_part", "helix", "bounding_box", "compound",
                  "explode_part", "fill", "constrained_surface")
@@ -577,14 +580,14 @@ def _creation_fields(verb):
         {**_segments("surface_op", SURFACE_OPS, "new"), "visible": lambda p: p.get("creation", "solid") == "surface"},
         _sel("profiles", f"Faces and sketch regions to {verb}", {"region", "face"},
              visible=lambda p: p.get("creation", "solid") == "solid"),
-        _check("separate", "Separate: one part per area",
+        _check("separate", QT_TRANSLATE_NOOP("FreeShape", "Separate: one part per area"),
                visible=lambda p: p.get("creation", "solid") == "solid"),
-        _check("separate_colors", "Colour each part differently",
+        _check("separate_colors", QT_TRANSLATE_NOOP("FreeShape", "Colour each part differently"),
                visible=lambda p: p.get("creation", "solid") == "solid" and p.get("separate")),
-        _sel("curves", "Sketch curves and edges", {"path"}, visible=curvy),
-        _num("thickness", "Thickness", visible=thin, minimum=1e-6),
-        _choice("thin_side", "Wall goes", BO.THIN_SIDES, visible=thin),
-        _num("thickness2", "Second thickness (other side)", visible=lambda p: thin(p) and p.get("thin_side") == "two",
+        _sel("curves", QT_TRANSLATE_NOOP("FreeShape", "Sketch curves and edges"), {"path"}, visible=curvy),
+        _num("thickness", QT_TRANSLATE_NOOP("FreeShape", "Thickness"), visible=thin, minimum=1e-6),
+        _choice("thin_side", QT_TRANSLATE_NOOP("FreeShape", "Wall goes"), BO.THIN_SIDES, visible=thin),
+        _num("thickness2", QT_TRANSLATE_NOOP("FreeShape", "Second thickness (other side)"), visible=lambda p: thin(p) and p.get("thin_side") == "two",
              minimum=0),
         _scope_field(lambda p: p.get("creation", "solid") != "surface"),
     ]
@@ -593,7 +596,7 @@ def _creation_fields(verb):
 def _scope_field(also=lambda p: True):
     """Merge scope: which parts Add / Remove / Intersect act on (none picked: all of them). Shared by the
     features that merge a body into the model."""
-    return _sel("scope_sel", "Merge scope — parts to act on (none: all)", {"part"},
+    return _sel("scope_sel", QT_TRANSLATE_NOOP("FreeShape", "Merge scope — parts to act on (none: all)"), {"part"},
                 visible=lambda p: p.get("op", "new") != "new" and also(p))
 
 
@@ -624,10 +627,10 @@ def _mc_info(p, dlg):
 def _pattern_of(what):
     """The 'Parts / Features' switch and feature picker shared by Mirror and the patterns."""
     return [
-        _choice("type", f"What to {what}", [("parts", "Parts"), ("features", "Features"), ("faces", "Faces")]),
-        _sel("features", "Features (click them in the feature list)", {"feature"},
+        _choice("type", f"What to {what}", [("parts", "Parts"), ("features", "Features"), ("faces", QT_TRANSLATE_NOOP("FreeShape", "Faces"))]),
+        _sel("features", QT_TRANSLATE_NOOP("FreeShape", "Features (click them in the feature list)"), {"feature"},
              visible=lambda p: p.get("type") == "features"),
-        _sel("faces", "Faces — all the faces of a boss, rib or pocket", {"face"},
+        _sel("faces", QT_TRANSLATE_NOOP("FreeShape", "Faces — all the faces of a boss, rib or pocket"), {"face"},
              visible=lambda p: p.get("type") == "faces"),
     ]
 
@@ -657,367 +660,367 @@ def _second(p):
 
 
 _UP_TO_FIELDS = [
-    _sel("upto_face", "Face or plane to go up to", {"face", "plane"}, multi=False,
+    _sel("upto_face", QT_TRANSLATE_NOOP("FreeShape", "Face or plane to go up to"), {"face", "plane"}, multi=False,
          visible=lambda p: p.get("end") == "up_to_face"),
-    _sel("upto_part", "Part to go up to", {"part"}, multi=False, visible=lambda p: p.get("end") == "up_to_part"),
-    _sel("upto_vertex", "Vertex to go up to", {"vertex"}, multi=False,
+    _sel("upto_part", QT_TRANSLATE_NOOP("FreeShape", "Part to go up to"), {"part"}, multi=False, visible=lambda p: p.get("end") == "up_to_part"),
+    _sel("upto_vertex", QT_TRANSLATE_NOOP("FreeShape", "Vertex to go up to"), {"vertex"}, multi=False,
          visible=lambda p: p.get("end") == "up_to_vertex"),
 ]
 
 
 SCHEMAS = {
     "sm_base": [
-        _sel("profiles", "Sketch region(s) — the sheet's outline", {"region"}),
-        _num("thickness", "Thickness", minimum=1e-6),
-        _num("radius", "Bend radius (inside)", minimum=0),
-        _num("k", "K-factor (0.44 suits most steel / aluminium)", unit="", minimum=1e-6),
-        _check("flip", "Thickness on the other side"),
-        _check("relief", "Corner reliefs where two bends meet"),
-        _num("relief_scale", "Relief size (× thickness)", unit="", visible=lambda p: p.get("relief", True),
+        _sel("profiles", QT_TRANSLATE_NOOP("FreeShape", "Sketch region(s) — the sheet's outline"), {"region"}),
+        _num("thickness", QT_TRANSLATE_NOOP("FreeShape", "Thickness"), minimum=1e-6),
+        _num("radius", QT_TRANSLATE_NOOP("FreeShape", "Bend radius (inside)"), minimum=0),
+        _num("k", QT_TRANSLATE_NOOP("FreeShape", "K-factor (0.44 suits most steel / aluminium)"), unit="", minimum=1e-6),
+        _check("flip", QT_TRANSLATE_NOOP("FreeShape", "Thickness on the other side")),
+        _check("relief", QT_TRANSLATE_NOOP("FreeShape", "Corner reliefs where two bends meet")),
+        _num("relief_scale", QT_TRANSLATE_NOOP("FreeShape", "Relief size (× thickness)"), unit="", visible=lambda p: p.get("relief", True),
              minimum=0.1),
     ],
     "sm_hem": [
-        _sel("edges", "Edges to hem", {"edge"}),
-        _num("length", "Hem length (to the outside of the fold)", minimum=1e-6),
-        _check("down", "Fold the other way"),
-        _check("own_radius", "Choose the fold radius (else half the thickness)"),
-        _num("radius", "Fold radius (inside)", visible=lambda p: p.get("own_radius"), minimum=0.01),
+        _sel("edges", QT_TRANSLATE_NOOP("FreeShape", "Edges to hem"), {"edge"}),
+        _num("length", QT_TRANSLATE_NOOP("FreeShape", "Hem length (to the outside of the fold)"), minimum=1e-6),
+        _check("down", QT_TRANSLATE_NOOP("FreeShape", "Fold the other way")),
+        _check("own_radius", QT_TRANSLATE_NOOP("FreeShape", "Choose the fold radius (else half the thickness)")),
+        _num("radius", QT_TRANSLATE_NOOP("FreeShape", "Fold radius (inside)"), visible=lambda p: p.get("own_radius"), minimum=0.01),
     ],
     "sm_jog": [
-        _sel("edges", "Edges to jog from", {"edge"}),
-        _num("offset", "Offset (the step)", minimum=1e-6),
-        _num("length", "Length after the step (to the outside)", minimum=1e-6),
-        _check("down", "Step the other way"),
-        _check("own_radius", "Use a different bend radius"),
-        _num("radius", "Bend radius (inside)", visible=lambda p: p.get("own_radius"), minimum=0),
+        _sel("edges", QT_TRANSLATE_NOOP("FreeShape", "Edges to jog from"), {"edge"}),
+        _num("offset", QT_TRANSLATE_NOOP("FreeShape", "Offset (the step)"), minimum=1e-6),
+        _num("length", QT_TRANSLATE_NOOP("FreeShape", "Length after the step (to the outside)"), minimum=1e-6),
+        _check("down", QT_TRANSLATE_NOOP("FreeShape", "Step the other way")),
+        _check("own_radius", QT_TRANSLATE_NOOP("FreeShape", "Use a different bend radius")),
+        _num("radius", QT_TRANSLATE_NOOP("FreeShape", "Bend radius (inside)"), visible=lambda p: p.get("own_radius"), minimum=0),
     ],
     "sm_tab": [
-        _sel("profiles", "Sketch region(s) on a panel's face, touching it", {"region"}),
+        _sel("profiles", QT_TRANSLATE_NOOP("FreeShape", "Sketch region(s) on a panel's face, touching it"), {"region"}),
     ],
     "sm_convert": [
-        _sel("faces", "One of the plate's big flat faces", {"face"}, multi=False),
-        _num("radius", "Bend radius for flanges added later", minimum=0),
-        _num("k", "K-factor (0.44 suits most steel / aluminium)", unit="", minimum=1e-6),
-        _check("relief", "Corner reliefs where two bends meet"),
+        _sel("faces", QT_TRANSLATE_NOOP("FreeShape", "One of the plate's big flat faces"), {"face"}, multi=False),
+        _num("radius", QT_TRANSLATE_NOOP("FreeShape", "Bend radius for flanges added later"), minimum=0),
+        _num("k", QT_TRANSLATE_NOOP("FreeShape", "K-factor (0.44 suits most steel / aluminium)"), unit="", minimum=1e-6),
+        _check("relief", QT_TRANSLATE_NOOP("FreeShape", "Corner reliefs where two bends meet")),
     ],
     "sm_flange": [
-        _sel("edges", "Edges to bend a flange from", {"edge"}),
-        _num("length", "Flange length (to the outside)", minimum=1e-6),
-        _num("angle", "Bend angle", unit="deg", minimum=1e-6),
-        _choice("position", "Where the bend goes", [("outside", "Outside the edge (the part grows)"),
-                                                    ("inside", "Inside the edge (keeps the outline size)")]),
-        _check("down", "Bend the other way"),
-        _check("own_radius", "Use a different bend radius"),
-        _num("radius", "Bend radius (inside)", visible=lambda p: p.get("own_radius"), minimum=0),
+        _sel("edges", QT_TRANSLATE_NOOP("FreeShape", "Edges to bend a flange from"), {"edge"}),
+        _num("length", QT_TRANSLATE_NOOP("FreeShape", "Flange length (to the outside)"), minimum=1e-6),
+        _num("angle", QT_TRANSLATE_NOOP("FreeShape", "Bend angle"), unit="deg", minimum=1e-6),
+        _choice("position", QT_TRANSLATE_NOOP("FreeShape", "Where the bend goes"), [("outside", QT_TRANSLATE_NOOP("FreeShape", "Outside the edge (the part grows)")),
+                                                    ("inside", QT_TRANSLATE_NOOP("FreeShape", "Inside the edge (keeps the outline size)"))]),
+        _check("down", QT_TRANSLATE_NOOP("FreeShape", "Bend the other way")),
+        _check("own_radius", QT_TRANSLATE_NOOP("FreeShape", "Use a different bend radius")),
+        _num("radius", QT_TRANSLATE_NOOP("FreeShape", "Bend radius (inside)"), visible=lambda p: p.get("own_radius"), minimum=0),
     ],
     "extrude": [
         *_creation_fields("extrude"),
-        _choice("end", "End type", [("blind", "Blind"), ("symmetric", "Symmetric"), ("through", "Through all")]
+        _choice("end", QT_TRANSLATE_NOOP("FreeShape", "End type"), [("blind", QT_TRANSLATE_NOOP("FreeShape", "Blind")), ("symmetric", QT_TRANSLATE_NOOP("FreeShape", "Symmetric")), ("through", QT_TRANSLATE_NOOP("FreeShape", "Through all"))]
                 + F.UP_TO_LABELS),
-        _num("depth", "Depth", visible=lambda p: p.get("end") not in ("through",) + F.UP_TO, minimum=1e-6),
+        _num("depth", QT_TRANSLATE_NOOP("FreeShape", "Depth"), visible=lambda p: p.get("end") not in ("through",) + F.UP_TO, minimum=1e-6),
         *_UP_TO_FIELDS,
-        _num("offset", "Stop short by",
+        _num("offset", QT_TRANSLATE_NOOP("FreeShape", "Stop short by"),
              visible=lambda p: p.get("end") in ("up_to_face", "up_to_vertex")),
         _flip("flip", "Opposite direction", inline="end", visible=lambda p: p.get("end") != "symmetric"),
-        _check("second", "Second end position", visible=lambda p: p.get("end") not in ("symmetric", "through")),
-        _choice("end2", "Second end type", [("blind", "Blind"), ("symmetric", "Symmetric (mirror of the first end)"),
-                                            ("through", "Through all")] + F.UP_TO_LABELS,
+        _check("second", QT_TRANSLATE_NOOP("FreeShape", "Second end position"), visible=lambda p: p.get("end") not in ("symmetric", "through")),
+        _choice("end2", QT_TRANSLATE_NOOP("FreeShape", "Second end type"), [("blind", QT_TRANSLATE_NOOP("FreeShape", "Blind")), ("symmetric", QT_TRANSLATE_NOOP("FreeShape", "Symmetric (mirror of the first end)")),
+                                            ("through", QT_TRANSLATE_NOOP("FreeShape", "Through all"))] + F.UP_TO_LABELS,
                 visible=_second),
-        _num("depth2", "Second depth", visible=lambda p: _second(p) and p.get("end2", "blind") == "blind",
+        _num("depth2", QT_TRANSLATE_NOOP("FreeShape", "Second depth"), visible=lambda p: _second(p) and p.get("end2", "blind") == "blind",
              minimum=1e-6),
-        _sel("upto2_face", "Second end: face or plane to go up to", {"face", "plane"}, multi=False,
+        _sel("upto2_face", QT_TRANSLATE_NOOP("FreeShape", "Second end: face or plane to go up to"), {"face", "plane"}, multi=False,
              visible=lambda p: _second(p) and p.get("end2") == "up_to_face"),
-        _sel("upto2_part", "Second end: part to go up to", {"part"}, multi=False,
+        _sel("upto2_part", QT_TRANSLATE_NOOP("FreeShape", "Second end: part to go up to"), {"part"}, multi=False,
              visible=lambda p: _second(p) and p.get("end2") == "up_to_part"),
-        _sel("upto2_vertex", "Second end: vertex to go up to", {"vertex"}, multi=False,
+        _sel("upto2_vertex", QT_TRANSLATE_NOOP("FreeShape", "Second end: vertex to go up to"), {"vertex"}, multi=False,
              visible=lambda p: _second(p) and p.get("end2") == "up_to_vertex"),
-        _num("offset2", "Second end: stop short by",
+        _num("offset2", QT_TRANSLATE_NOOP("FreeShape", "Second end: stop short by"),
              visible=lambda p: _second(p) and p.get("end2") in ("up_to_face", "up_to_vertex")),
-        _check("both", "Both directions", visible=lambda p: p.get("end") == "through"),
-        _check("draft", "Draft (taper the sides: + narrows, − widens)",
+        _check("both", QT_TRANSLATE_NOOP("FreeShape", "Both directions"), visible=lambda p: p.get("end") == "through"),
+        _check("draft", QT_TRANSLATE_NOOP("FreeShape", "Draft (taper the sides: + narrows, − widens)"),
                visible=lambda p: p.get("creation", "solid") != "surface" and p.get("end") not in F.UP_TO),
-        _num("draft_angle", "Draft angle", unit="deg",
+        _num("draft_angle", QT_TRANSLATE_NOOP("FreeShape", "Draft angle"), unit="deg",
              visible=lambda p: p.get("draft") and p.get("creation", "solid") != "surface"
              and p.get("end") not in F.UP_TO),
-        _check("draft2", "Draft the second end",
+        _check("draft2", QT_TRANSLATE_NOOP("FreeShape", "Draft the second end"),
                visible=lambda p: p.get("draft") and _second(p) and p.get("creation", "solid") != "surface"
                and p.get("end2", "blind") not in F.UP_TO + ("symmetric",)),
-        _num("draft_angle2", "Second draft angle", unit="deg",
+        _num("draft_angle2", QT_TRANSLATE_NOOP("FreeShape", "Second draft angle"), unit="deg",
              visible=lambda p: p.get("draft") and p.get("draft2") and _second(p)
              and p.get("creation", "solid") != "surface" and p.get("end2", "blind") not in F.UP_TO + ("symmetric",)),
     ],
     "revolve": [
         *_creation_fields("revolve"),
-        _sel("axis_sel", "Revolve axis (sketch line or edge)", {"axis"}, multi=False),
-        _choice("axis_std", "…or world axis", [("", "—"), ("X", "X axis"), ("Y", "Y axis"), ("Z", "Z axis")]),
-        _choice("end", "Revolve type", [("full", "Full"), ("one", "One direction"), ("symmetric", "Symmetric"),
-                                        ("two", "Two directions")] + F.UP_TO_LABELS),
-        _num("angle", "Revolve angle", unit="deg", visible=lambda p: p.get("end") in ("one", "symmetric", "two")),
-        _num("angle2", "Second angle (other way)", unit="deg", visible=lambda p: p.get("end") == "two"),
+        _sel("axis_sel", QT_TRANSLATE_NOOP("FreeShape", "Revolve axis (sketch line or edge)"), {"axis"}, multi=False),
+        _choice("axis_std", QT_TRANSLATE_NOOP("FreeShape", "…or world axis"), [("", "—"), ("X", QT_TRANSLATE_NOOP("FreeShape", "X axis")), ("Y", QT_TRANSLATE_NOOP("FreeShape", "Y axis")), ("Z", QT_TRANSLATE_NOOP("FreeShape", "Z axis"))]),
+        _choice("end", QT_TRANSLATE_NOOP("FreeShape", "Revolve type"), [("full", QT_TRANSLATE_NOOP("FreeShape", "Full")), ("one", QT_TRANSLATE_NOOP("FreeShape", "One direction")), ("symmetric", QT_TRANSLATE_NOOP("FreeShape", "Symmetric")),
+                                        ("two", QT_TRANSLATE_NOOP("FreeShape", "Two directions"))] + F.UP_TO_LABELS),
+        _num("angle", QT_TRANSLATE_NOOP("FreeShape", "Revolve angle"), unit="deg", visible=lambda p: p.get("end") in ("one", "symmetric", "two")),
+        _num("angle2", QT_TRANSLATE_NOOP("FreeShape", "Second angle (other way)"), unit="deg", visible=lambda p: p.get("end") == "two"),
         *_UP_TO_FIELDS,
-        _num("offset", "Stop short by",
+        _num("offset", QT_TRANSLATE_NOOP("FreeShape", "Stop short by"),
              visible=lambda p: p.get("end") == "up_to_face"),
-        _check("mirror_end", "Symmetric (mirror it the other way too)", visible=lambda p: p.get("end") in F.UP_TO),
+        _check("mirror_end", QT_TRANSLATE_NOOP("FreeShape", "Symmetric (mirror it the other way too)"), visible=lambda p: p.get("end") in F.UP_TO),
         _flip("flip", "Opposite direction", inline="end",
               visible=lambda p: p.get("end") in ("one", "two") or p.get("end") in F.UP_TO),
     ],
     "fillet": [
-        _sel("edges", "Edges or faces to fillet", {"edge"}),
-        _num("radius", "Radius", minimum=1e-6),
-        _check("variable", "Variable radius (changes along the edge)"),
-        _num("radius2", "Radius at the other end", visible=lambda p: p.get("variable"), minimum=1e-6),
+        _sel("edges", QT_TRANSLATE_NOOP("FreeShape", "Edges or faces to fillet"), {"edge"}),
+        _num("radius", QT_TRANSLATE_NOOP("FreeShape", "Radius"), minimum=1e-6),
+        _check("variable", QT_TRANSLATE_NOOP("FreeShape", "Variable radius (changes along the edge)")),
+        _num("radius2", QT_TRANSLATE_NOOP("FreeShape", "Radius at the other end"), visible=lambda p: p.get("variable"), minimum=1e-6),
     ],
     "chamfer": [
-        _sel("edges", "Edges or faces to chamfer", {"edge"}),
-        _choice("type", "Chamfer type", [("equal", "Equal distance"), ("two", "Two distances"),
-                                         ("angle", "Distance and angle")]),
-        _num("distance", "Distance", minimum=1e-6),
-        _num("distance2", "Second distance", visible=lambda p: p.get("type") == "two", minimum=1e-6),
-        _num("angle", "Angle", unit="deg", visible=lambda p: p.get("type") == "angle", minimum=1e-6),
-        _check("flip", "Flip sides", visible=lambda p: p.get("type") in ("two", "angle")),
-        _check("tangent", "Tangent propagation (carry on round smooth corners)"),
+        _sel("edges", QT_TRANSLATE_NOOP("FreeShape", "Edges or faces to chamfer"), {"edge"}),
+        _choice("type", QT_TRANSLATE_NOOP("FreeShape", "Chamfer type"), [("equal", QT_TRANSLATE_NOOP("FreeShape", "Equal distance")), ("two", QT_TRANSLATE_NOOP("FreeShape", "Two distances")),
+                                         ("angle", QT_TRANSLATE_NOOP("FreeShape", "Distance and angle"))]),
+        _num("distance", QT_TRANSLATE_NOOP("FreeShape", "Distance"), minimum=1e-6),
+        _num("distance2", QT_TRANSLATE_NOOP("FreeShape", "Second distance"), visible=lambda p: p.get("type") == "two", minimum=1e-6),
+        _num("angle", QT_TRANSLATE_NOOP("FreeShape", "Angle"), unit="deg", visible=lambda p: p.get("type") == "angle", minimum=1e-6),
+        _check("flip", QT_TRANSLATE_NOOP("FreeShape", "Flip sides"), visible=lambda p: p.get("type") in ("two", "angle")),
+        _check("tangent", QT_TRANSLATE_NOOP("FreeShape", "Tangent propagation (carry on round smooth corners)")),
     ],
     "shell": [
-        _sel("faces", "Faces to remove", {"face"}),
-        _num("thickness", "Thickness", minimum=1e-6),
-        _check("outward", "Shell outside"),
+        _sel("faces", QT_TRANSLATE_NOOP("FreeShape", "Faces to remove"), {"face"}),
+        _num("thickness", QT_TRANSLATE_NOOP("FreeShape", "Thickness"), minimum=1e-6),
+        _check("outward", QT_TRANSLATE_NOOP("FreeShape", "Shell outside")),
     ],
     "delete_face": [
-        _sel("faces", "Faces to delete", {"face"}),
-        _choice("mode", "After deleting", [("heal", "Heal (extend the surrounding faces)"),
-                                           ("cap", "Cap (close with a flat face)"),
-                                           ("open", "Leave the void open")]),
+        _sel("faces", QT_TRANSLATE_NOOP("FreeShape", "Faces to delete"), {"face"}),
+        _choice("mode", QT_TRANSLATE_NOOP("FreeShape", "After deleting"), [("heal", QT_TRANSLATE_NOOP("FreeShape", "Heal (extend the surrounding faces)")),
+                                           ("cap", QT_TRANSLATE_NOOP("FreeShape", "Cap (close with a flat face)")),
+                                           ("open", QT_TRANSLATE_NOOP("FreeShape", "Leave the void open"))]),
         {"t": "info", "key": "_info", "text": lambda p: {
             "heal": "Removes fillets, chamfers, bosses and holes from an imported part.",
             "cap": "Covers the opening with a flat face.",
             "open": "The part becomes an open shell."}.get(p.get("mode", "heal"), "")},
     ],
     "move_face": [
-        _sel("faces", "Flat faces to move", {"face"}),
-        _num("distance", "Distance (outwards)"),
-        _flip("flip", "Flip direction", inline="distance"),
+        _sel("faces", QT_TRANSLATE_NOOP("FreeShape", "Flat faces to move"), {"face"}),
+        _num("distance", QT_TRANSLATE_NOOP("FreeShape", "Distance (outwards)")),
+        _flip("flip", QT_TRANSLATE_NOOP("FreeShape", "Flip direction"), inline="distance"),
     ],
     "offset_surface": [
-        _sel("faces", "Faces to offset", {"face"}),
-        _num("distance", "Distance (outwards)"),
-        _flip("flip", "Flip direction", inline="distance"),
+        _sel("faces", QT_TRANSLATE_NOOP("FreeShape", "Faces to offset"), {"face"}),
+        _num("distance", QT_TRANSLATE_NOOP("FreeShape", "Distance (outwards)")),
+        _flip("flip", QT_TRANSLATE_NOOP("FreeShape", "Flip direction"), inline="distance"),
     ],
     "plane": [
-        _choice("type", "Plane type", F.PLANE_TYPES),
-        _sel("refs_sel", "Planes, faces, edges and vertices", {"plane", "face", "edge", "vertex"}),
+        _choice("type", QT_TRANSLATE_NOOP("FreeShape", "Plane type"), F.PLANE_TYPES),
+        _sel("refs_sel", QT_TRANSLATE_NOOP("FreeShape", "Planes, faces, edges and vertices"), {"plane", "face", "edge", "vertex"}),
         {"t": "info", "key": "_info", "text": lambda p: _plane_info(p)},
-        _num("offset", "Offset distance", visible=lambda p: F.plane_type(p) == "offset"),
-        _num("angle", "Angle", unit="deg", visible=lambda p: F.plane_type(p) == "line_angle"),
-        _flip("flip", "Flip direction", inline="type", visible=lambda p: F.plane_type(p) is not None),
+        _num("offset", QT_TRANSLATE_NOOP("FreeShape", "Offset distance"), visible=lambda p: F.plane_type(p) == "offset"),
+        _num("angle", QT_TRANSLATE_NOOP("FreeShape", "Angle"), unit="deg", visible=lambda p: F.plane_type(p) == "line_angle"),
+        _flip("flip", QT_TRANSLATE_NOOP("FreeShape", "Flip direction"), inline="type", visible=lambda p: F.plane_type(p) is not None),
     ],
     "mirror": [
         *_pattern_of("mirror"),
         {**_ops(), "visible": lambda p: p.get("type", "parts") == "parts"},
         _scope_field(lambda p: p.get("type", "parts") == "parts"),
-        _sel("parts", "Parts to mirror", {"part"}, visible=lambda p: p.get("type", "parts") == "parts"),
-        _sel("plane_sel", "Mirror plane", {"plane"}, multi=False),
+        _sel("parts", QT_TRANSLATE_NOOP("FreeShape", "Parts to mirror"), {"part"}, visible=lambda p: p.get("type", "parts") == "parts"),
+        _sel("plane_sel", QT_TRANSLATE_NOOP("FreeShape", "Mirror plane"), {"plane"}, multi=False),
     ],
     "linear_pattern": [
         *_pattern_of("pattern"),
         {**_ops(), "visible": lambda p: p.get("type", "parts") == "parts"},
         _scope_field(lambda p: p.get("type", "parts") == "parts"),
-        _sel("parts", "Parts to pattern", {"part"}, visible=lambda p: p.get("type", "parts") == "parts"),
-        _sel("dir_sel", "Direction (edge or sketch line)", {"axis"}, multi=False),
-        _choice("dir_std", "…or world axis", [("", "—"), ("X", "X axis"), ("Y", "Y axis"), ("Z", "Z axis")]),
-        _num("spacing", "Distance"),
-        _num("count", "Instance count", unit=""),
+        _sel("parts", QT_TRANSLATE_NOOP("FreeShape", "Parts to pattern"), {"part"}, visible=lambda p: p.get("type", "parts") == "parts"),
+        _sel("dir_sel", QT_TRANSLATE_NOOP("FreeShape", "Direction (edge or sketch line)"), {"axis"}, multi=False),
+        _choice("dir_std", QT_TRANSLATE_NOOP("FreeShape", "…or world axis"), [("", "—"), ("X", QT_TRANSLATE_NOOP("FreeShape", "X axis")), ("Y", QT_TRANSLATE_NOOP("FreeShape", "Y axis")), ("Z", QT_TRANSLATE_NOOP("FreeShape", "Z axis"))]),
+        _num("spacing", QT_TRANSLATE_NOOP("FreeShape", "Distance")),
+        _num("count", QT_TRANSLATE_NOOP("FreeShape", "Instance count"), unit=""),
         _flip("flip", "Opposite direction", inline="spacing"),
-        _check("second", "Second direction"),
-        _sel("dir2_sel", "Second direction (edge or sketch line)", {"axis"}, multi=False,
+        _check("second", QT_TRANSLATE_NOOP("FreeShape", "Second direction")),
+        _sel("dir2_sel", QT_TRANSLATE_NOOP("FreeShape", "Second direction (edge or sketch line)"), {"axis"}, multi=False,
              visible=lambda p: p.get("second")),
-        _choice("dir2_std", "…or world axis", [("", "—"), ("X", "X axis"), ("Y", "Y axis"), ("Z", "Z axis")],
+        _choice("dir2_std", QT_TRANSLATE_NOOP("FreeShape", "…or world axis"), [("", "—"), ("X", QT_TRANSLATE_NOOP("FreeShape", "X axis")), ("Y", QT_TRANSLATE_NOOP("FreeShape", "Y axis")), ("Z", QT_TRANSLATE_NOOP("FreeShape", "Z axis"))],
                 visible=lambda p: p.get("second")),
-        _num("spacing2", "Second distance", visible=lambda p: p.get("second")),
-        _num("count2", "Second instance count", unit="", visible=lambda p: p.get("second")),
-        _flip("flip2", "Opposite second direction", inline="spacing2", visible=lambda p: p.get("second")),
+        _num("spacing2", QT_TRANSLATE_NOOP("FreeShape", "Second distance"), visible=lambda p: p.get("second")),
+        _num("count2", QT_TRANSLATE_NOOP("FreeShape", "Second instance count"), unit="", visible=lambda p: p.get("second")),
+        _flip("flip2", QT_TRANSLATE_NOOP("FreeShape", "Opposite second direction"), inline="spacing2", visible=lambda p: p.get("second")),
     ],
     "circular_pattern": [
         *_pattern_of("pattern"),
         {**_ops(), "visible": lambda p: p.get("type", "parts") == "parts"},
         _scope_field(lambda p: p.get("type", "parts") == "parts"),
-        _sel("parts", "Parts to pattern", {"part"}, visible=lambda p: p.get("type", "parts") == "parts"),
-        _sel("axis_sel", "Axis of pattern (edge or sketch line)", {"axis"}, multi=False),
-        _choice("axis_std", "…or world axis", [("", "—"), ("X", "X axis"), ("Y", "Y axis"), ("Z", "Z axis")]),
-        _num("angle", "Angle", unit="deg"),
-        _num("count", "Instance count", unit=""),
+        _sel("parts", QT_TRANSLATE_NOOP("FreeShape", "Parts to pattern"), {"part"}, visible=lambda p: p.get("type", "parts") == "parts"),
+        _sel("axis_sel", QT_TRANSLATE_NOOP("FreeShape", "Axis of pattern (edge or sketch line)"), {"axis"}, multi=False),
+        _choice("axis_std", QT_TRANSLATE_NOOP("FreeShape", "…or world axis"), [("", "—"), ("X", QT_TRANSLATE_NOOP("FreeShape", "X axis")), ("Y", QT_TRANSLATE_NOOP("FreeShape", "Y axis")), ("Z", QT_TRANSLATE_NOOP("FreeShape", "Z axis"))]),
+        _num("angle", QT_TRANSLATE_NOOP("FreeShape", "Angle"), unit="deg"),
+        _num("count", QT_TRANSLATE_NOOP("FreeShape", "Instance count"), unit=""),
     ],
     "curve_pattern": [
         *_pattern_of("pattern"),
         {**_ops(), "visible": lambda p: p.get("type", "parts") == "parts"},
         _scope_field(lambda p: p.get("type", "parts") == "parts"),
-        _sel("parts", "Parts to pattern", {"part"}, visible=lambda p: p.get("type", "parts") == "parts"),
-        _sel("path", "Path to pattern along (sketch curves or edges)", {"path"}),
-        _num("count", "Instance count", unit=""),
-        _choice("spacing_mode", "Spacing", [("fit", "Spread along the whole path"), ("distance", "Distance apart")]),
-        _num("spacing", "Distance", visible=lambda p: p.get("spacing_mode") == "distance"),
-        _flip("flip", "Start from the other end", inline="spacing_mode"),
-        _check("keep_orientation", "Keep orientation (move only, don't turn with the path)"),
+        _sel("parts", QT_TRANSLATE_NOOP("FreeShape", "Parts to pattern"), {"part"}, visible=lambda p: p.get("type", "parts") == "parts"),
+        _sel("path", QT_TRANSLATE_NOOP("FreeShape", "Path to pattern along (sketch curves or edges)"), {"path"}),
+        _num("count", QT_TRANSLATE_NOOP("FreeShape", "Instance count"), unit=""),
+        _choice("spacing_mode", QT_TRANSLATE_NOOP("FreeShape", "Spacing"), [("fit", QT_TRANSLATE_NOOP("FreeShape", "Spread along the whole path")), ("distance", QT_TRANSLATE_NOOP("FreeShape", "Distance apart"))]),
+        _num("spacing", QT_TRANSLATE_NOOP("FreeShape", "Distance"), visible=lambda p: p.get("spacing_mode") == "distance"),
+        _flip("flip", QT_TRANSLATE_NOOP("FreeShape", "Start from the other end"), inline="spacing_mode"),
+        _check("keep_orientation", QT_TRANSLATE_NOOP("FreeShape", "Keep orientation (move only, don't turn with the path)")),
     ],
     "point_pattern": [
         *_pattern_of("pattern"),
         {**_ops(), "visible": lambda p: p.get("type", "parts") == "parts"},
         _scope_field(lambda p: p.get("type", "parts") == "parts"),
-        _sel("parts", "Parts to pattern", {"part"}, visible=lambda p: p.get("type", "parts") == "parts"),
-        _sel("locations", "Points to copy to (vertices or sketch points)", {"vertex"}),
-        _sel("reference_sel", "Reference point (optional — else the middle of what's patterned)", {"vertex"},
+        _sel("parts", QT_TRANSLATE_NOOP("FreeShape", "Parts to pattern"), {"part"}, visible=lambda p: p.get("type", "parts") == "parts"),
+        _sel("locations", QT_TRANSLATE_NOOP("FreeShape", "Points to copy to (vertices or sketch points)"), {"vertex"}),
+        _sel("reference_sel", QT_TRANSLATE_NOOP("FreeShape", "Reference point (optional — else the middle of what's patterned)"), {"vertex"},
              multi=False),
     ],
     "boolean": [
-        {"t": "ops", "key": "op", "options": [("union", "Union"), ("subtract", "Subtract"), ("intersect", "Intersect")]},
+        {"t": "ops", "key": "op", "options": [("union", QT_TRANSLATE_NOOP("FreeShape", "Union")), ("subtract", QT_TRANSLATE_NOOP("FreeShape", "Subtract")), ("intersect", QT_TRANSLATE_NOOP("FreeShape", "Intersect"))]},
         _sel("tools", "Tools", {"part"}),
-        _sel("targets", "Targets", {"part"}, visible=lambda p: p.get("op") != "union"),
-        _check("keep_tools", "Keep tools", visible=lambda p: p.get("op") != "union"),
+        _sel("targets", QT_TRANSLATE_NOOP("FreeShape", "Targets"), {"part"}, visible=lambda p: p.get("op") != "union"),
+        _check("keep_tools", QT_TRANSLATE_NOOP("FreeShape", "Keep tools"), visible=lambda p: p.get("op") != "union"),
     ],
     "sweep": [
         *_creation_fields("sweep"),
-        _sel("path", "Sweep path (sketch curves or edges)", {"path"}),
-        _choice("control", "Profile control", K.SWEEP_CONTROLS),
-        _choice("lock_std", "Direction", [("X", "X axis"), ("Y", "Y axis"), ("Z", "Z axis")],
+        _sel("path", QT_TRANSLATE_NOOP("FreeShape", "Sweep path (sketch curves or edges)"), {"path"}),
+        _choice("control", QT_TRANSLATE_NOOP("FreeShape", "Profile control"), K.SWEEP_CONTROLS),
+        _choice("lock_std", "Direction", [("X", QT_TRANSLATE_NOOP("FreeShape", "X axis")), ("Y", QT_TRANSLATE_NOOP("FreeShape", "Y axis")), ("Z", QT_TRANSLATE_NOOP("FreeShape", "Z axis"))],
                 visible=lambda p: p.get("control") == "lock_direction"),
-        _sel("support_sel", "Faces the path runs on", {"face"}, visible=lambda p: p.get("control") == "lock_faces"),
-        _sel("guide_sel", "Guide curve", {"path"}, multi=False, visible=lambda p: p.get("control") == "guide"),
+        _sel("support_sel", QT_TRANSLATE_NOOP("FreeShape", "Faces the path runs on"), {"face"}, visible=lambda p: p.get("control") == "lock_faces"),
+        _sel("guide_sel", QT_TRANSLATE_NOOP("FreeShape", "Guide curve"), {"path"}, multi=False, visible=lambda p: p.get("control") == "guide"),
     ],
     "loft": [
         _segments("creation", _creation_types(), "solid"),
         {**_ops(), "visible": lambda p: p.get("creation", "solid") != "surface"},
         {**_segments("surface_op", SURFACE_OPS, "new"), "visible": lambda p: p.get("creation", "solid") == "surface"},
         _scope_field(lambda p: p.get("creation", "solid") != "surface"),
-        _sel("profiles", "Profiles — pick them in order (regions, faces or curves)", {"region", "face", "path"}),
-        _num("thickness", "Thickness", visible=lambda p: p.get("creation") == "thin", minimum=1e-6),
-        _choice("thin_side", "Wall goes", _thin_sides(), visible=lambda p: p.get("creation") == "thin"),
-        _num("thickness2", "Second thickness (other side)",
+        _sel("profiles", QT_TRANSLATE_NOOP("FreeShape", "Profiles — pick them in order (regions, faces or curves)"), {"region", "face", "path"}),
+        _num("thickness", QT_TRANSLATE_NOOP("FreeShape", "Thickness"), visible=lambda p: p.get("creation") == "thin", minimum=1e-6),
+        _choice("thin_side", QT_TRANSLATE_NOOP("FreeShape", "Wall goes"), _thin_sides(), visible=lambda p: p.get("creation") == "thin"),
+        _num("thickness2", QT_TRANSLATE_NOOP("FreeShape", "Second thickness (other side)"),
              visible=lambda p: p.get("creation") == "thin" and p.get("thin_side") == "two", minimum=0),
-        _check("ruled", "Straight sides (ruled)"),
-        _sel("path", "Path to loft along (optional)", {"path"}),
+        _check("ruled", QT_TRANSLATE_NOOP("FreeShape", "Straight sides (ruled)")),
+        _sel("path", QT_TRANSLATE_NOOP("FreeShape", "Path to loft along (optional)"), {"path"}),
     ],
     "draft": [
-        _sel("faces", "Faces to draft", {"face"}),
-        _sel("neutral_sel", "Neutral plane", {"plane"}, multi=False),
-        _num("angle", "Draft angle", unit="deg"),
+        _sel("faces", QT_TRANSLATE_NOOP("FreeShape", "Faces to draft"), {"face"}),
+        _sel("neutral_sel", QT_TRANSLATE_NOOP("FreeShape", "Neutral plane"), {"plane"}, multi=False),
+        _num("angle", QT_TRANSLATE_NOOP("FreeShape", "Draft angle"), unit="deg"),
         _flip("flip", "Opposite direction", inline="angle"),
     ],
     "split": [
-        _sel("parts", "Parts to split", {"part"}),
-        _sel("tools", "Split with — planes, faces (flat or curved) or sketch curves", {"plane", "face", "path"}),
+        _sel("parts", QT_TRANSLATE_NOOP("FreeShape", "Parts to split"), {"part"}),
+        _sel("tools", QT_TRANSLATE_NOOP("FreeShape", "Split with — planes, faces (flat or curved) or sketch curves"), {"plane", "face", "path"}),
         {"t": "split_tools", "key": "_split_tools"},
         {"t": "info", "key": "_info", "text": lambda p: "" if F.split_tools(p) else
          "Pick one or more: each cuts right through. Untick “Keep both sides” to keep only the side its arrow "
          "points to."},
     ],
     "move": [
-        _choice("type", "Type", F.MOVE_TYPES),
-        _sel("parts", "Parts to transform", {"part"}),
-        _num("dx", "Move X", visible=lambda p: _mt(p) == "xyz"),
-        _num("dy", "Move Y", visible=lambda p: _mt(p) == "xyz"),
-        _num("dz", "Move Z", visible=lambda p: _mt(p) == "xyz"),
-        _sel("axis_sel", "Line, direction or axis (edge or sketch line) — a line moves it by its own length",
+        _choice("type", QT_TRANSLATE_NOOP("FreeShape", "Type"), F.MOVE_TYPES),
+        _sel("parts", QT_TRANSLATE_NOOP("FreeShape", "Parts to transform"), {"part"}),
+        _num("dx", QT_TRANSLATE_NOOP("FreeShape", "Move X"), visible=lambda p: _mt(p) == "xyz"),
+        _num("dy", QT_TRANSLATE_NOOP("FreeShape", "Move Y"), visible=lambda p: _mt(p) == "xyz"),
+        _num("dz", QT_TRANSLATE_NOOP("FreeShape", "Move Z"), visible=lambda p: _mt(p) == "xyz"),
+        _sel("axis_sel", QT_TRANSLATE_NOOP("FreeShape", "Line, direction or axis (edge or sketch line) — a line moves it by its own length"),
              {"axis"}, multi=False, visible=lambda p: _mt(p) in ("line", "distance", "rotate")
              or (_mt(p) == "xyz" and _isnum(p.get("rotate")) is not False)),
-        _num("distance", "Distance", visible=lambda p: _mt(p) == "distance"),
-        _sel("from_sel", "Point to move from (vertex or sketch point)", {"vertex"}, multi=False,
+        _num("distance", QT_TRANSLATE_NOOP("FreeShape", "Distance"), visible=lambda p: _mt(p) == "distance"),
+        _sel("from_sel", QT_TRANSLATE_NOOP("FreeShape", "Point to move from (vertex or sketch point)"), {"vertex"}, multi=False,
              visible=lambda p: _mt(p) == "points"),
-        _sel("to_sel", "Point to move to", {"vertex"}, multi=False, visible=lambda p: _mt(p) == "points"),
-        _num("rotate", "Rotate", unit="deg",
+        _sel("to_sel", QT_TRANSLATE_NOOP("FreeShape", "Point to move to"), {"vertex"}, multi=False, visible=lambda p: _mt(p) == "points"),
+        _num("rotate", QT_TRANSLATE_NOOP("FreeShape", "Rotate"), unit="deg",
              visible=lambda p: _mt(p) == "rotate" or (_mt(p) == "xyz" and _isnum(p.get("rotate")) is not False)),
-        _choice("axis_std", "…or world axis", [("", "—"), ("X", "X axis"), ("Y", "Y axis"), ("Z", "Z axis")],
+        _choice("axis_std", QT_TRANSLATE_NOOP("FreeShape", "…or world axis"), [("", "—"), ("X", QT_TRANSLATE_NOOP("FreeShape", "X axis")), ("Y", QT_TRANSLATE_NOOP("FreeShape", "Y axis")), ("Z", QT_TRANSLATE_NOOP("FreeShape", "Z axis"))],
                 visible=lambda p: _mt(p) in ("rotate", "distance")
                 or (_mt(p) == "xyz" and _isnum(p.get("rotate")) is not False)),
-        _choice("from_mc", "Mate connector to move from", _connector_options, visible=lambda p: _mt(p) == "mates"),
-        _choice("to_mc", "Mate connector to move to", _connector_options, visible=lambda p: _mt(p) == "mates"),
+        _choice("from_mc", QT_TRANSLATE_NOOP("FreeShape", "Mate connector to move from"), _connector_options, visible=lambda p: _mt(p) == "mates"),
+        _choice("to_mc", QT_TRANSLATE_NOOP("FreeShape", "Mate connector to move to"), _connector_options, visible=lambda p: _mt(p) == "mates"),
         _num("scale", "Scale", unit="", visible=lambda p: _mt(p) == "scale", minimum=1e-9),
-        _sel("about_sel", "About this point (none: the origin)", {"vertex"}, multi=False,
+        _sel("about_sel", QT_TRANSLATE_NOOP("FreeShape", "About this point (none: the origin)"), {"vertex"}, multi=False,
              visible=lambda p: _mt(p) == "scale"),
         _flip("flip", "Opposite direction", inline="type", visible=lambda p: _mt(p) in ("line", "distance", "rotate",
                                                                                          "mates")),
-        _check("copy", "Keep the original (make a copy)", visible=lambda p: _mt(p) != "copy"),
+        _check("copy", QT_TRANSLATE_NOOP("FreeShape", "Keep the original (make a copy)"), visible=lambda p: _mt(p) != "copy"),
     ],
     "mate_connector": [
-        _sel("on_sel", "On a face, edge or vertex (none: the origin)", {"face", "edge", "vertex"}, multi=False),
+        _sel("on_sel", QT_TRANSLATE_NOOP("FreeShape", "On a face, edge or vertex (none: the origin)"), {"face", "edge", "vertex"}, multi=False),
         {"t": "info", "key": "_info", "text": lambda p, dlg=None: _mc_info(p, dlg), "dialog": True},
-        {"t": "button", "key": "_next_point", "label": "Next point  (Shift)", "on": "_mc_next_point",
+        {"t": "button", "key": "_next_point", "label": QT_TRANSLATE_NOOP("FreeShape", "Next point  (Shift)"), "on": "_mc_next_point",
          "visible": lambda p: bool(p.get("on"))},
-        _flip("flip", "Flip the Z axis", inline="_next_point"),
-        _num("rotate", "Turn about Z", unit="deg"),
-        _num("dx", "Move along X"),
-        _num("dy", "Move along Y"),
-        _num("dz", "Move along Z"),
+        _flip("flip", QT_TRANSLATE_NOOP("FreeShape", "Flip the Z axis"), inline="_next_point"),
+        _num("rotate", QT_TRANSLATE_NOOP("FreeShape", "Turn about Z"), unit="deg"),
+        _num("dx", QT_TRANSLATE_NOOP("FreeShape", "Move along X")),
+        _num("dy", QT_TRANSLATE_NOOP("FreeShape", "Move along Y")),
+        _num("dz", QT_TRANSLATE_NOOP("FreeShape", "Move along Z")),
     ],
     "thread": [
-        _sel("faces", "Round faces to thread (holes or shafts)", {"face"}),
-        _choice("size", "Size", [("auto", "Automatic (from the diameter)")] + [(x, x) for x in K.ISO_PITCH]
+        _sel("faces", QT_TRANSLATE_NOOP("FreeShape", "Round faces to thread (holes or shafts)"), {"face"}),
+        _choice("size", "Size", [("auto", QT_TRANSLATE_NOOP("FreeShape", "Automatic (from the diameter)"))] + [(x, x) for x in K.ISO_PITCH]
                 + [("custom", "Custom")]),
-        _num("major", "Major diameter", visible=lambda p: p.get("size") == "custom", minimum=1e-3),
-        _num("pitch", "Pitch", visible=lambda p: p.get("size") == "custom", minimum=1e-3),
-        _choice("length_mode", "Length", [("full", "Whole face"), ("length", "Set length")]),
-        _num("length", "Thread length", visible=lambda p: p.get("length_mode") == "length", minimum=1e-3),
-        _check("left_hand", "Left-hand thread"),
-        _num("clearance", "Print clearance"),
+        _num("major", QT_TRANSLATE_NOOP("FreeShape", "Major diameter"), visible=lambda p: p.get("size") == "custom", minimum=1e-3),
+        _num("pitch", QT_TRANSLATE_NOOP("FreeShape", "Pitch"), visible=lambda p: p.get("size") == "custom", minimum=1e-3),
+        _choice("length_mode", QT_TRANSLATE_NOOP("FreeShape", "Length"), [("full", QT_TRANSLATE_NOOP("FreeShape", "Whole face")), ("length", QT_TRANSLATE_NOOP("FreeShape", "Set length"))]),
+        _num("length", QT_TRANSLATE_NOOP("FreeShape", "Thread length"), visible=lambda p: p.get("length_mode") == "length", minimum=1e-3),
+        _check("left_hand", QT_TRANSLATE_NOOP("FreeShape", "Left-hand thread")),
+        _num("clearance", QT_TRANSLATE_NOOP("FreeShape", "Print clearance")),
         {"t": "info", "key": "_info", "text": lambda p: "Real ISO metric thread geometry. Holes get an internal "
                                                        "thread, shafts an external one. For 3D printing, add "
                                                        "about 0.1–0.2 mm clearance."},
     ],
     "thicken": [
-        _sel("items", "Surfaces and faces to thicken", {"face", "part"}),
-        _choice("side", "Thickness goes", _mf().THICKEN_SIDES),
-        _num("thickness", "Thickness", minimum=1e-6),
-        _num("thickness2", "Second thickness (other side)", visible=lambda p: p.get("side") == "two", minimum=0),
+        _sel("items", QT_TRANSLATE_NOOP("FreeShape", "Surfaces and faces to thicken"), {"face", "part"}),
+        _choice("side", QT_TRANSLATE_NOOP("FreeShape", "Thickness goes"), _mf().THICKEN_SIDES),
+        _num("thickness", QT_TRANSLATE_NOOP("FreeShape", "Thickness"), minimum=1e-6),
+        _num("thickness2", QT_TRANSLATE_NOOP("FreeShape", "Second thickness (other side)"), visible=lambda p: p.get("side") == "two", minimum=0),
         _ops(),
         _scope_field(),
     ],
     "enclose": [
-        _sel("items", "Surfaces, faces and planes that close off a space", {"face", "part", "plane"}),
-        _check("keep_tools", "Keep the surfaces"),
+        _sel("items", QT_TRANSLATE_NOOP("FreeShape", "Surfaces, faces and planes that close off a space"), {"face", "part", "plane"}),
+        _check("keep_tools", QT_TRANSLATE_NOOP("FreeShape", "Keep the surfaces")),
         _ops(),
         _scope_field(),
     ],
     "fill": [
-        _sel("edges", "Edges and sketch curves around the area (a closed loop)", {"path"}),
-        _choice("continuity", "Meets the surfaces around it", _mf().FILL_CONTINUITY),
-        _sel("points", "Points it must pass through (optional)", {"vertex"}),
+        _sel("edges", QT_TRANSLATE_NOOP("FreeShape", "Edges and sketch curves around the area (a closed loop)"), {"path"}),
+        _choice("continuity", QT_TRANSLATE_NOOP("FreeShape", "Meets the surfaces around it"), _mf().FILL_CONTINUITY),
+        _sel("points", QT_TRANSLATE_NOOP("FreeShape", "Points it must pass through (optional)"), {"vertex"}),
         _segments("surface_op", SURFACE_OPS, "new"),
         {"t": "info", "key": "_info", "text": lambda p: "Tangent: edges of a surface body are met smoothly; sketch "
                                                        "curves and edges between two faces are just met."},
     ],
     "constrained_surface": [
-        _sel("points", "Points it goes through", {"vertex"}),
-        _sel("parts", "…or parts (all their vertices — a point cloud or scan)", {"part"}),
-        _num("tolerance", "Tolerance (furthest a point may be)", minimum=1e-6),
+        _sel("points", QT_TRANSLATE_NOOP("FreeShape", "Points it goes through"), {"vertex"}),
+        _sel("parts", QT_TRANSLATE_NOOP("FreeShape", "…or parts (all their vertices — a point cloud or scan)"), {"part"}),
+        _num("tolerance", QT_TRANSLATE_NOOP("FreeShape", "Tolerance (furthest a point may be)"), minimum=1e-6),
         _segments("surface_op", SURFACE_OPS, "new"),
     ],
     "rib": [
-        _sel("curves", "Sketch lines for the rib", {"path"}),
-        _sel("parts", "Parts to grow out to (none: all)", {"part"}),
-        _num("thickness", "Thickness", minimum=1e-6),
-        _choice("direction", "Rib grows", _mf().RIB_DIRECTIONS),
+        _sel("curves", QT_TRANSLATE_NOOP("FreeShape", "Sketch lines for the rib"), {"path"}),
+        _sel("parts", QT_TRANSLATE_NOOP("FreeShape", "Parts to grow out to (none: all)"), {"part"}),
+        _num("thickness", QT_TRANSLATE_NOOP("FreeShape", "Thickness"), minimum=1e-6),
+        _choice("direction", QT_TRANSLATE_NOOP("FreeShape", "Rib grows"), _mf().RIB_DIRECTIONS),
         _flip("flip", "Opposite direction", inline="direction"),
     ],
     "delete_part": [
-        _sel("parts", "Parts to delete", {"part"}),
+        _sel("parts", QT_TRANSLATE_NOOP("FreeShape", "Parts to delete"), {"part"}),
     ],
     "helix": [
-        _sel("base", "Circle edge, cylinder or axis (optional)", {"edge", "face", "axis"}, multi=False),
-        _choice("axis_std", "…or world axis", [("X", "X axis"), ("Y", "Y axis"), ("Z", "Z axis")],
+        _sel("base", QT_TRANSLATE_NOOP("FreeShape", "Circle edge, cylinder or axis (optional)"), {"edge", "face", "axis"}, multi=False),
+        _choice("axis_std", QT_TRANSLATE_NOOP("FreeShape", "…or world axis"), [("X", QT_TRANSLATE_NOOP("FreeShape", "X axis")), ("Y", QT_TRANSLATE_NOOP("FreeShape", "Y axis")), ("Z", QT_TRANSLATE_NOOP("FreeShape", "Z axis"))],
                 visible=lambda p: not p.get("base")),
-        _num("radius", "Radius", minimum=1e-6,
+        _num("radius", QT_TRANSLATE_NOOP("FreeShape", "Radius"), minimum=1e-6,
              visible=lambda p: not p.get("base") or p["base"][0][0] == "axis"),
-        _choice("mode", "Size by", _mf().HELIX_MODES),
-        _num("turns", "Turns", unit="", minimum=1e-6, visible=lambda p: p.get("mode", "turns_pitch") != "height_pitch"),
-        _num("pitch", "Pitch (rise per turn)", minimum=1e-6,
+        _choice("mode", QT_TRANSLATE_NOOP("FreeShape", "Size by"), _mf().HELIX_MODES),
+        _num("turns", QT_TRANSLATE_NOOP("FreeShape", "Turns"), unit="", minimum=1e-6, visible=lambda p: p.get("mode", "turns_pitch") != "height_pitch"),
+        _num("pitch", QT_TRANSLATE_NOOP("FreeShape", "Pitch (rise per turn)"), minimum=1e-6,
              visible=lambda p: p.get("mode", "turns_pitch") != "height_turns"),
-        _num("height", "Height", minimum=1e-6, visible=lambda p: p.get("mode", "turns_pitch") != "turns_pitch"),
-        _num("start_angle", "Start angle", unit="deg"),
-        _check("left_hand", "Left-handed (turns anticlockwise)"),
+        _num("height", QT_TRANSLATE_NOOP("FreeShape", "Height"), minimum=1e-6, visible=lambda p: p.get("mode", "turns_pitch") != "turns_pitch"),
+        _num("start_angle", QT_TRANSLATE_NOOP("FreeShape", "Start angle"), unit="deg"),
+        _check("left_hand", QT_TRANSLATE_NOOP("FreeShape", "Left-handed (turns anticlockwise)")),
         _flip("flip", "Direction"),
     ],
     "compound": [
-        _sel("parts", "Solid parts (none: all)", {"part"}),
-        _check("glue", "Glue faces — touching solids share their faces"),
-        _num("tolerance", "Glue tolerance (0 = exact)", visible=lambda p: p.get("glue", True), minimum=0),
+        _sel("parts", QT_TRANSLATE_NOOP("FreeShape", "Solid parts (none: all)"), {"part"}),
+        _check("glue", QT_TRANSLATE_NOOP("FreeShape", "Glue faces — touching solids share their faces")),
+        _num("tolerance", QT_TRANSLATE_NOOP("FreeShape", "Glue tolerance (0 = exact)"), visible=lambda p: p.get("glue", True), minimum=0),
         {"t": "info", "key": "_info", "text": lambda p: (
             "One part whose solids share the faces where they touch (a conformal mesh across them). "
             "Right-click the part ▸ Shape info to see the counts. Export as BREP to keep the shared faces "
@@ -1025,52 +1028,52 @@ SCHEMAS = {
             "One part holding the solids as they are; touching faces are not shared."},
     ],
     "explode_part": [
-        _sel("parts", "Parts to explode", {"part"}),
-        _choice("what", "Explode into", [("solid", "Solids"), ("face", "Faces (as surfaces)"),
-                                         ("edge", "Edges (as curves)")]),
-        _check("keep", "Keep the original part"),
+        _sel("parts", QT_TRANSLATE_NOOP("FreeShape", "Parts to explode"), {"part"}),
+        _choice("what", QT_TRANSLATE_NOOP("FreeShape", "Explode into"), [("solid", QT_TRANSLATE_NOOP("FreeShape", "Solids")), ("face", QT_TRANSLATE_NOOP("FreeShape", "Faces (as surfaces)")),
+                                         ("edge", QT_TRANSLATE_NOOP("FreeShape", "Edges (as curves)"))]),
+        _check("keep", QT_TRANSLATE_NOOP("FreeShape", "Keep the original part")),
         {"t": "info", "key": "_info", "text": lambda p: {
             "solid": "Each solid becomes a part of its own — e.g. a compound back into its solids.",
             "face": "Each face becomes a surface part.",
             "edge": "Each edge becomes a curve part."}.get(p.get("what", "solid"), "")},
     ],
     "bounding_box": [
-        _sel("parts", "Parts to box (none: all)", {"part"}),
-        _num("clearance", "Clearance all round", minimum=0),
+        _sel("parts", QT_TRANSLATE_NOOP("FreeShape", "Parts to box (none: all)"), {"part"}),
+        _num("clearance", QT_TRANSLATE_NOOP("FreeShape", "Clearance all round"), minimum=0),
     ],
     "measure_value": [
-        {"t": "text", "key": "name", "label": "Name   #", "placeholder": "e.g. gap"},
-        _choice("mtype", "Type", _mv().TYPES),
-        {"t": "text", "key": "expr", "label": "Value", "placeholder": "e.g. 25, 1 m or #a * 2", "expr": True,
+        {"t": "text", "key": "name", "label": QT_TRANSLATE_NOOP("FreeShape", "Name   #"), "placeholder": QT_TRANSLATE_NOOP("FreeShape", "e.g. gap")},
+        _choice("mtype", QT_TRANSLATE_NOOP("FreeShape", "Type"), _mv().TYPES),
+        {"t": "text", "key": "expr", "label": QT_TRANSLATE_NOOP("FreeShape", "Value"), "placeholder": QT_TRANSLATE_NOOP("FreeShape", "e.g. 25, 1 m or #a * 2"), "expr": True,
          "visible": lambda p: p.get("mtype") in _mv().FIXED},
-        _choice("unit", "Unit", _mv().LENGTH_UNITS, visible=lambda p: p.get("mtype") == "fixed_length"),
-        _choice("aunit", "Unit", _mv().ANGLE_UNITS, visible=lambda p: p.get("mtype") == "fixed_angle"),
-        _sel("ray", "Ray (sketch line or edge from its start, round edge, cylinder)", {"axis", "face"},
+        _choice("unit", QT_TRANSLATE_NOOP("FreeShape", "Unit"), _mv().LENGTH_UNITS, visible=lambda p: p.get("mtype") == "fixed_length"),
+        _choice("aunit", QT_TRANSLATE_NOOP("FreeShape", "Unit"), _mv().ANGLE_UNITS, visible=lambda p: p.get("mtype") == "fixed_angle"),
+        _sel("ray", QT_TRANSLATE_NOOP("FreeShape", "Ray (sketch line or edge from its start, round edge, cylinder)"), {"axis", "face"},
              multi=False, visible=lambda p: p.get("mtype") == "ray"),
-        _sel("entities", "Entities", {"vertex", "edge", "face", "part", "plane", "region", "sketch_line"},
+        _sel("entities", QT_TRANSLATE_NOOP("FreeShape", "Entities"), {"vertex", "edge", "face", "part", "plane", "region", "sketch_line"},
              visible=lambda p: p.get("mtype") not in _mv().FIXED),
-        _choice("method", "Measure method", _mv().METHODS, visible=lambda p: p.get("mtype", "distance") == "distance"),
-        _choice("component", "Value", _mv().COMPONENTS, visible=lambda p: p.get("mtype", "distance") == "distance"),
-        _num("ray_offset", "Ray origin offset", visible=lambda p: p.get("mtype") == "ray"),
+        _choice("method", QT_TRANSLATE_NOOP("FreeShape", "Measure method"), _mv().METHODS, visible=lambda p: p.get("mtype", "distance") == "distance"),
+        _choice("component", QT_TRANSLATE_NOOP("FreeShape", "Value"), _mv().COMPONENTS, visible=lambda p: p.get("mtype", "distance") == "distance"),
+        _num("ray_offset", QT_TRANSLATE_NOOP("FreeShape", "Ray origin offset"), visible=lambda p: p.get("mtype") == "ray"),
         _flip("ray_flip", "Opposite direction", inline="ray_offset", visible=lambda p: p.get("mtype") == "ray"),
-        _check("ray_closest", "Closest", visible=lambda p: p.get("mtype") == "ray"),
-        _check("ray_box", "Box intersection",
+        _check("ray_closest", QT_TRANSLATE_NOOP("FreeShape", "Closest"), visible=lambda p: p.get("mtype") == "ray"),
+        _check("ray_box", QT_TRANSLATE_NOOP("FreeShape", "Box intersection"),
                visible=lambda p: p.get("mtype") == "ray" and not p.get("ray_closest", True)),
-        _num("ray_index", "Intersection index (negative: from the far end)", unit="",
+        _num("ray_index", QT_TRANSLATE_NOOP("FreeShape", "Intersection index (negative: from the far end)"), unit="",
              visible=lambda p: p.get("mtype") == "ray" and not p.get("ray_closest", True)),
-        _check("flip_angle", "Flip angle", visible=lambda p: p.get("mtype") == "angle"),
-        _choice("count_mode", "Count", _mv().COUNT_MODES, visible=lambda p: p.get("mtype") == "count"),
-        _choice("coord_type", "Coordinate type", _mv().COORD_TYPES, visible=lambda p: p.get("mtype") == "coordinate"),
-        _sel("frame", "Coordinate system (a plane) / direction", {"plane", "axis"}, multi=False,
+        _check("flip_angle", QT_TRANSLATE_NOOP("FreeShape", "Flip angle"), visible=lambda p: p.get("mtype") == "angle"),
+        _choice("count_mode", QT_TRANSLATE_NOOP("FreeShape", "Count"), _mv().COUNT_MODES, visible=lambda p: p.get("mtype") == "count"),
+        _choice("coord_type", QT_TRANSLATE_NOOP("FreeShape", "Coordinate type"), _mv().COORD_TYPES, visible=lambda p: p.get("mtype") == "coordinate"),
+        _sel("frame", QT_TRANSLATE_NOOP("FreeShape", "Coordinate system (a plane) / direction"), {"plane", "axis"}, multi=False,
              visible=lambda p: (p.get("mtype") == "coordinate" and p.get("coord_type", "global") != "global")
              or p.get("mtype") in ("size", "inertia")),
-        _choice("axis_c", "Axis", _mv().AXIS_COMPONENTS,
+        _choice("axis_c", QT_TRANSLATE_NOOP("FreeShape", "Axis"), _mv().AXIS_COMPONENTS,
                 visible=lambda p: p.get("mtype") in ("centroid", "size", "inertia")
                 or (p.get("mtype") == "coordinate" and p.get("coord_type", "global") != "along")),
-        _num("density", "Density", unit="g/cm³", visible=lambda p: p.get("mtype") == "inertia", minimum=0),
-        {**_num("round_to", "Round to a multiple of (0 = don't)", minimum=0,
+        _num("density", QT_TRANSLATE_NOOP("FreeShape", "Density"), unit="g/cm³", visible=lambda p: p.get("mtype") == "inertia", minimum=0),
+        {**_num("round_to", QT_TRANSLATE_NOOP("FreeShape", "Round to a multiple of (0 = don't)"), minimum=0,
                 visible=lambda p: p.get("mtype") not in _mv().FIXED), "dims": "any"},
-        _check("hide_preview", "Hide preview", visible=lambda p: p.get("mtype") not in _mv().FIXED),
+        _check("hide_preview", QT_TRANSLATE_NOOP("FreeShape", "Hide preview"), visible=lambda p: p.get("mtype") not in _mv().FIXED),
         {"t": "info", "key": "_info", "text": lambda p: (
             "Use #" + str(p.get("name") or "name") + " in any box that takes a "
             + {"fixed_length": "length", "fixed_angle": "angle", "fixed_number": "number"}.get(p.get("mtype"), "value")
@@ -1082,38 +1085,38 @@ SCHEMAS = {
             + " follows the model."},
     ],
     "variable": [
-        {"t": "text", "key": "name", "label": "Name   #", "placeholder": "e.g. wall"},
-        {"t": "text", "key": "expr", "label": "Value", "placeholder": "e.g. 3 or #wall * 2", "expr": True},
+        {"t": "text", "key": "name", "label": QT_TRANSLATE_NOOP("FreeShape", "Name   #"), "placeholder": QT_TRANSLATE_NOOP("FreeShape", "e.g. wall")},
+        {"t": "text", "key": "expr", "label": QT_TRANSLATE_NOOP("FreeShape", "Value"), "placeholder": QT_TRANSLATE_NOOP("FreeShape", "e.g. 3 or #wall * 2"), "expr": True},
     ],
     "hole": [
-        {"t": "sketch_choice", "key": "sketch", "label": "Sketch with hole centres"},
-        _choice("standard", "Standard", [("clearance", "ISO clearance"), ("tapped", "ISO tapped"),
-                                         ("custom", "Custom size"), ("sketch", "Size of the sketch circles")]),
+        {"t": "sketch_choice", "key": "sketch", "label": QT_TRANSLATE_NOOP("FreeShape", "Sketch with hole centres")},
+        _choice("standard", QT_TRANSLATE_NOOP("FreeShape", "Standard"), [("clearance", "ISO clearance"), ("tapped", "ISO tapped"),
+                                         ("custom", QT_TRANSLATE_NOOP("FreeShape", "Custom size")), ("sketch", QT_TRANSLATE_NOOP("FreeShape", "Size of the sketch circles"))]),
         _choice("size", "Size", [(x, x) for x in F.HOLE_SIZES],
                 visible=lambda p: p.get("standard") not in ("custom", "sketch")),
-        _choice("fit", "Fit", [("close", "Close"), ("normal", "Normal"), ("loose", "Loose")],
+        _choice("fit", QT_TRANSLATE_NOOP("FreeShape", "Fit"), [("close", "Close"), ("normal", QT_TRANSLATE_NOOP("FreeShape", "Normal")), ("loose", QT_TRANSLATE_NOOP("FreeShape", "Loose"))],
                 visible=lambda p: p.get("standard") == "clearance"),
-        _num("diameter", "Hole diameter", minimum=1e-6, visible=lambda p: p.get("standard") == "custom"),
-        _choice("style", "Hole style", [("simple", "Simple"), ("counterbore", "Counterbore"),
-                                        ("countersink", "Countersink")]),
-        _num("counterbore_dia", "Counterbore diameter",
+        _num("diameter", QT_TRANSLATE_NOOP("FreeShape", "Hole diameter"), minimum=1e-6, visible=lambda p: p.get("standard") == "custom"),
+        _choice("style", QT_TRANSLATE_NOOP("FreeShape", "Hole style"), [("simple", QT_TRANSLATE_NOOP("FreeShape", "Simple")), ("counterbore", QT_TRANSLATE_NOOP("FreeShape", "Counterbore")),
+                                        ("countersink", QT_TRANSLATE_NOOP("FreeShape", "Countersink"))]),
+        _num("counterbore_dia", QT_TRANSLATE_NOOP("FreeShape", "Counterbore diameter"),
              visible=lambda p: p.get("style") == "counterbore" and p.get("standard") in ("custom", "sketch")),
-        _num("counterbore_depth", "Counterbore depth",
+        _num("counterbore_depth", QT_TRANSLATE_NOOP("FreeShape", "Counterbore depth"),
              visible=lambda p: p.get("style") == "counterbore" and p.get("standard") in ("custom", "sketch")),
-        _num("countersink_dia", "Countersink diameter",
+        _num("countersink_dia", QT_TRANSLATE_NOOP("FreeShape", "Countersink diameter"),
              visible=lambda p: p.get("style") == "countersink" and p.get("standard") in ("custom", "sketch")),
-        _check("model_thread", "Model the thread (real geometry — slower)", visible=lambda p: p.get("standard") == "tapped"),
-        _num("thread_clearance", "Print clearance", visible=lambda p: p.get("standard") == "tapped" and p.get("model_thread")),
-        _check("left_hand", "Left-hand thread", visible=lambda p: p.get("standard") == "tapped" and p.get("model_thread")),
-        _choice("end", "Termination", [("through", "Through all"), ("blind", "Blind"), ("up_to_next", "Up to next"),
-                                       ("up_to_face", "Up to face"), ("up_to_vertex", "Up to vertex")]),
-        _num("depth", "Hole depth", visible=lambda p: p.get("end") == "blind"),
-        _sel("upto_face", "Face or plane to go up to", {"face", "plane"}, multi=False,
+        _check("model_thread", QT_TRANSLATE_NOOP("FreeShape", "Model the thread (real geometry — slower)"), visible=lambda p: p.get("standard") == "tapped"),
+        _num("thread_clearance", QT_TRANSLATE_NOOP("FreeShape", "Print clearance"), visible=lambda p: p.get("standard") == "tapped" and p.get("model_thread")),
+        _check("left_hand", QT_TRANSLATE_NOOP("FreeShape", "Left-hand thread"), visible=lambda p: p.get("standard") == "tapped" and p.get("model_thread")),
+        _choice("end", QT_TRANSLATE_NOOP("FreeShape", "Termination"), [("through", QT_TRANSLATE_NOOP("FreeShape", "Through all")), ("blind", QT_TRANSLATE_NOOP("FreeShape", "Blind")), ("up_to_next", QT_TRANSLATE_NOOP("FreeShape", "Up to next")),
+                                       ("up_to_face", QT_TRANSLATE_NOOP("FreeShape", "Up to face")), ("up_to_vertex", QT_TRANSLATE_NOOP("FreeShape", "Up to vertex"))]),
+        _num("depth", QT_TRANSLATE_NOOP("FreeShape", "Hole depth"), visible=lambda p: p.get("end") == "blind"),
+        _sel("upto_face", QT_TRANSLATE_NOOP("FreeShape", "Face or plane to go up to"), {"face", "plane"}, multi=False,
              visible=lambda p: p.get("end") == "up_to_face"),
-        _sel("upto_vertex", "Vertex to go up to", {"vertex"}, multi=False,
+        _sel("upto_vertex", QT_TRANSLATE_NOOP("FreeShape", "Vertex to go up to"), {"vertex"}, multi=False,
              visible=lambda p: p.get("end") == "up_to_vertex"),
-        _num("offset", "Stop short by", visible=lambda p: p.get("end") in ("up_to_face", "up_to_vertex")),
-        _check("tip", "Drill point (118°)", visible=lambda p: p.get("end") != "through"),
+        _num("offset", QT_TRANSLATE_NOOP("FreeShape", "Stop short by"), visible=lambda p: p.get("end") in ("up_to_face", "up_to_vertex")),
+        _check("tip", QT_TRANSLATE_NOOP("FreeShape", "Drill point (118°)"), visible=lambda p: p.get("end") != "through"),
         {"t": "info", "key": "_info", "text": lambda p: _hole_info(p)},
     ],
 }
@@ -1257,7 +1260,7 @@ def fields_to_params(ftype, fields, p):
     if ftype == "draft":
         p["faces"] = [r for k, r in fields.get("faces", [])]
         sel = fields.get("neutral_sel", [])
-        p["neutral"] = sel[0][1] if sel else {"kind": "std", "name": "Top"}
+        p["neutral"] = sel[0][1] if sel else {"kind": "std", "name": QT_TRANSLATE_NOOP("FreeShape", "Top")}
     if ftype in ("split", "move"):
         p["parts"] = [r for k, r in fields.get("parts", [])]
     if ftype == "split":
@@ -1309,7 +1312,7 @@ def fields_to_params(ftype, fields, p):
         p["parts"] = [r for k, r in fields.get("parts", [])]
     if ftype == "mirror":
         sel = fields.get("plane_sel", [])
-        p["plane"] = sel[0][1] if sel else {"kind": "std", "name": "Right"}
+        p["plane"] = sel[0][1] if sel else {"kind": "std", "name": QT_TRANSLATE_NOOP("FreeShape", "Right")}
     if ftype == "linear_pattern":
         sel = fields.get("dir_sel", [])
         if sel:
@@ -1522,10 +1525,10 @@ class FeatureDialog(_ResizableFrame):
                                  "QLineEdit:focus { border: 1px solid #1f6fd1; background: white; }")
         head.addWidget(self.title, 1)
         ok = dialog_button(QToolButton(), "ok")
-        ok.setToolTip(tr("Accept (Enter)"))
+        ok.setToolTip(QCoreApplication.translate("FreeShape", "Accept (Enter)"))
         ok.clicked.connect(self.accept)
         cancel = dialog_button(QToolButton(), "cancel")
-        cancel.setToolTip(tr("Cancel (Esc)"))
+        cancel.setToolTip(QCoreApplication.translate("FreeShape", "Cancel (Esc)"))
         cancel.clicked.connect(self.reject)
         head.addWidget(ok)
         head.addWidget(cancel)
@@ -1730,7 +1733,7 @@ class FeatureDialog(_ResizableFrame):
             return row
         if t == "sketch_choice":
             cb = QComboBox()
-            cb.addItem(tr("— select —"), None)
+            cb.addItem(QCoreApplication.translate("FreeShape", "— select —"), None)
             for fid, sr in self.base_state.sketches.items():
                 f = self.doc.feature(fid)
                 if f and any(e["type"] in ("point", "circle") for e in sr.sketch.entities.values()):
@@ -1740,7 +1743,7 @@ class FeatureDialog(_ResizableFrame):
                 self._default_hole_size(p)
             cb.setCurrentIndex(max(0, cb.findData(p.get(spec["key"]))))
             cb.currentIndexChanged.connect(lambda i, cb=cb, k=spec["key"]: self._choose_sketch(cb.itemData(i)))
-            cb.setToolTip("Holes go at this sketch's points and circle centres. You can also just click the sketch.")
+            cb.setToolTip(QT_TRANSLATE_NOOP("FreeShape", "Holes go at this sketch's points and circle centres. You can also just click the sketch."))
             self._sketch_cb = cb
             h.addWidget(cb)
             return row
@@ -1783,13 +1786,13 @@ class FeatureDialog(_ResizableFrame):
             name = QLabel(f"{i + 1}. {item_label(self.doc, (t['kind'], t['ref']))}")
             name.setStyleSheet("color:#4b5563;")
             h.addWidget(name, 1)
-            cb = QCheckBox(tr("Keep both sides"))
+            cb = QCheckBox(QCoreApplication.translate("FreeShape", "Keep both sides"))
             cb.setChecked(bool(t.get("both", True)))
             cb.toggled.connect(lambda on, i=i: self._split_set(i, "both", on))
             h.addWidget(cb)
             fl = QToolButton()
-            fl.setText(tr("⇅ Flip"))
-            fl.setToolTip(tr("Keep the other side (or drag the arrow across)"))
+            fl.setText(QCoreApplication.translate("FreeShape", "⇅ Flip"))
+            fl.setToolTip(QCoreApplication.translate("FreeShape", "Keep the other side (or drag the arrow across)"))
             fl.setVisible(not t.get("both", True))
             fl.clicked.connect(lambda _=False, i=i: self._split_set(i, "flip", None))
             h.addWidget(fl)
@@ -2517,7 +2520,7 @@ class FeatureDialog(_ResizableFrame):
                     k_, r_ = planes_[0]
                     base = F.resolve_plane(self.base_state, r_ if k_ == "plane" else {"kind": "face", "face": r_})
                 else:
-                    base = K.std_plane("Top")
+                    base = K.std_plane(QT_TRANSLATE_NOOP("FreeShape", "Top"))
                 off = float(p.get("offset", 0))
                 value = -off if p.get("flip") else off
 
@@ -2749,7 +2752,7 @@ class FeatureDialog(_ResizableFrame):
             p = self.feature["params"]
             name = str(p.get("name", "")).strip().lstrip("#")
             p["name"] = name
-            if self.feature["name"].startswith(("Variable", "#")):
+            if self.feature["name"].startswith((QT_TRANSLATE_NOOP("FreeShape", "Variable"), "#")):
                 self.feature["name"] = f"#{name} = {p.get('expr', '')}"
         self.accepted.emit()
 
@@ -2797,10 +2800,10 @@ class SketchDialog(_ResizableFrame):
                                  "QLineEdit:focus { border: 1px solid #1f6fd1; background: white; }")
         head.addWidget(self.title, 1)
         ok = dialog_button(QToolButton(), "ok")
-        ok.setToolTip(tr("Finish sketch"))
+        ok.setToolTip(QCoreApplication.translate("FreeShape", "Finish sketch"))
         ok.clicked.connect(self.accepted.emit)
         cancel = dialog_button(QToolButton(), "cancel")
-        cancel.setToolTip(tr("Cancel sketch"))
+        cancel.setToolTip(QCoreApplication.translate("FreeShape", "Cancel sketch"))
         cancel.clicked.connect(self.rejected.emit)
         head.addWidget(ok)
         head.addWidget(cancel)
@@ -2808,9 +2811,9 @@ class SketchDialog(_ResizableFrame):
         self.plane_field = SelectionField("plane", "Sketch plane", {"plane"}, multi=False)
         self.plane_field.activated.connect(self._activate)
         lay.addWidget(self.plane_field)
-        self.show_cons = QCheckBox(tr("Show constraints"))
+        self.show_cons = QCheckBox(QCoreApplication.translate("FreeShape", "Show constraints"))
         self.show_cons.setChecked(True)
-        self.show_regions = QCheckBox(tr("Show sketch regions"))
+        self.show_regions = QCheckBox(QCoreApplication.translate("FreeShape", "Show sketch regions"))
         self.show_regions.setChecked(True)
         lay.addWidget(self.show_cons)
         lay.addWidget(self.show_regions)

@@ -1,9 +1,7 @@
-"""Optional UI translations, with safe English fallbacks."""
+"""Qt Linguist catalogs and language selection, with English fallback."""
 from __future__ import annotations
 
-import json
 import os
-from functools import lru_cache
 from pathlib import Path
 
 
@@ -33,33 +31,40 @@ def current_language():
     return _active_language if _active_language is not None else _preferred_language()
 
 
+def QT_TRANSLATE_NOOP(context, source):
+    """Mark deferred labels for lupdate without translating model data."""
+    return source
+
+
+def catalog_path(language):
+    return Path(__file__).resolve().parent / "locale" / (language + ".qm")
+
+
 def initialize(app):
-    """Select the language for this session; restart to change it."""
+    """Install the application and Qt catalogs; restart to change language."""
     global _active_language
-    _active_language = _preferred_language()
-    if _active_language != "ru":
-        return
     from PySide6.QtCore import QLibraryInfo, QTranslator
-    directory = QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)
+    for name in ("_freeshape_translator", "_freeshape_qt_translator"):
+        previous = getattr(app, name, None)
+        if previous is not None:
+            app.removeTranslator(previous)
+            delattr(app, name)
+    _active_language = _preferred_language()
+    if _active_language == "en":
+        return
     translator = QTranslator(app)
-    if translator.load("qtbase_ru", directory):
-        app.installTranslator(translator)
-        app._freeshape_qt_translator = translator
-
-
-@lru_cache(maxsize=8)
-def _catalog(language):
-    path = Path(__file__).resolve().parent / "locale" / (language + ".json")
-    if not path.is_file():
-        return {}
-    with path.open("r", encoding="utf-8") as handle:
-        data = json.load(handle)
-    return {str(key): str(value) for key, value in data.items() if value}
+    if not translator.load(str(catalog_path(_active_language))) or translator.isEmpty():
+        return
+    app.installTranslator(translator)
+    app._freeshape_translator = translator
+    directory = QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)
+    qt_translator = QTranslator(app)
+    if qt_translator.load("qtbase_" + _active_language, directory):
+        app.installTranslator(qt_translator)
+        app._freeshape_qt_translator = qt_translator
 
 
 def tr(source):
-    """Translate a UI label; strings not in the catalog remain English."""
-    language = current_language()
-    if language == "en":
-        return source
-    return _catalog(language).get(source, source)
+    """Translate a deferred UI label previously marked with QT_TRANSLATE_NOOP."""
+    from PySide6.QtCore import QCoreApplication
+    return QCoreApplication.translate("FreeShape", source)

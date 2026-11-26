@@ -3,6 +3,8 @@ two (features added / removed / changed, setting by setting; sketch edits; varia
 material added and removed, for showing in 3D."""
 from __future__ import annotations
 
+from .i18n import QT_TRANSLATE_NOOP
+
 import copy
 import datetime as _dt
 import hashlib
@@ -178,17 +180,17 @@ LENGTH_KEYS = {"depth", "depth2", "radius", "distance", "thickness", "offset", "
                "length", "clearance", "thread_clearance"}
 ANGLE_KEYS = {"angle", "rotate", "draft", "twist"}
 LABELS = {
-    "depth": "Depth", "depth2": "Second depth", "end": "End", "op": "Result", "angle": "Angle",
-    "radius": "Radius", "distance": "Distance", "thickness": "Thickness", "offset": "Offset", "count": "Count",
-    "spacing": "Spacing", "flip": "Flip", "second": "Second direction", "regions": "Sketch regions",
-    "faces": "Faces", "edges": "Edges", "parts": "Parts", "tools": "Tool parts", "targets": "Target parts",
-    "plane": "Plane", "axis": "Axis", "direction": "Direction", "diameter": "Diameter", "size": "Size",
-    "standard": "Standard", "style": "Style", "fit": "Fit", "outward": "Outward", "keep": "Keep",
-    "copy": "Make a copy", "dx": "Move X", "dy": "Move Y", "dz": "Move Z", "rotate": "Rotate", "k": "K-factor",
-    "length": "Length", "pitch": "Pitch", "major": "Major diameter", "left_hand": "Left-hand", "type": "Type",
-    "profiles": "Profiles", "path": "Path", "neutral": "Neutral plane", "up_to": "Up to", "features": "Features",
+    "depth": QT_TRANSLATE_NOOP("FreeShape", "Depth"), "depth2": QT_TRANSLATE_NOOP("FreeShape", "Second depth"), "end": "End", "op": "Result", "angle": QT_TRANSLATE_NOOP("FreeShape", "Angle"),
+    "radius": QT_TRANSLATE_NOOP("FreeShape", "Radius"), "distance": QT_TRANSLATE_NOOP("FreeShape", "Distance"), "thickness": QT_TRANSLATE_NOOP("FreeShape", "Thickness"), "offset": QT_TRANSLATE_NOOP("FreeShape", "Offset"), "count": QT_TRANSLATE_NOOP("FreeShape", "Count"),
+    "spacing": QT_TRANSLATE_NOOP("FreeShape", "Spacing"), "flip": "Flip", "second": QT_TRANSLATE_NOOP("FreeShape", "Second direction"), "regions": QT_TRANSLATE_NOOP("FreeShape", "Sketch regions"),
+    "faces": QT_TRANSLATE_NOOP("FreeShape", "Faces"), "edges": QT_TRANSLATE_NOOP("FreeShape", "Edges"), "parts": "Parts", "tools": "Tool parts", "targets": "Target parts",
+    "plane": QT_TRANSLATE_NOOP("FreeShape", "Plane"), "axis": QT_TRANSLATE_NOOP("FreeShape", "Axis"), "direction": "Direction", "diameter": "Diameter", "size": "Size",
+    "standard": QT_TRANSLATE_NOOP("FreeShape", "Standard"), "style": "Style", "fit": QT_TRANSLATE_NOOP("FreeShape", "Fit"), "outward": "Outward", "keep": "Keep",
+    "copy": "Make a copy", "dx": QT_TRANSLATE_NOOP("FreeShape", "Move X"), "dy": QT_TRANSLATE_NOOP("FreeShape", "Move Y"), "dz": QT_TRANSLATE_NOOP("FreeShape", "Move Z"), "rotate": QT_TRANSLATE_NOOP("FreeShape", "Rotate"), "k": "K-factor",
+    "length": QT_TRANSLATE_NOOP("FreeShape", "Length"), "pitch": QT_TRANSLATE_NOOP("FreeShape", "Pitch"), "major": QT_TRANSLATE_NOOP("FreeShape", "Major diameter"), "left_hand": "Left-hand", "type": QT_TRANSLATE_NOOP("FreeShape", "Type"),
+    "profiles": "Profiles", "path": "Path", "neutral": QT_TRANSLATE_NOOP("FreeShape", "Neutral plane"), "up_to": "Up to", "features": "Features",
     "mode": "Mode", "position": "Position", "down": "Other way", "relief": "Corner reliefs", "config": "Configuration",
-    "sketch": "Sketch", "expr": "Value", "name": "Name", "keep_tools": "Keep tool parts", "ruled": "Ruled",
+    "sketch": "Sketch", "expr": QT_TRANSLATE_NOOP("FreeShape", "Value"), "name": "Name", "keep_tools": "Keep tool parts", "ruled": "Ruled",
 }
 VALUE_NAMES = {"new": "New", "add": "Add", "remove": "Remove", "intersect": "Intersect", "union": "Union",
                "subtract": "Subtract", "blind": "Blind", "through": "Through all", "full": "Full turn",

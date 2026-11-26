@@ -1,6 +1,9 @@
 """Interactive sketch editing: drawing tools, snapping, inference, dimensions, constraints, dragging."""
 from __future__ import annotations
 
+from PySide6.QtCore import QCoreApplication
+from ..i18n import QT_TRANSLATE_NOOP
+
 from ..i18n import tr
 
 import math
@@ -27,64 +30,64 @@ NORMAL_CURVES = ("circle", "arc", "ellipse", "ellipse_arc")    # what Normal (or
 
 # constraint tool -> (description, list of acceptable selection signatures)
 CONSTRAINT_TOOLS = {
-    "coincident": "Select two points, or a point and a curve",
-    "horizontal": "Select a line or two points",
-    "vertical": "Select a line or two points",
-    "parallel": "Select two lines",
-    "perpendicular": "Select two lines (or a line and a curve: at right angles to it)",
-    "normal": "Select a line and a circle, arc or ellipse: the line meets it at right angles",
-    "tangent": "Select a line and an arc/circle, or two arcs/circles",
-    "equal": "Select two lines or two arcs/circles",
-    "midpoint": "Select a point and a line",
-    "concentric": "Select two arcs/circles",
-    "symmetric": "Select two points (or two circles/lines) and the line they're symmetric about",
-    "fix": "Select points or curves to fix in place",
+    "coincident": QT_TRANSLATE_NOOP("FreeShape", "Select two points, or a point and a curve"),
+    "horizontal": QT_TRANSLATE_NOOP("FreeShape", "Select a line or two points"),
+    "vertical": QT_TRANSLATE_NOOP("FreeShape", "Select a line or two points"),
+    "parallel": QT_TRANSLATE_NOOP("FreeShape", "Select two lines"),
+    "perpendicular": QT_TRANSLATE_NOOP("FreeShape", "Select two lines (or a line and a curve: at right angles to it)"),
+    "normal": QT_TRANSLATE_NOOP("FreeShape", "Select a line and a circle, arc or ellipse: the line meets it at right angles"),
+    "tangent": QT_TRANSLATE_NOOP("FreeShape", "Select a line and an arc/circle, or two arcs/circles"),
+    "equal": QT_TRANSLATE_NOOP("FreeShape", "Select two lines or two arcs/circles"),
+    "midpoint": QT_TRANSLATE_NOOP("FreeShape", "Select a point and a line"),
+    "concentric": QT_TRANSLATE_NOOP("FreeShape", "Select two arcs/circles"),
+    "symmetric": QT_TRANSLATE_NOOP("FreeShape", "Select two points (or two circles/lines) and the line they're symmetric about"),
+    "fix": QT_TRANSLATE_NOOP("FreeShape", "Select points or curves to fix in place"),
 }
 
 TOOL_HINTS = {
-    "select": "Click to select; drag points or curves to move them. Double-click a dimension to edit it.",
-    "line": "Click to start a line, click again to finish it. Lines chain — press Esc to stop.",
-    "line_mid": "Click the line's midpoint, then one end; the other end mirrors it.",
-    "rect": "Click two opposite corners.",
-    "center_rect": "Click the centre, then a corner.",
-    "rect3": "Click two corners for the first side (at any angle), then click to set the width.",
+    "select": QT_TRANSLATE_NOOP("FreeShape", "Click to select; drag points or curves to move them. Double-click a dimension to edit it."),
+    "line": QT_TRANSLATE_NOOP("FreeShape", "Click to start a line, click again to finish it. Lines chain — press Esc to stop."),
+    "line_mid": QT_TRANSLATE_NOOP("FreeShape", "Click the line's midpoint, then one end; the other end mirrors it."),
+    "rect": QT_TRANSLATE_NOOP("FreeShape", "Click two opposite corners."),
+    "center_rect": QT_TRANSLATE_NOOP("FreeShape", "Click the centre, then a corner."),
+    "rect3": QT_TRANSLATE_NOOP("FreeShape", "Click two corners for the first side (at any angle), then click to set the width."),
     "hexagon": "Click the centre, then a corner. It snaps level near flat-top or point-top; type the size "
                "across flats.",
-    "polygon": "Click the centre, then a corner; type the number of sides. Corners sit on a construction circle.",
+    "polygon": QT_TRANSLATE_NOOP("FreeShape", "Click the centre, then a corner; type the number of sides. Corners sit on a construction circle."),
     "polygon_out": "Click the centre, then the middle of a side; type the number of sides. The sides touch a "
                    "construction circle (its diameter is the size across flats).",
-    "circle": "Click the centre, then click to set the radius.",
-    "arc3": "Click the start point, the end point, then a point on the arc.",
-    "arc_center": "Click the centre, the start point, then sweep to the end point.",
-    "point": "Click to place a point (used by Hole).",
+    "circle": QT_TRANSLATE_NOOP("FreeShape", "Click the centre, then click to set the radius."),
+    "arc3": QT_TRANSLATE_NOOP("FreeShape", "Click the start point, the end point, then a point on the arc."),
+    "arc_center": QT_TRANSLATE_NOOP("FreeShape", "Click the centre, the start point, then sweep to the end point."),
+    "point": QT_TRANSLATE_NOOP("FreeShape", "Click to place a point (used by Hole)."),
     "spline": "Click points for the curve to pass through. Double-click or press Enter to finish; click the first "
               "point again to close it into a loop.",
-    "ellipse": "Click the centre, then the end of the long axis, then click to set the width.",
+    "ellipse": QT_TRANSLATE_NOOP("FreeShape", "Click the centre, then the end of the long axis, then click to set the width."),
     "ellipse_arc": "Click the centre, the end of the long axis and the width, then where the arc starts and ends "
                    "(it runs anticlockwise).",
     "arc_tan": "Click the end of a line or arc, then where the arc should finish; it carries on smoothly.",
     "conic": "Click the start, the end, then the shoulder point the curve heads towards; type its rho (0–1).",
     "spline_cp": "Click control points: the curve starts and ends on the first and last and is pulled towards the "
                  "others. Double-click or press Enter to finish; click the first point again to close it.",
-    "text": "Click where the text should start (its bottom-left), then type the text.",
-    "dimension": "Click a line, circle or two items, then click to place the dimension.",
-    "use": "Click part edges to project them into the sketch.",
-    "trim": "Click a segment of a line to remove it up to the nearest intersections.",
-    "sk_fillet": "Click a corner where two lines meet, then type the radius.",
-    "sk_chamfer": "Click a corner where two lines meet, then type the distance back along each line.",
-    "sk_split": "Click a line or arc where it should be cut in two.",
-    "sk_extend": "Click near the end of a line or arc to lengthen it to the next curve.",
+    "text": QT_TRANSLATE_NOOP("FreeShape", "Click where the text should start (its bottom-left), then type the text."),
+    "dimension": QT_TRANSLATE_NOOP("FreeShape", "Click a line, circle or two items, then click to place the dimension."),
+    "use": QT_TRANSLATE_NOOP("FreeShape", "Click part edges to project them into the sketch."),
+    "trim": QT_TRANSLATE_NOOP("FreeShape", "Click a segment of a line to remove it up to the nearest intersections."),
+    "sk_fillet": QT_TRANSLATE_NOOP("FreeShape", "Click a corner where two lines meet, then type the radius."),
+    "sk_chamfer": QT_TRANSLATE_NOOP("FreeShape", "Click a corner where two lines meet, then type the distance back along each line."),
+    "sk_split": QT_TRANSLATE_NOOP("FreeShape", "Click a line or arc where it should be cut in two."),
+    "sk_extend": QT_TRANSLATE_NOOP("FreeShape", "Click near the end of a line or arc to lengthen it to the next curve."),
     "sk_transform": "Select geometry, then click the point to turn it about; type the move along X and Y, then "
                     "the angle.",
     "sk_copy": "Select geometry, then click the point to turn the copy about; type the move along X and Y, then "
                "the angle.",
     "use_intersect": "Click part faces that cut through the sketch plane: where they cross it comes into the "
                      "sketch as fixed construction geometry.",
-    "offset": "Click a line, arc or circle to offset its whole chain; type the distance (negative = other side).",
-    "slot": "Click the two end centres of the slot, then type its width.",
-    "sk_mirror": "Select geometry, then click the line to mirror it about.",
-    "sk_lpattern": "Select geometry, then click a line for the direction; type the count and spacing.",
-    "sk_cpattern": "Select geometry, then click the centre point; type the count and angle.",
+    "offset": QT_TRANSLATE_NOOP("FreeShape", "Click a line, arc or circle to offset its whole chain; type the distance (negative = other side)."),
+    "slot": QT_TRANSLATE_NOOP("FreeShape", "Click the two end centres of the slot, then type its width."),
+    "sk_mirror": QT_TRANSLATE_NOOP("FreeShape", "Select geometry, then click the line to mirror it about."),
+    "sk_lpattern": QT_TRANSLATE_NOOP("FreeShape", "Select geometry, then click a line for the direction; type the count and spacing."),
+    "sk_cpattern": QT_TRANSLATE_NOOP("FreeShape", "Select geometry, then click the centre point; type the count and angle."),
 }
 PICK_FIRST_TOOLS = {"sk_mirror", "sk_lpattern", "sk_cpattern", "sk_transform", "sk_copy"}   # keep the selection when chosen
 
@@ -1634,11 +1637,11 @@ class Sketcher:
         from PySide6.QtGui import QFont as _QF
         e = e or {}
         dlg = QDialog(vp.window() if hasattr(vp, "window") else None)
-        dlg.setWindowTitle(tr("Edit text") if e else "Text")
+        dlg.setWindowTitle(QCoreApplication.translate("FreeShape", "Edit text") if e else QT_TRANSLATE_NOOP("FreeShape", "Text"))
         form = QFormLayout(dlg)
         txt = QLineEdit(e.get("expr") or e.get("text", ""))
-        txt.setPlaceholderText(tr("Type the text"))
-        form.addRow(tr("Text:"), txt)
+        txt.setPlaceholderText(QCoreApplication.translate("FreeShape", "Type the text"))
+        form.addRow(QCoreApplication.translate("FreeShape", "Text:"), txt)
         from PySide6.QtWidgets import QLabel
         use_expr = QCheckBox('From variables — e.g. #rev, or "PN-" + #part (text in quotes)')
         use_expr.setChecked(bool(e.get("expr")))
@@ -1666,26 +1669,26 @@ class Sketcher:
         check()
         font = QFontComboBox()
         font.setCurrentFont(_QF(e.get("font", "Arial")))
-        form.addRow(tr("Font:"), font)
+        form.addRow(QCoreApplication.translate("FreeShape", "Font:"), font)
         size = QDoubleSpinBox()
         size.setRange(0.1, 10000)
         size.setDecimals(2)
         size.setSuffix(" mm")                       # (text size: always mm, like a font size)
         size.setValue(float(e.get("size", getattr(self, "_last_text_size", 10.0))))
-        form.addRow(tr("Size:"), size)
+        form.addRow(QCoreApplication.translate("FreeShape", "Size:"), size)
         style = QHBoxLayout()
-        bold, italic = QCheckBox(tr("Bold")), QCheckBox(tr("Italic"))
+        bold, italic = QCheckBox(QCoreApplication.translate("FreeShape", "Bold")), QCheckBox(QCoreApplication.translate("FreeShape", "Italic"))
         bold.setChecked(bool(e.get("bold")))
         italic.setChecked(bool(e.get("italic")))
         style.addWidget(bold)
         style.addWidget(italic)
         style.addStretch(1)
-        form.addRow(tr("Style:"), style)
+        form.addRow(QCoreApplication.translate("FreeShape", "Style:"), style)
         ang = QDoubleSpinBox()
         ang.setRange(-360, 360)
         ang.setSuffix("°")
         ang.setValue(float(e.get("angle", 0.0)))
-        form.addRow(tr("Angle:"), ang)
+        form.addRow(QCoreApplication.translate("FreeShape", "Angle:"), ang)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(dlg.accept)
         bb.rejected.connect(dlg.reject)
@@ -1957,7 +1960,7 @@ class Sketcher:
                 anchor = sk.P(e_["p2"])
                 self._prompt(vp, anchor, "Number of instances", 3, lambda v: (vals.update(count=int(round(v))), run()),
                              minimum=2, integer=True,
-                             then=lambda base: self._prompt(vp, anchor, "Spacing", vals["spacing"],
+                             then=lambda base: self._prompt(vp, anchor, QT_TRANSLATE_NOOP("FreeShape", "Spacing"), vals["spacing"],
                                                             lambda v: (vals.update(spacing=v), run()),
                                                             base=base, allow_negative=True,
                                                             done=lambda: self._finish_pick_tool()))
@@ -1981,9 +1984,9 @@ class Sketcher:
 
             def run():
                 OPS.transform(self.sk, sel, vals["dx"], vals["dy"], vals["ang"], centre, copy=copy_)
-            self._prompt(vp, centre, "Move along X", 0.0, lambda v: (vals.update(dx=v), run()), allow_negative=True,
+            self._prompt(vp, centre, QT_TRANSLATE_NOOP("FreeShape", "Move along X"), 0.0, lambda v: (vals.update(dx=v), run()), allow_negative=True,
                          then=lambda base: self._prompt(
-                             vp, centre, "Move along Y", 0.0, lambda v: (vals.update(dy=v), run()), base=base,
+                             vp, centre, QT_TRANSLATE_NOOP("FreeShape", "Move along Y"), 0.0, lambda v: (vals.update(dy=v), run()), base=base,
                              allow_negative=True,
                              then=lambda base2: self._prompt(
                                  vp, centre, "Turn angle (degrees)", 0.0, lambda v: (vals.update(ang=v), run()),
@@ -2113,7 +2116,7 @@ class Sketcher:
         rest = offers[1:]
         s = self.scr(vp, pos)
         ed = self._make_editor(vp, s[0], s[1], U.num(value))
-        ed.setToolTip(tr("Type a value and press Enter to dimension it — or just keep drawing"))
+        ed.setToolTip(QCoreApplication.translate("FreeShape", "Type a value and press Enter to dimension it — or just keep drawing"))
 
         def commit():
             if self._editor is not ed:
@@ -2162,7 +2165,7 @@ class Sketcher:
             return False
         from PySide6.QtWidgets import QMessageBox
         shown = f"{fmt(value)}°" if kind == "angle" else U.length(float(value))
-        ok = QMessageBox.question(vp.window() if hasattr(vp, "window") else None, "New variable",
+        ok = QMessageBox.question(vp.window() if hasattr(vp, "window") else None, QT_TRANSLATE_NOOP("FreeShape", "New variable"),
                                   f"#{name} doesn't exist yet. Create #{name} = {shown} just before this sketch "
                                   "(and use it here)?", QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
         if ok != QMessageBox.Yes:

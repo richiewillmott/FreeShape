@@ -15,12 +15,14 @@ The options:
 """
 from __future__ import annotations
 
+from .i18n import QT_TRANSLATE_NOOP
+
 import numpy as np
 
 from . import kernel as K
 
-CREATION_TYPES = [("solid", "Solid"), ("surface", "Surface"), ("thin", "Thin")]
-THIN_SIDES = [("mid", "Both sides equally"), ("one", "One side"), ("other", "Other side"),
+CREATION_TYPES = [("solid", QT_TRANSLATE_NOOP("FreeShape", "Solid")), ("surface", QT_TRANSLATE_NOOP("FreeShape", "Surface")), ("thin", QT_TRANSLATE_NOOP("FreeShape", "Thin"))]
+THIN_SIDES = [("mid", QT_TRANSLATE_NOOP("FreeShape", "Both sides equally")), ("one", QT_TRANSLATE_NOOP("FreeShape", "One side")), ("other", QT_TRANSLATE_NOOP("FreeShape", "Other side")),
               ("two", "Two thicknesses")]
 
 

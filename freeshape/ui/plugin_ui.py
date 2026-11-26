@@ -1,6 +1,8 @@
 """The Plugins menu and the Plugins window (what's installed, errors, install / reload / open the folder)."""
 from __future__ import annotations
 
+from PySide6.QtCore import QCoreApplication
+
 from ..i18n import tr
 
 import os
@@ -32,11 +34,11 @@ def fill_menu(menu, main):
         a = menu.addAction(c.label)
         a.triggered.connect(lambda _=False, c=c: run_command(main, c))
     if not feats and not P.COMMANDS:
-        a = menu.addAction(tr("No plugins installed"))
+        a = menu.addAction(QCoreApplication.translate("FreeShape", "No plugins installed"))
         a.setEnabled(False)
     menu.addSeparator()
-    menu.addAction(tr("Run a Python script…")).triggered.connect(lambda: run_script(main))
-    menu.addAction(tr("Manage plugins…")).triggered.connect(lambda: PluginsDialog(main).exec())
+    menu.addAction(QCoreApplication.translate("FreeShape", "Run a Python script…")).triggered.connect(lambda: run_script(main))
+    menu.addAction(QCoreApplication.translate("FreeShape", "Manage plugins…")).triggered.connect(lambda: PluginsDialog(main).exec())
 
 
 def run_command(main, cmd):
@@ -79,7 +81,7 @@ class PluginsDialog(QDialog):
     def __init__(self, main):
         super().__init__(main)
         self.main = main
-        self.setWindowTitle(tr("Plugins"))
+        self.setWindowTitle(QCoreApplication.translate("FreeShape", "Plugins"))
         self.resize(760, 460)
         lay = QVBoxLayout(self)
         top = QLabel(f"Plugins are Python files in <a href='folder'>{P.user_dir()}</a>. They can add parametric "
@@ -104,7 +106,7 @@ class PluginsDialog(QDialog):
             b.clicked.connect(fn)
             btns.addWidget(b)
         btns.addStretch(1)
-        close = QPushButton(tr("Close"))
+        close = QPushButton(QCoreApplication.translate("FreeShape", "Close"))
         close.clicked.connect(self.accept)
         btns.addWidget(close)
         lay.addLayout(btns)

@@ -15,13 +15,15 @@ Selections are stored as [[kind, ref], ...] per box (see ui/dialogs.PAIR_FEATURE
 """
 from __future__ import annotations
 
+from .i18n import QT_TRANSLATE_NOOP
+
 import math
 
 import numpy as np
 
 from . import kernel as K
 
-THICKEN_SIDES = [("one", "One side"), ("other", "Other side"), ("mid", "Both sides equally"),
+THICKEN_SIDES = [("one", QT_TRANSLATE_NOOP("FreeShape", "One side")), ("other", QT_TRANSLATE_NOOP("FreeShape", "Other side")), ("mid", QT_TRANSLATE_NOOP("FreeShape", "Both sides equally")),
                  ("two", "Two thicknesses")]
 HELIX_MODES = [("turns_pitch", "Turns and pitch"), ("height_turns", "Height and turns"),
                ("height_pitch", "Height and pitch")]

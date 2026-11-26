@@ -1,4 +1,5 @@
 """Run with:  python -m freeshape [file.fshape]"""
+
 import os
 import sys
 
@@ -23,8 +24,10 @@ def _self_test(out_path):
         assets = os.path.join(os.path.dirname(os.path.abspath(K.__file__)), "assets", "freeshape.ico")
         ok = abs(K.volume(box) - 6000) < 1e-6 and len(m.tris) > 0 and os.path.exists(assets)
         # Verify localization data in the frozen package, not just the source tree.
-        from freeshape.i18n import _catalog
-        if _catalog("ru").get("Save") != "Сохранить":
+        from freeshape.i18n import catalog_path
+        from PySide6.QtCore import QTranslator
+        translator = QTranslator()
+        if not translator.load(str(catalog_path("ru"))) or translator.isEmpty():
             raise RuntimeError("Missing or invalid Russian UI catalog")
         msg = "OK" if ok else "FAILED: wrong result"
     except Exception as e:
@@ -113,7 +116,8 @@ def main():
         os.environ["QT_QPA_PLATFORM"] = "xcb"
     from PySide6.QtWidgets import QApplication
     from PySide6.QtGui import QSurfaceFormat
-    from .i18n import initialize, tr
+    from .i18n import initialize
+    from PySide6.QtCore import QCoreApplication
     fmt = QSurfaceFormat()
     fmt.setSamples(4)
     fmt.setDepthBufferSize(24)
@@ -144,9 +148,9 @@ def main():
     def step(text, frac):
         if splash is not None:
             splash.step(text, frac)
-    step(tr("Loading the geometry kernel…"), 0.15)
+    step(QCoreApplication.translate("FreeShape", "Loading the geometry kernel…"), 0.15)
     from . import kernel  # noqa: F401  (the slow import: OpenCascade)
-    step(tr("Loading the interface…"), 0.6)
+    step(QCoreApplication.translate("FreeShape", "Loading the interface…"), 0.6)
     from .ui.mainwindow import app_icon
     app.setWindowIcon(app_icon())
     from .ui.mainwindow import MainWindow
@@ -154,7 +158,7 @@ def main():
     app.processEvents()             # collect a Finder "open this file" event that arrived during start-up
     if path is None and opener.pending:
         path = opener.pending.pop(0)
-    step(f"Opening {os.path.basename(path)}…" if path else tr("Getting the workspace ready…"), 0.8)
+    step(f"Opening {os.path.basename(path)}…" if path else QCoreApplication.translate("FreeShape", "Getting the workspace ready…"), 0.8)
     w = MainWindow(path)
     w.show()
     opener.attach(w)

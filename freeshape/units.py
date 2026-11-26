@@ -5,8 +5,10 @@ means. The window sets CURRENT to the unit of the document on screen. No Qt here
 """
 from __future__ import annotations
 
+from .i18n import QT_TRANSLATE_NOOP
+
 FACTORS = {"mm": 1.0, "cm": 10.0, "m": 1000.0, "in": 25.4, "ft": 304.8}
-NAMES = {"mm": "millimetre", "cm": "centimetre", "m": "metre", "in": "inch", "ft": "foot"}
+NAMES = {"mm": QT_TRANSLATE_NOOP("FreeShape", "millimetre"), "cm": QT_TRANSLATE_NOOP("FreeShape", "centimetre"), "m": QT_TRANSLATE_NOOP("FreeShape", "metre"), "in": QT_TRANSLATE_NOOP("FreeShape", "inch"), "ft": QT_TRANSLATE_NOOP("FreeShape", "foot")}
 ORDER = ["mm", "cm", "m", "in", "ft"]
 CURRENT = ["mm"]
 

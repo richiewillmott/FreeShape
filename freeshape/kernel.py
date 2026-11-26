@@ -5,6 +5,8 @@ works with plain Python/numpy data.
 """
 from __future__ import annotations
 
+from .i18n import QT_TRANSLATE_NOOP
+
 import math
 from dataclasses import dataclass, field
 
@@ -2508,7 +2510,7 @@ def make_wire(edge_list):
     return mk.Wire()
 
 
-SWEEP_CONTROLS = [("none", "Normal to the path"), ("keep", "Keep profile orientation"),
+SWEEP_CONTROLS = [("none", QT_TRANSLATE_NOOP("FreeShape", "Normal to the path")), ("keep", QT_TRANSLATE_NOOP("FreeShape", "Keep profile orientation")),
                   ("lock_direction", "Lock to a direction"), ("lock_faces", "Lock to faces"),
                   ("guide", "Follow a guide curve")]
 

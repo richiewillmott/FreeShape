@@ -1,6 +1,9 @@
 """Main window: ties the document, viewport, panels, toolbars and dialogs together."""
 from __future__ import annotations
 
+from PySide6.QtCore import QCoreApplication
+from ..i18n import QT_TRANSLATE_NOOP
+
 import base64
 import copy
 import os
@@ -27,6 +30,7 @@ from . import theme
 from . import filedlg
 from .icons import icon
 from .menus import submenu
+from .shortcut_menu import _key as _shortcut_hint
 from .viewport import Viewport, Pick, plane_corners
 from .panels import LeftPanel, STD_PLANES, DocTabBar, ROLE_ID, ROLE_KIND
 from .dialogs import FeatureDialog, SketchDialog, pick_to_item
@@ -221,23 +225,23 @@ class MainWindow(QMainWindow):
         tl.setSpacing(0)
         plus = QToolButton()
         plus.setText("+")
-        plus.setToolTip(tr("Create a Part Studio, an Assembly or a Drawing"))
+        plus.setToolTip(QCoreApplication.translate("FreeShape", "Create a Part Studio, an Assembly or a Drawing"))
         plus.setFixedSize(40, 32)
         plus.setStyleSheet("QToolButton { font-size: 20px; color: #3b4250; border: none; border-right: 1px solid #d5d9de;"
                            " border-radius: 0; background: #eef0f3; }"
                            "QToolButton:hover { background: #e3e8ef; }")
         plus.setPopupMode(QToolButton.InstantPopup)
         pm = QMenu(plus)
-        pm.addAction(icon("part", 16), tr("Create Part Studio"), self.new_doc)
-        pm.addAction(icon("assembly", 16), tr("Create Assembly"), self.new_assembly)
-        pm.addAction(icon("drawing", 16), tr("Create Drawing…"), lambda: self.new_drawing())
+        pm.addAction(icon("part", 16), QCoreApplication.translate("FreeShape", "Create Part Studio"), self.new_doc)
+        pm.addAction(icon("assembly", 16), QCoreApplication.translate("FreeShape", "Create Assembly"), self.new_assembly)
+        pm.addAction(icon("drawing", 16), QCoreApplication.translate("FreeShape", "Create Drawing…"), lambda: self.new_drawing())
         plus.setMenu(pm)
         tl.addWidget(plus)
         tl.addWidget(self.tabs, 1)
         tl.addStretch(0)
         self.units_label = QToolButton()               # Units: millimetre ▾ — this document's length unit
         self.units_label.setObjectName("unitsButton")
-        self.units_label.setText(tr("Units: millimetre ▾"))
+        self.units_label.setText(QCoreApplication.translate("FreeShape", "Units: millimetre ▾"))
         self.units_label.setToolTip("The unit lengths are shown and typed in, for this document. A bare number you "
                                     "type is in this unit; '25 mm' or '1 in' always work.")
         self.units_label.setPopupMode(QToolButton.InstantPopup)
@@ -271,7 +275,7 @@ class MainWindow(QMainWindow):
         self.measure = _MeasurePanel(self.viewport, lambda: self.start_feature("measure_value"))
         self.measure.hide()
         self.status = self.statusBar()
-        self.status.showMessage(tr("Ready"))
+        self.status.showMessage(QCoreApplication.translate("FreeShape", "Ready"))
 
         lp = self.left
         lp.features.editRequested.connect(self.edit_feature)
@@ -314,80 +318,80 @@ class MainWindow(QMainWindow):
         h.addSpacing(10)
         home_btn = QToolButton()
         home_btn.setObjectName("menuButton")
-        home_btn.setText(tr("⌂  Home"))
-        home_btn.setToolTip(tr("Home — new projects and recent files"))
+        home_btn.setText(QCoreApplication.translate("FreeShape", "⌂  Home"))
+        home_btn.setToolTip(QCoreApplication.translate("FreeShape", "Home — new projects and recent files"))
         home_btn.clicked.connect(lambda: self.show_home() if self.main_stack.currentIndex() == 0 else self.show_workspace())
         self.home_btn = home_btn
         h.addWidget(home_btn)
         menu_btn = QToolButton()
         menu_btn.setObjectName("menuButton")
-        menu_btn.setText(tr("☰  Document"))
+        menu_btn.setText(QCoreApplication.translate("FreeShape", "☰  Document"))
         menu_btn.setPopupMode(QToolButton.InstantPopup)
         m = QMenu(menu_btn)
-        self._add_action(m, "New Part Studio", self.new_doc, "Ctrl+N")
-        self._add_action(m, "New Assembly", self.new_assembly, "Ctrl+Shift+N")
-        self._add_action(m, "New Drawing…", lambda: self.new_drawing())
-        self._add_action(m, "Open…", self.open_dialog, "Ctrl+O")
-        self.recent_menu = submenu(m, "Open recent")
+        self._add_action(m, QT_TRANSLATE_NOOP("FreeShape", "New Part Studio"), self.new_doc, "Ctrl+N")
+        self._add_action(m, QT_TRANSLATE_NOOP("FreeShape", "New Assembly"), self.new_assembly, "Ctrl+Shift+N")
+        self._add_action(m, QT_TRANSLATE_NOOP("FreeShape", "New Drawing…"), lambda: self.new_drawing())
+        self._add_action(m, QT_TRANSLATE_NOOP("FreeShape", "Open…"), self.open_dialog, "Ctrl+O")
+        self.recent_menu = submenu(m, QT_TRANSLATE_NOOP("FreeShape", "Open recent"))
         self.recent_menu.aboutToShow.connect(self._fill_recent)
-        self._add_action(m, "Close tab", lambda: self.close_tab(self.tabs.currentIndex()), "Ctrl+W")
+        self._add_action(m, QT_TRANSLATE_NOOP("FreeShape", "Close tab"), lambda: self.close_tab(self.tabs.currentIndex()), "Ctrl+W")
         m.addSeparator()
-        self._add_action(m, "Save", self.save, "Ctrl+S")
-        self._add_action(m, "Save as…", self.save_as, "Ctrl+Shift+S")
+        self._add_action(m, QT_TRANSLATE_NOOP("FreeShape", "Save"), self.save, "Ctrl+S")
+        self._add_action(m, QT_TRANSLATE_NOOP("FreeShape", "Save as…"), self.save_as, "Ctrl+Shift+S")
         m.addSeparator()
-        self._add_action(m, "Import STEP / BREP (new tab)…", self.import_step)
-        self._add_action(m, "Import STEP / BREP into this tab…", lambda: self.import_step(into_current=True))
+        self._add_action(m, QT_TRANSLATE_NOOP("FreeShape", "Import STEP / BREP (new tab)…"), self.import_step)
+        self._add_action(m, QT_TRANSLATE_NOOP("FreeShape", "Import STEP / BREP into this tab…"), lambda: self.import_step(into_current=True))
         self._add_action(m, "Export STEP…", lambda: self.export(None, "step"))
         self._add_action(m, "Export STL…", lambda: self.export(None, "stl"))
         self._add_action(m, "Export BREP…", lambda: self.export(None, "brep"))
-        self._add_action(m, "Nest sheet metal for cutting…", self.nest_for_cutting)
+        self._add_action(m, QT_TRANSLATE_NOOP("FreeShape", "Nest sheet metal for cutting…"), self.nest_for_cutting)
         m.addSeparator()
-        self._add_action(m, "Export as Python script…", self.export_script)
-        self._add_action(m, "Run Python script…", self.run_script)
+        self._add_action(m, QT_TRANSLATE_NOOP("FreeShape", "Export as Python script…"), self.export_script)
+        self._add_action(m, QT_TRANSLATE_NOOP("FreeShape", "Run Python script…"), self.run_script)
         m.addSeparator()
         self._add_action(m, "Create version…", self.create_version)
-        self._add_action(m, "Version history…", self.show_history, "Ctrl+Alt+H")
+        self._add_action(m, QT_TRANSLATE_NOOP("FreeShape", "Version history…"), self.show_history, "Ctrl+Alt+H")
         plm = submenu(m, "Plugins")
         from . import plugin_ui as _pui
         plm.aboutToShow.connect(lambda mm=plm: _pui.fill_menu(mm, self))
         m.addSeparator()
         self._add_action(m, "Keyboard shortcuts", self.show_shortcuts)
-        self._add_action(m, "About FreeShape", self.show_about)
-        self._add_action(m, "Quit", self.close, "Ctrl+Q")
+        self._add_action(m, QT_TRANSLATE_NOOP("FreeShape", "About FreeShape"), self.show_about)
+        self._add_action(m, QT_TRANSLATE_NOOP("FreeShape", "Quit"), self.close, "Ctrl+Q")
         menu_btn.setMenu(m)
         h.addWidget(menu_btn)
         view_btn = QToolButton()
         view_btn.setObjectName("menuButton")
-        view_btn.setText(tr("View"))
+        view_btn.setText(QCoreApplication.translate("FreeShape", "View"))
         view_btn.setPopupMode(QToolButton.InstantPopup)
         vm = QMenu(view_btn)
-        for i, name in enumerate(("Front", "Back", "Left", "Right", "Top", "Bottom", "Isometric"), 1):
+        for i, name in enumerate((QT_TRANSLATE_NOOP("FreeShape", "Front"), QT_TRANSLATE_NOOP("FreeShape", "Back"), QT_TRANSLATE_NOOP("FreeShape", "Left"), QT_TRANSLATE_NOOP("FreeShape", "Right"), QT_TRANSLATE_NOOP("FreeShape", "Top"), QT_TRANSLATE_NOOP("FreeShape", "Bottom"), QT_TRANSLATE_NOOP("FreeShape", "Isometric")), 1):
             self._add_action(vm, name, lambda _=False, n=name: self.viewport.set_standard_view(n), f"Shift+{i}")
-        for name in ("Dimetric", "Trimetric"):
+        for name in (QT_TRANSLATE_NOOP("FreeShape", "Dimetric"), QT_TRANSLATE_NOOP("FreeShape", "Trimetric")):
             self._add_action(vm, name, lambda _=False, n=name: self.viewport.set_standard_view(n))
         vm.addSeparator()
         self.act_prev_view = self._add_action(vm, "Previous view", lambda: self.viewport.previous_view(), "Alt+Left")
         self._add_action(vm, "Zoom to window", lambda: self.viewport.start_zoom_window(), "Shift+Z")
         self._add_action(vm, "Named views…", self.named_views_dialog)
-        dm = submenu(vm, "Display")
+        dm = submenu(vm, QT_TRANSLATE_NOOP("FreeShape", "Display"))
         dm.aboutToShow.connect(lambda: self._fill_display_menu(dm))
         vm.aboutToShow.connect(lambda: self.act_prev_view.setEnabled(self.viewport.has_previous_view()))
         vm.addSeparator()
         self.act_section = self._add_action(vm, "Section view", self.toggle_section, "Ctrl+Shift+X")
         self.act_section.setCheckable(True)
         self._add_action(vm, "Zoom to fit", lambda: self.dwg.canvas.fit() if self.is_dwg else self.viewport.fit(), "F")
-        self.act_planes = self._add_action(vm, "Show default planes", self._toggle_planes)
+        self.act_planes = self._add_action(vm, QT_TRANSLATE_NOOP("FreeShape", "Show default planes"), self._toggle_planes)
         self.act_planes.setCheckable(True)
         self.act_planes.setChecked(True)
         self._add_action(vm, "Show all parts", self._show_all_parts)
         self.act_shiny = self._add_action(vm, "Shiny surfaces", lambda on: self.set_shiny(on))
         self.act_shiny.setCheckable(True)
-        rm = submenu(vm, "Rotate around")
+        rm = submenu(vm, QT_TRANSLATE_NOOP("FreeShape", "Rotate around"))
         from PySide6.QtGui import QActionGroup as _AG
         rgrp = _AG(self)
         self.orbit_actions = {}
-        for mode, label in (("cursor", "The point under the mouse (model centre over empty space)"),
-                            ("centre", "The centre of the model"), ("origin", "The origin")):
+        for mode, label in (("cursor", QT_TRANSLATE_NOOP("FreeShape", "The point under the mouse (model centre over empty space)")),
+                            ("centre", QT_TRANSLATE_NOOP("FreeShape", "The centre of the model")), ("origin", QT_TRANSLATE_NOOP("FreeShape", "The origin"))):
             a = QAction(tr(label), self)
             a.setCheckable(True)
             a.triggered.connect(lambda _=False, md=mode: self.set_orbit_mode(md))
@@ -395,7 +399,7 @@ class MainWindow(QMainWindow):
             rm.addAction(a)
             self.orbit_actions[mode] = a
         from . import navstyles as NS
-        mm = submenu(vm, "Mouse style")
+        mm = submenu(vm, QT_TRANSLATE_NOOP("FreeShape", "Mouse style"))
         mgrp = _AG(self)
         self.nav_actions = {}
         for key, st in NS.STYLES.items():
@@ -405,7 +409,7 @@ class MainWindow(QMainWindow):
             mgrp.addAction(a)
             mm.addAction(a)
             self.nav_actions[key] = a
-        zm = submenu(vm, "Zoom speed")
+        zm = submenu(vm, QT_TRANSLATE_NOOP("FreeShape", "Zoom speed"))
         zgrp = _AG(self)
         self.zoom_actions = {}
         for key, label, _v in NS.ZOOM_SPEEDS:
@@ -416,11 +420,11 @@ class MainWindow(QMainWindow):
             zm.addAction(a)
             self.zoom_actions[key] = a
         vm.addSeparator()
-        tm = submenu(vm, "Theme")
+        tm = submenu(vm, QT_TRANSLATE_NOOP("FreeShape", "Theme"))
         from PySide6.QtGui import QActionGroup
         grp = QActionGroup(self)
         self.theme_actions = {}
-        for mode, label in (("light", "Light"), ("dark", "Dark")):
+        for mode, label in (("light", QT_TRANSLATE_NOOP("FreeShape", "Light")), ("dark", QT_TRANSLATE_NOOP("FreeShape", "Dark"))):
             a = QAction(tr(label), self)
             a.setCheckable(True)
             a.triggered.connect(lambda _=False, md=mode: self.set_theme(md))
@@ -431,7 +435,7 @@ class MainWindow(QMainWindow):
         lang_menu = submenu(vm, "Language")
         lang_group = QActionGroup(self)
         selected_language = str(self.settings.value("language", "system"))
-        for code, label in (("system", tr("System language")), ("en", "English"), ("ru", "Русский")):
+        for code, label in (("system", QCoreApplication.translate("FreeShape", "System language")), ("en", "English"), ("ru", "Русский")):
             action = QAction(label, self)
             action.setCheckable(True)
             action.setChecked(code == selected_language)
@@ -439,25 +443,25 @@ class MainWindow(QMainWindow):
             lang_group.addAction(action)
             lang_menu.addAction(action)
         vm.addSeparator()
-        self._add_action(vm, "Customize the S menu…", self.customize_s_menu)
-        im = submenu(vm, "Icons")
-        im.addAction(tr("Open my icons folder…"), self.open_icons_folder)
-        im.addAction(tr("Save the built-in icons there (to start from)"), self.export_icons)
-        im.addAction(tr("Reload icons"), self.reload_icons)
+        self._add_action(vm, QT_TRANSLATE_NOOP("FreeShape", "Customize the S menu…"), self.customize_s_menu)
+        im = submenu(vm, QT_TRANSLATE_NOOP("FreeShape", "Icons"))
+        im.addAction(QCoreApplication.translate("FreeShape", "Open my icons folder…"), self.open_icons_folder)
+        im.addAction(QCoreApplication.translate("FreeShape", "Save the built-in icons there (to start from)"), self.export_icons)
+        im.addAction(QCoreApplication.translate("FreeShape", "Reload icons"), self.reload_icons)
         view_btn.setMenu(vm)
         h.addWidget(view_btn)
         # ---- what a click / box selection may pick: vertices, edges, faces, solids, sketches, planes
         self.sel_btn = QToolButton()
         self.sel_btn.setObjectName("menuButton")
-        self.sel_btn.setText(tr("Select"))
-        self.sel_btn.setToolTip(tr("Choose which kinds of things can be selected (vertices, edges, faces …)"))
+        self.sel_btn.setText(QCoreApplication.translate("FreeShape", "Select"))
+        self.sel_btn.setToolTip(QCoreApplication.translate("FreeShape", "Choose which kinds of things can be selected (vertices, edges, faces …)"))
         self.sel_btn.setPopupMode(QToolButton.InstantPopup)
         selm = QMenu(self.sel_btn)
         self.sel_actions = {}
         for key, label, kinds, on in (
-                ("vertex", "Vertices", ("vertex", "sketch_point"), True), ("edge", "Edges", ("edge",), True),
-                ("face", "Faces", ("face",), True), ("part", "Solids (whole parts)", ("part",), False),
-                ("sketch", "Sketches", ("sketch_line", "region"), True), ("plane", "Planes", ("plane",), True)):
+                ("vertex", QT_TRANSLATE_NOOP("FreeShape", "Vertices"), ("vertex", "sketch_point"), True), ("edge", QT_TRANSLATE_NOOP("FreeShape", "Edges"), ("edge",), True),
+                ("face", QT_TRANSLATE_NOOP("FreeShape", "Faces"), ("face",), True), ("part", QT_TRANSLATE_NOOP("FreeShape", "Solids (whole parts)"), ("part",), False),
+                ("sketch", QT_TRANSLATE_NOOP("FreeShape", "Sketches"), ("sketch_line", "region"), True), ("plane", QT_TRANSLATE_NOOP("FreeShape", "Planes"), ("plane",), True)):
             a = QAction(tr(label), self)
             a.setCheckable(True)
             a.setChecked(on)
@@ -466,16 +470,16 @@ class MainWindow(QMainWindow):
             selm.addAction(a)
             self.sel_actions[key] = a
         selm.addSeparator()
-        ra = QAction(tr("Reset to default"), self)
+        ra = QAction(QCoreApplication.translate("FreeShape", "Reset to default"), self)
         ra.triggered.connect(self._reset_selection_filter)
         selm.addAction(ra)
         self.sel_btn.setMenu(selm)
         h.addWidget(self.sel_btn)
         search_btn = QToolButton()
         search_btn.setObjectName("menuButton")
-        search_btn.setText(tr("Search tools…"))
+        search_btn.setText(QCoreApplication.translate("FreeShape", "Search tools…"))
         search_btn.setIcon(icon("search"))
-        search_btn.setToolTip(tr("Find a tool by name (Alt+C or Ctrl+Space)"))
+        search_btn.setToolTip(QCoreApplication.translate("FreeShape", "Find a tool by name (Alt+C or Ctrl+Space)"))
         search_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         search_btn.clicked.connect(self.open_command_search)
         h.addWidget(search_btn)
@@ -484,7 +488,7 @@ class MainWindow(QMainWindow):
         self.doc_label.setObjectName("docname")
         h.addWidget(self.doc_label)
         h.addStretch(1)
-        hint = QLabel(tr("Right-drag: rotate · Middle-drag: pan · Wheel: zoom"))
+        hint = QLabel(QCoreApplication.translate("FreeShape", "Right-drag: rotate · Middle-drag: pan · Wheel: zoom"))
         hint.setObjectName("muted")
         h.addWidget(hint)
         return bar
@@ -497,82 +501,82 @@ class MainWindow(QMainWindow):
         cmds = [
             C("sketch", "Sketch", "Draw 2D profiles on a plane or a flat face. With vertices, edges or faces selected "
               "that define a plane, the plane is made for you.", lambda: self.start_sketch(), "draw 2d profile"),
-            C("extrude", "Extrude", "Add or remove material by extending sketch regions or flat faces. Blind, "
+            C("extrude", QT_TRANSLATE_NOOP("FreeShape", "Extrude"), "Add or remove material by extending sketch regions or flat faces. Blind, "
               "symmetric or through all.", lambda: F_("extrude"), "boss cut pad pocket"),
-            C("revolve", "Revolve", "Spin a sketch region around an axis to make round parts.",
+            C("revolve", QT_TRANSLATE_NOOP("FreeShape", "Revolve"), "Spin a sketch region around an axis to make round parts.",
               lambda: F_("revolve"), "lathe turn"),
-            C("sweep", "Sweep", "Move a profile along a path to make a pipe or rail.", lambda: F_("sweep"), "pipe path"),
-            C("loft", "Loft", "Blend smoothly between two or more profiles.", lambda: F_("loft"), "blend transition"),
-            C("fillet", "Fillet", "Round off edges or faces with a radius.", lambda: F_("fillet"), "round blend corner"),
-            C("chamfer", "Chamfer", "Create beveled edges or faces with a distance.", lambda: F_("chamfer"),
+            C("sweep", QT_TRANSLATE_NOOP("FreeShape", "Sweep"), "Move a profile along a path to make a pipe or rail.", lambda: F_("sweep"), "pipe path"),
+            C("loft", QT_TRANSLATE_NOOP("FreeShape", "Loft"), "Blend smoothly between two or more profiles.", lambda: F_("loft"), "blend transition"),
+            C("fillet", QT_TRANSLATE_NOOP("FreeShape", "Fillet"), "Round off edges or faces with a radius.", lambda: F_("fillet"), "round blend corner"),
+            C("chamfer", QT_TRANSLATE_NOOP("FreeShape", "Chamfer"), "Create beveled edges or faces with a distance.", lambda: F_("chamfer"),
               "bevel"),
-            C("draft", "Draft", "Angle side faces so a part releases from a mould.", lambda: F_("draft"), "taper"),
-            C("shell", "Shell", "Hollow a part, leaving walls of a thickness; chosen faces are left open.",
+            C("draft", QT_TRANSLATE_NOOP("FreeShape", "Draft"), "Angle side faces so a part releases from a mould.", lambda: F_("draft"), "taper"),
+            C("shell", QT_TRANSLATE_NOOP("FreeShape", "Shell"), "Hollow a part, leaving walls of a thickness; chosen faces are left open.",
               lambda: F_("shell"), "hollow"),
-            C("thicken", "Thicken", "Turn surfaces or faces into solids of a thickness (one side, the other, both "
+            C("thicken", QT_TRANSLATE_NOOP("FreeShape", "Thicken"), "Turn surfaces or faces into solids of a thickness (one side, the other, both "
               "or two thicknesses).", lambda: F_("thicken"), "surface solid wall skin"),
-            C("enclose", "Enclose", "A solid from the space that surfaces, faces and planes close off between them.",
+            C("enclose", QT_TRANSLATE_NOOP("FreeShape", "Enclose"), "A solid from the space that surfaces, faces and planes close off between them.",
               lambda: F_("enclose"), "surface solid close fill volume"),
-            C("fill", "Fill", "A surface patch over a closed loop of edges or sketch curves, just meeting or "
+            C("fill", QT_TRANSLATE_NOOP("FreeShape", "Fill"), "A surface patch over a closed loop of edges or sketch curves, just meeting or "
               "tangent to the surfaces around it, through any points you pick.", lambda: F_("fill"),
               "surface patch cap boundary hole"),
-            C("constrained_surface", "Constrained surface", "A smooth surface fitted through points, or through a "
+            C("constrained_surface", QT_TRANSLATE_NOOP("FreeShape", "Constrained surface"), "A smooth surface fitted through points, or through a "
               "part's vertices (a point cloud or scan), within a tolerance.", lambda: F_("constrained_surface"),
               "surface fit points cloud scan"),
-            C("rib", "Rib", "A wall of a thickness from sketch lines, grown out until it meets the part.",
+            C("rib", QT_TRANSLATE_NOOP("FreeShape", "Rib"), "A wall of a thickness from sketch lines, grown out until it meets the part.",
               lambda: F_("rib"), "gusset stiffener web"),
-            C("delete_part", "Delete part", "Remove parts from the model from this point on.",
+            C("delete_part", QT_TRANSLATE_NOOP("FreeShape", "Delete part"), "Remove parts from the model from this point on.",
               lambda: F_("delete_part"), "remove body"),
-            C("helix", "Helix", "A helix curve around an axis, a circle or a cylinder — sweep a profile along it "
+            C("helix", QT_TRANSLATE_NOOP("FreeShape", "Helix"), "A helix curve around an axis, a circle or a cylinder — sweep a profile along it "
               "for springs.", lambda: F_("helix"), "spiral spring coil thread curve"),
-            C("compound", "Compound", "Several solids as one part, sharing the faces where they touch (glue "
+            C("compound", QT_TRANSLATE_NOOP("FreeShape", "Compound"), "Several solids as one part, sharing the faces where they touch (glue "
               "faces, as in SALOME) — a conformal assembly for meshing.", lambda: F_("compound"),
               "glue faces partition salome conformal shared mesh fea"),
-            C("explode_part", "Explode", "Split a part into its solids (a compound back apart), or into its faces "
+            C("explode_part", QT_TRANSLATE_NOOP("FreeShape", "Explode"), "Split a part into its solids (a compound back apart), or into its faces "
               "(surfaces) or edges (curves).", lambda: F_("explode_part"), "split separate solids faces edges salome"),
             C("bounding_box", "Bounding box", "A box part around parts, with optional clearance (stock size, "
               "packaging).", lambda: F_("bounding_box"), "stock envelope size"),
-            C("hole", "Hole", "Custom holes or ISO clearance, tapped, counterbore and countersink holes at sketch "
+            C("hole", QT_TRANSLATE_NOOP("FreeShape", "Hole"), "Custom holes or ISO clearance, tapped, counterbore and countersink holes at sketch "
               "points.", lambda: F_("hole"), "drill tap counterbore countersink screw"),
-            C("thread", "Thread", "Model real ISO metric threads on holes and shafts.", lambda: F_("thread"),
+            C("thread", QT_TRANSLATE_NOOP("FreeShape", "Thread"), "Model real ISO metric threads on holes and shafts.", lambda: F_("thread"),
               "screw bolt"),
-            C("delete_face", "Delete face", "Remove faces from a part. Heal closes the gap by extending the "
+            C("delete_face", QT_TRANSLATE_NOOP("FreeShape", "Delete face"), "Remove faces from a part. Heal closes the gap by extending the "
               "surrounding faces, Cap covers it with a flat face, or leave the void open. Useful for imported "
               "parts: removes fillets, chamfers, bosses and holes.", lambda: F_("delete_face"),
               "defeature remove fillet chamfer protrusion step import heal cap"),
-            C("move_face", "Move face", "Push or pull flat faces along their normal to resize a part.",
+            C("move_face", QT_TRANSLATE_NOOP("FreeShape", "Move face"), "Push or pull flat faces along their normal to resize a part.",
               lambda: F_("move_face"), "offset face resize push pull direct edit"),
-            C("offset_surface", "Offset surface", "Make a new surface a set distance from selected faces (flat or "
+            C("offset_surface", QT_TRANSLATE_NOOP("FreeShape", "Offset surface"), "Make a new surface a set distance from selected faces (flat or "
               "curved). The result is a surface body you can use as a reference or delete faces from.",
               lambda: F_("offset_surface"), "offset face surface copy shell skin"),
-            C("sm_base", "Sheet metal", "A flat sheet from a sketch with thickness, bend radius and K-factor.",
+            C("sm_base", QT_TRANSLATE_NOOP("FreeShape", "Sheet metal"), "A flat sheet from a sketch with thickness, bend radius and K-factor.",
               lambda: F_("sm_base"), "bracket enclosure"),
-            C("sm_flange", "Flange", "Bend the sheet up along edges.", lambda: F_("sm_flange"), "sheet metal bend"),
-            C("sm_hem", "Hem", "Fold sheet metal edges right back (180°).", lambda: F_("sm_hem"), "sheet metal fold"),
-            C("sm_jog", "Jog", "Step sheet metal up or down from an edge.", lambda: F_("sm_jog"),
+            C("sm_flange", QT_TRANSLATE_NOOP("FreeShape", "Flange"), "Bend the sheet up along edges.", lambda: F_("sm_flange"), "sheet metal bend"),
+            C("sm_hem", QT_TRANSLATE_NOOP("FreeShape", "Hem"), "Fold sheet metal edges right back (180°).", lambda: F_("sm_hem"), "sheet metal fold"),
+            C("sm_jog", QT_TRANSLATE_NOOP("FreeShape", "Jog"), "Step sheet metal up or down from an edge.", lambda: F_("sm_jog"),
               "sheet metal joggle offset step"),
             C("sm_tab", "Tab", "Add sheet in a panel's plane from a sketch.", lambda: F_("sm_tab"), "sheet metal extend"),
             C("sm_convert", "Convert to sheet metal", "Make a flat plate into sheet metal.", lambda: F_("sm_convert"),
               "sheet metal plate import"),
-            C("plane", "Plane", "Make a datum plane: offset, through a point, line and angle, three points, mid "
+            C("plane", QT_TRANSLATE_NOOP("FreeShape", "Plane"), "Make a datum plane: offset, through a point, line and angle, three points, mid "
               "plane, normal to a curve or tangent to a surface.", lambda: F_("plane"), "datum"),
-            C("mirror", "Mirror", "Copy parts across a plane.", lambda: F_("mirror"), "symmetry"),
-            C("linear_pattern", "Linear pattern", "Repeat parts along a direction.", lambda: F_("linear_pattern"),
+            C("mirror", QT_TRANSLATE_NOOP("FreeShape", "Mirror"), "Copy parts across a plane.", lambda: F_("mirror"), "symmetry"),
+            C("linear_pattern", QT_TRANSLATE_NOOP("FreeShape", "Linear pattern"), "Repeat parts along a direction.", lambda: F_("linear_pattern"),
               "array copies"),
-            C("circular_pattern", "Circular pattern", "Repeat parts around an axis.",
+            C("circular_pattern", QT_TRANSLATE_NOOP("FreeShape", "Circular pattern"), "Repeat parts around an axis.",
               lambda: F_("circular_pattern"), "array copies polar"),
-            C("curve_pattern", "Curve pattern", "Repeat parts, features or faces along a path, turning with it.",
+            C("curve_pattern", QT_TRANSLATE_NOOP("FreeShape", "Curve pattern"), "Repeat parts, features or faces along a path, turning with it.",
               lambda: F_("curve_pattern"), "array copies path along curve"),
-            C("point_pattern", "Point pattern", "A copy of parts, features or faces at each picked point.",
+            C("point_pattern", QT_TRANSLATE_NOOP("FreeShape", "Point pattern"), "A copy of parts, features or faces at each picked point.",
               lambda: F_("point_pattern"), "array copies points vertices locations"),
-            C("boolean", "Boolean", "Add, subtract or intersect parts.", lambda: F_("boolean"),
+            C("boolean", QT_TRANSLATE_NOOP("FreeShape", "Boolean"), "Add, subtract or intersect parts.", lambda: F_("boolean"),
               "union subtract intersect combine merge"),
-            C("split", "Split", "Cut parts with planes, faces (flat or curved) or sketch curves; keep both sides or one.", lambda: F_("split"), "cut"),
-            C("move", "Transform", "Move, rotate, scale or copy parts: by XYZ, along a line, a distance, point to "
+            C("split", QT_TRANSLATE_NOOP("FreeShape", "Split"), "Cut parts with planes, faces (flat or curved) or sketch curves; keep both sides or one.", lambda: F_("split"), "cut"),
+            C("move", QT_TRANSLATE_NOOP("FreeShape", "Transform"), "Move, rotate, scale or copy parts: by XYZ, along a line, a distance, point to "
               "point, or one mate connector onto another.", lambda: F_("move"), "translate move rotate scale copy"),
-            C("mate_connector", "Mate connector", "A frame (origin and X / Y / Z) on a face, edge or vertex; Shift "
+            C("mate_connector", QT_TRANSLATE_NOOP("FreeShape", "Mate connector"), "A frame (origin and X / Y / Z) on a face, edge or vertex; Shift "
               "moves it between the points of the face.", lambda: F_("mate_connector"), "frame origin connector"),
-            C("variable", "Variable", "A #name to use in any dimension: a length, angle, number or expression "
+            C("variable", QT_TRANSLATE_NOOP("FreeShape", "Variable"), "A #name to use in any dimension: a length, angle, number or expression "
               "with its unit, or measured from the model (distance, area, volume…) so it follows the model.",
               lambda: F_("measure_value"), "parameter measure value distance area volume angle unit"),
             C("derived", "Derived", "Bring parts from another Part Studio, kept linked.", lambda: F_("derived"),
@@ -580,21 +584,21 @@ class MainWindow(QMainWindow):
             C("configs", "Configurations", "Sizes or versions of this Part Studio from a table of variable values.",
               self.edit_configs, "configuration family table sizes variants"),
             C("import", "Import STEP", "Open a STEP file in a new tab.", lambda: self.import_step(), "open file",
-              "File"),
-            C("export", "Export", "Export the model as STEP or STL.", lambda: self.export(None, None),
-              "save stl step", "File"),
+              QT_TRANSLATE_NOOP("FreeShape", "File")),
+            C("export", QT_TRANSLATE_NOOP("FreeShape", "Export"), "Export the model as STEP or STL.", lambda: self.export(None, None),
+              "save stl step", QT_TRANSLATE_NOOP("FreeShape", "File")),
             C("undo", "Undo", "Undo the last change (Ctrl+Z).", self.undo, "", "Edit"),
             C("redo", "Redo", "Redo what was undone (Ctrl+Y).", self.redo, "", "Edit"),
             C("section", "Section view", "Cut the model open with a plane to see inside (Ctrl+Shift+X).",
               self.toggle_section, "cross", "View"),
             C("fit", "Zoom to fit", "Fit the whole model in the view (F).", lambda: self.viewport.fit(), "", "View"),
             C("iso", "Isometric view", "Look at the model from the isometric corner (Shift+7).",
-              lambda: self.viewport.set_standard_view("Isometric"), "", "View"),
+              lambda: self.viewport.set_standard_view(QT_TRANSLATE_NOOP("FreeShape", "Isometric")), "", "View"),
         ]
-        for i, name in enumerate(("Front", "Back", "Left", "Right", "Top", "Bottom"), 1):
+        for i, name in enumerate((QT_TRANSLATE_NOOP("FreeShape", "Front"), QT_TRANSLATE_NOOP("FreeShape", "Back"), QT_TRANSLATE_NOOP("FreeShape", "Left"), QT_TRANSLATE_NOOP("FreeShape", "Right"), QT_TRANSLATE_NOOP("FreeShape", "Top"), QT_TRANSLATE_NOOP("FreeShape", "Bottom")), 1):
             cmds.append(C("iso", f"{name} view", f"Look at the model from the {name.lower()} (Shift+{i}).",
                           lambda n=name: self.viewport.set_standard_view(n), "", "View"))
-        for name in ("Dimetric", "Trimetric"):
+        for name in (QT_TRANSLATE_NOOP("FreeShape", "Dimetric"), QT_TRANSLATE_NOOP("FreeShape", "Trimetric")):
             cmds.append(C("iso", f"{name} view", f"Look at the model from the {name.lower()} corner.",
                           lambda n=name: self.viewport.set_standard_view(n), "", "View"))
         cmds += [
@@ -647,7 +651,7 @@ class MainWindow(QMainWindow):
         vp = self.viewport
         is_default = all(a.isChecked() == self.SELECT_DEFAULTS[k] for k, a in self.sel_actions.items())
         vp.user_filter = None if is_default else kinds
-        self.sel_btn.setText(tr("Select") if is_default else "Select •")
+        self.sel_btn.setText(QCoreApplication.translate("FreeShape", "Select") if is_default else "Select •")
         # drop anything already selected that can no longer be selected
         managed = {k for a in self.sel_actions.values() for k in a.data()}
         keep = [pk for pk in vp.selection if pk.kind not in managed or vp._allowed(pk.kind)]
@@ -666,10 +670,10 @@ class MainWindow(QMainWindow):
     def _set_language_preference(self, language):
         self.settings.setValue("language", language)
         self.settings.sync()
-        message = ("FREESHAPE_LANG overrides the saved language preference."
+        message = (QT_TRANSLATE_NOOP("FreeShape", "FREESHAPE_LANG overrides the saved language preference.")
                    if os.environ.get("FREESHAPE_LANG") else
-                   "Restart FreeShape to apply the selected language.")
-        QMessageBox.information(self, tr("Language"), tr(message))
+                   QT_TRANSLATE_NOOP("FreeShape", "Restart FreeShape to apply the selected language."))
+        QMessageBox.information(self, QCoreApplication.translate("FreeShape", "Language"), tr(message))
 
     def _add_action(self, menu, text, slot, shortcut=None):
         a = QAction(tr(text), self)
@@ -687,6 +691,7 @@ class MainWindow(QMainWindow):
         b.setProperty("icon_name", name)
         b.setIconSize(QSize(26, 26))
         b.setToolTip(tr(tip))
+        b.setProperty("shortcut_hint", _shortcut_hint(tip))
         b.setCheckable(checkable)
         b.setAutoRaise(True)
         b.clicked.connect(slot)
@@ -704,6 +709,7 @@ class MainWindow(QMainWindow):
             label = tr(tip).split(" — ")[0]
             a = m.addAction(icon(name, 20), label)
             a.setToolTip(tr(tip))
+            a.setProperty("shortcut_hint", _shortcut_hint(tip))
             a.setProperty("icon_name", name)
             a.triggered.connect(lambda _=False, sl=slot: sl())
             self._menu_actions.append((a, name))
@@ -721,72 +727,72 @@ class MainWindow(QMainWindow):
         h.setSpacing(2)
         self._menu_actions = getattr(self, "_menu_actions", [])
         F_ = lambda n: (lambda: self.start_feature(n))      # noqa: E731
-        self.btn_undo = self._tb(h, "undo", "Undo (Ctrl+Z)", self.undo)
-        self.btn_redo = self._tb(h, "redo", "Redo (Ctrl+Y)", self.redo)
+        self.btn_undo = self._tb(h, "undo", QT_TRANSLATE_NOOP("FreeShape", "Undo (Ctrl+Z)"), self.undo)
+        self.btn_redo = self._tb(h, "redo", QT_TRANSLATE_NOOP("FreeShape", "Redo (Ctrl+Y)"), self.redo)
         h.addWidget(_sep())
-        sk = self._tb(h, "sketch", "Sketch (Shift+S) — select a plane or flat face first, or pick one after",
+        sk = self._tb(h, "sketch", QT_TRANSLATE_NOOP("FreeShape", "Sketch (Shift+S) — select a plane or flat face first, or pick one after"),
                       lambda: self.start_sketch())
-        sk.setText(tr("Sketch"))
+        sk.setText(QCoreApplication.translate("FreeShape", "Sketch"))
         sk.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         sk.setObjectName("sketchButton")
         h.addWidget(_sep())
         # make solids and surfaces
-        self._tb(h, "extrude", "Extrude (Shift+E)", F_("extrude"))
-        self._tb(h, "revolve", "Revolve (Shift+W)", F_("revolve"))
-        self._tb(h, "sweep", "Sweep — a profile along a path", F_("sweep"))
-        self._tb(h, "loft", "Loft — blend between profiles", F_("loft"))
-        self._tb_group(h, [("thicken", "Thicken — surfaces or faces into solids", F_("thicken")),
-                           ("enclose", "Enclose — a solid from the space surfaces and planes close off",
+        self._tb(h, "extrude", QT_TRANSLATE_NOOP("FreeShape", "Extrude (Shift+E)"), F_("extrude"))
+        self._tb(h, "revolve", QT_TRANSLATE_NOOP("FreeShape", "Revolve (Shift+W)"), F_("revolve"))
+        self._tb(h, "sweep", QT_TRANSLATE_NOOP("FreeShape", "Sweep — a profile along a path"), F_("sweep"))
+        self._tb(h, "loft", QT_TRANSLATE_NOOP("FreeShape", "Loft — blend between profiles"), F_("loft"))
+        self._tb_group(h, [("thicken", QT_TRANSLATE_NOOP("FreeShape", "Thicken — surfaces or faces into solids"), F_("thicken")),
+                           ("enclose", QT_TRANSLATE_NOOP("FreeShape", "Enclose — a solid from the space surfaces and planes close off"),
                             F_("enclose"))])
         h.addWidget(_sep())
         # change them
-        self._tb(h, "fillet", "Fillet (Shift+F)", F_("fillet"))
-        self._tb(h, "chamfer", "Chamfer", F_("chamfer"))
-        self._tb(h, "draft", "Draft — angle side faces", F_("draft"))
-        self._tb(h, "rib", "Rib — a wall from sketch lines out to the part", F_("rib"))
-        self._tb(h, "shell", "Shell", F_("shell"))
-        self._tb_group(h, [("hole", "Hole — custom or ISO clearance / tapped", F_("hole")),
-                           ("thread", "Thread — real ISO threads on holes and shafts", F_("thread"))])
+        self._tb(h, "fillet", QT_TRANSLATE_NOOP("FreeShape", "Fillet (Shift+F)"), F_("fillet"))
+        self._tb(h, "chamfer", QT_TRANSLATE_NOOP("FreeShape", "Chamfer"), F_("chamfer"))
+        self._tb(h, "draft", QT_TRANSLATE_NOOP("FreeShape", "Draft — angle side faces"), F_("draft"))
+        self._tb(h, "rib", QT_TRANSLATE_NOOP("FreeShape", "Rib — a wall from sketch lines out to the part"), F_("rib"))
+        self._tb(h, "shell", QT_TRANSLATE_NOOP("FreeShape", "Shell"), F_("shell"))
+        self._tb_group(h, [("hole", QT_TRANSLATE_NOOP("FreeShape", "Hole — custom or ISO clearance / tapped"), F_("hole")),
+                           ("thread", QT_TRANSLATE_NOOP("FreeShape", "Thread — real ISO threads on holes and shafts"), F_("thread"))])
         h.addWidget(_sep())
         # copy them
-        self._tb_group(h, [("linear_pattern", "Linear pattern", F_("linear_pattern")),
-                           ("circular_pattern", "Circular pattern", F_("circular_pattern")),
-                           ("curve_pattern", "Curve pattern — copies along a path, turning with it",
+        self._tb_group(h, [("linear_pattern", QT_TRANSLATE_NOOP("FreeShape", "Linear pattern"), F_("linear_pattern")),
+                           ("circular_pattern", QT_TRANSLATE_NOOP("FreeShape", "Circular pattern"), F_("circular_pattern")),
+                           ("curve_pattern", QT_TRANSLATE_NOOP("FreeShape", "Curve pattern — copies along a path, turning with it"),
                             F_("curve_pattern")),
-                           ("point_pattern", "Point pattern — a copy at each picked point", F_("point_pattern"))])
-        self._tb(h, "mirror", "Mirror", F_("mirror"))
+                           ("point_pattern", QT_TRANSLATE_NOOP("FreeShape", "Point pattern — a copy at each picked point"), F_("point_pattern"))])
+        self._tb(h, "mirror", QT_TRANSLATE_NOOP("FreeShape", "Mirror"), F_("mirror"))
         h.addWidget(_sep())
         # combine, cut up and move parts
-        self._tb(h, "boolean", "Boolean — union, subtract or intersect parts", F_("boolean"))
-        self._tb(h, "split", "Split — parts with planes, faces or sketch curves", F_("split"))
+        self._tb(h, "boolean", QT_TRANSLATE_NOOP("FreeShape", "Boolean — union, subtract or intersect parts"), F_("boolean"))
+        self._tb(h, "split", QT_TRANSLATE_NOOP("FreeShape", "Split — parts with planes, faces or sketch curves"), F_("split"))
         self._tb_group(h, [("move", "Transform — by XYZ, a line, a distance, point to point, rotate, mate connectors "
                                     "or scale; move or copy parts", F_("move")),
                            ("mate_connector", "Mate connector — a frame on a face, edge or vertex (Shift: the next "
                                               "point on the face)", F_("mate_connector"))])
-        self._tb(h, "delete_part", "Delete part — remove parts from here on", F_("delete_part"))
+        self._tb(h, "delete_part", QT_TRANSLATE_NOOP("FreeShape", "Delete part — remove parts from here on"), F_("delete_part"))
         self._tb_group(h, [("compound", "Compound — solids as one part that share the faces where they touch "
                                         "(glue faces)", F_("compound")),
                            ("explode_part", "Explode — a part into its solids (a compound back apart), faces or "
                                             "edges", F_("explode_part"))])
         self._tb_group(h, [("delete_face", "Delete face — remove fillets, chamfers, bosses and holes from imported "
                                            "parts (heal, cap or leave open)", F_("delete_face")),
-                           ("move_face", "Move face — push or pull flat faces", F_("move_face"))])
+                           ("move_face", QT_TRANSLATE_NOOP("FreeShape", "Move face — push or pull flat faces"), F_("move_face"))])
         # surfaces, as Onshape groups them: Offset surface on the button, the rest under its ▾
-        self._tb_group(h, [("offset_surface", "Offset surface — a new surface a set distance from faces (0: a copy)",
+        self._tb_group(h, [("offset_surface", QT_TRANSLATE_NOOP("FreeShape", "Offset surface — a new surface a set distance from faces (0: a copy)"),
                             F_("offset_surface")),
-                           ("fill", "Fill — a surface patch over a closed loop of edges or sketch curves",
+                           ("fill", QT_TRANSLATE_NOOP("FreeShape", "Fill — a surface patch over a closed loop of edges or sketch curves"),
                             F_("fill")),
-                           ("constrained_surface", "Constrained surface — a surface fitted through points",
+                           ("constrained_surface", QT_TRANSLATE_NOOP("FreeShape", "Constrained surface — a surface fitted through points"),
                             F_("constrained_surface"))])
         h.addWidget(_sep())
         # construction
-        self._tb_group(h, [("plane", "Plane", F_("plane")),
-                           ("helix", "Helix — a helix curve (a path for springs and threads)", F_("helix"))])
+        self._tb_group(h, [("plane", QT_TRANSLATE_NOOP("FreeShape", "Plane"), F_("plane")),
+                           ("helix", QT_TRANSLATE_NOOP("FreeShape", "Helix — a helix curve (a path for springs and threads)"), F_("helix"))])
         h.addWidget(_sep())
         # sheet metal
         self._tb_group(h, [
             ("sm_base", "Sheet metal — a flat sheet from a sketch (thickness, bend radius, K-factor)", F_("sm_base")),
-            ("sm_flange", "Flange — bend the sheet up along edges", F_("sm_flange")),
+            ("sm_flange", QT_TRANSLATE_NOOP("FreeShape", "Flange — bend the sheet up along edges"), F_("sm_flange")),
             ("sm_hem", "Hem — fold edges right back over the sheet", F_("sm_hem")),
             ("sm_jog", "Jog — step the sheet up or down from an edge and carry on", F_("sm_jog")),
             ("sm_tab", "Tab — more sheet in a panel's plane, from a sketch on its face", F_("sm_tab")),
@@ -815,20 +821,20 @@ class MainWindow(QMainWindow):
         pm.aboutToShow.connect(lambda m=pm: plugin_ui.fill_menu(m, self))
         self.plugin_btn.setMenu(pm)
         self.config_box = QComboBox()
-        self.config_box.setToolTip(tr("The configuration shown"))
+        self.config_box.setToolTip(QCoreApplication.translate("FreeShape", "The configuration shown"))
         self.config_box.setMinimumWidth(110)
         self.config_box.activated.connect(lambda i: self.doc.set_active_config(i) if self.doc is not None and
                                           hasattr(self.doc, "set_active_config") else None)
         self.config_box.hide()
         h.addWidget(self.config_box)
         h.addWidget(_sep())
-        self._tb(h, "import", "Import STEP (opens in a new tab)", lambda: self.import_step())
-        self._tb(h, "export", "Export STEP / STL / BREP", lambda: self.export(None, None))
+        self._tb(h, "import", QT_TRANSLATE_NOOP("FreeShape", "Import STEP (opens in a new tab)"), lambda: self.import_step())
+        self._tb(h, "export", QT_TRANSLATE_NOOP("FreeShape", "Export STEP / STL / BREP"), lambda: self.export(None, None))
         h.addStretch(1)
-        self.btn_section = self._tb(h, "section", "Section view (Ctrl+Shift+X) — select a face or plane first to cut there",
+        self.btn_section = self._tb(h, "section", QT_TRANSLATE_NOOP("FreeShape", "Section view (Ctrl+Shift+X) — select a face or plane first to cut there"),
                                     self.toggle_section, checkable=True)
         self._tb(h, "fit", "Zoom to fit (F)", lambda: self.viewport.fit())
-        self._tb(h, "iso", "Isometric (Shift+7)", lambda: self.viewport.set_standard_view("Isometric"))
+        self._tb(h, "iso", QT_TRANSLATE_NOOP("FreeShape", "Isometric (Shift+7)"), lambda: self.viewport.set_standard_view(QT_TRANSLATE_NOOP("FreeShape", "Isometric")))
         return w
 
     def _build_assembly_toolbar(self):
@@ -837,8 +843,8 @@ class MainWindow(QMainWindow):
         h.setContentsMargins(8, 2, 8, 2)
         h.setSpacing(2)
         a = self.asm
-        self.btn_aundo = self._tb(h, "undo", "Undo (Ctrl+Z)", self.undo)
-        self.btn_aredo = self._tb(h, "redo", "Redo (Ctrl+Y)", self.redo)
+        self.btn_aundo = self._tb(h, "undo", QT_TRANSLATE_NOOP("FreeShape", "Undo (Ctrl+Z)"), self.undo)
+        self.btn_aredo = self._tb(h, "redo", QT_TRANSLATE_NOOP("FreeShape", "Redo (Ctrl+Y)"), self.redo)
         h.addWidget(_sep())
         self._tb(h, "insert", "Insert — add parts from your Part Studios or a file (I)", a.toggle_insert)
         h.addWidget(_sep())
@@ -860,9 +866,9 @@ class MainWindow(QMainWindow):
         self._tb(h, "export", "Export the assembly (STEP keeps the parts, names and colours)",
                  lambda: self.export(None, None))
         h.addStretch(1)
-        self.btn_asection = self._tb(h, "section", "Section view (Ctrl+Shift+X)", self.toggle_section, checkable=True)
+        self.btn_asection = self._tb(h, "section", QT_TRANSLATE_NOOP("FreeShape", "Section view (Ctrl+Shift+X)"), self.toggle_section, checkable=True)
         self._tb(h, "fit", "Zoom to fit (F)", lambda: self.viewport.fit())
-        self._tb(h, "iso", "Isometric (Shift+7)", lambda: self.viewport.set_standard_view("Isometric"))
+        self._tb(h, "iso", QT_TRANSLATE_NOOP("FreeShape", "Isometric (Shift+7)"), lambda: self.viewport.set_standard_view(QT_TRANSLATE_NOOP("FreeShape", "Isometric")))
         return w
 
     def _build_drawing_toolbar(self):
@@ -871,10 +877,10 @@ class MainWindow(QMainWindow):
         h.setContentsMargins(8, 2, 8, 2)
         h.setSpacing(2)
         d = self.dwg
-        self._tb(h, "undo", "Undo (Ctrl+Z)", self.undo)
-        self._tb(h, "redo", "Redo (Ctrl+Y)", self.redo)
+        self._tb(h, "undo", QT_TRANSLATE_NOOP("FreeShape", "Undo (Ctrl+Z)"), self.undo)
+        self._tb(h, "redo", QT_TRANSLATE_NOOP("FreeShape", "Redo (Ctrl+Y)"), self.redo)
         h.addWidget(_sep())
-        self._tb(h, "base_view", "Insert view — front, top, side, isometric …", d.insert_view)
+        self._tb(h, "base_view", QT_TRANSLATE_NOOP("FreeShape", "Insert view — front, top, side, isometric …"), d.insert_view)
         self._dwg_buttons = {}
         self._dwg_buttons["projected"] = self._tb(h, "proj_view", "Projected view — pick a view, then click beside "
                                                   "it (off a corner for an isometric)", lambda: d.set_tool("projected"),
@@ -887,17 +893,17 @@ class MainWindow(QMainWindow):
         h.addWidget(_sep())
         self._dwg_buttons["dim"] = self._tb(h, "dim", "Dimension (D) — click an edge, a circle, or two points, then "
                                             "where it goes", lambda: d.set_tool("dim"), checkable=True)
-        self._dwg_buttons["note"] = self._tb(h, "note", "Note (N)", lambda: d.set_tool("note"), checkable=True)
+        self._dwg_buttons["note"] = self._tb(h, "note", QT_TRANSLATE_NOOP("FreeShape", "Note (N)"), lambda: d.set_tool("note"), checkable=True)
         h.addWidget(_sep())
-        self._tb(h, "bom", "Parts list — the bill of materials as a table on the sheet", d.add_parts_list)
+        self._tb(h, "bom", QT_TRANSLATE_NOOP("FreeShape", "Parts list — the bill of materials as a table on the sheet"), d.add_parts_list)
         self._dwg_buttons["balloon"] = self._tb(h, "balloon", "Balloon — click a part, then where its number goes",
                                                 lambda: d.set_tool("balloon"), checkable=True)
         self._tb(h, "auto_balloon", "Auto balloon — number every part in the selected view", lambda: d.auto_balloon())
         h.addWidget(_sep())
-        self._tb(h, "sheet", "Sheet size, scale, projection and title block", d.sheet_setup)
+        self._tb(h, "sheet", QT_TRANSLATE_NOOP("FreeShape", "Sheet size, scale, projection and title block"), d.sheet_setup)
         h.addWidget(_sep())
-        self._tb(h, "dxf", "Export DXF — opens in AutoCAD", lambda: d.export("dxf"))
-        self._tb(h, "pdf", "Export PDF", lambda: d.export("pdf"))
+        self._tb(h, "dxf", QT_TRANSLATE_NOOP("FreeShape", "Export DXF — opens in AutoCAD"), lambda: d.export("dxf"))
+        self._tb(h, "pdf", QT_TRANSLATE_NOOP("FreeShape", "Export PDF"), lambda: d.export("pdf"))
         h.addStretch(1)
         self._tb(h, "fit", "Zoom to fit (F)", lambda: d.canvas.fit())
         return w
@@ -913,7 +919,7 @@ class MainWindow(QMainWindow):
     def _asm_toggle_fix(self):
         ids = self.asm.selected_instance_ids()
         if not ids:
-            self.status.showMessage(tr("Select a part first (in the list or the graphics area)"), 4000)
+            self.status.showMessage(QCoreApplication.translate("FreeShape", "Select a part first (in the list or the graphics area)"), 4000)
             return
         fix = not all(self.doc.instance(i).get("fixed") for i in ids)
         self.doc.checkpoint()
@@ -931,36 +937,36 @@ class MainWindow(QMainWindow):
         h = QHBoxLayout(w)
         h.setContentsMargins(8, 2, 8, 2)
         h.setSpacing(2)
-        self._tb(h, "undo", "Undo (Ctrl+Z)", lambda: self._sk("undo"))
-        self._tb(h, "redo", "Redo (Ctrl+Y)", lambda: self._sk("redo"))
+        self._tb(h, "undo", QT_TRANSLATE_NOOP("FreeShape", "Undo (Ctrl+Z)"), lambda: self._sk("undo"))
+        self._tb(h, "redo", QT_TRANSLATE_NOOP("FreeShape", "Redo (Ctrl+Y)"), lambda: self._sk("redo"))
         h.addWidget(_sep())
-        b = self._tb(h, "point", "Select (Esc)", lambda: self._sk_tool("select"), checkable=True)
+        b = self._tb(h, "point", QT_TRANSLATE_NOOP("FreeShape", "Select (Esc)"), lambda: self._sk_tool("select"), checkable=True)
         b.setIcon(self._arrow_icon())
         b.setProperty("icon_name", "__arrow")
         self._sketch_buttons["select"] = b
         # like Onshape, variants of a tool share a button: it shows (and repeats) the one used last, ▾ lists them
-        self._sk_group(h, [("line", "Line (L)"),
-                           ("line_mid", "Midpoint line — click the middle, then one end")])
-        self._sk_group(h, [("rect", "Corner rectangle (R)"), ("center_rect", "Center rectangle"),
-                           ("rect3", "Aligned rectangle — two corners for one side, then the width")])
+        self._sk_group(h, [("line", QT_TRANSLATE_NOOP("FreeShape", "Line (L)")),
+                           ("line_mid", QT_TRANSLATE_NOOP("FreeShape", "Midpoint line — click the middle, then one end"))])
+        self._sk_group(h, [("rect", QT_TRANSLATE_NOOP("FreeShape", "Corner rectangle (R)")), ("center_rect", QT_TRANSLATE_NOOP("FreeShape", "Center rectangle")),
+                           ("rect3", QT_TRANSLATE_NOOP("FreeShape", "Aligned rectangle — two corners for one side, then the width"))])
         self._sk_group(h, [("polygon", "Inscribed polygon (Shift+X) — corners on a circle; type the number of "
                                        "sides (6 to start: a hexagon)"),
                            ("polygon_out", "Circumscribed polygon — sides touch a circle (size across flats); "
                                            "type the number of sides")])
-        self._sk_group(h, [("circle", "Circle (C)"), ("ellipse", "Ellipse")])
-        self._sk_group(h, [("arc3", "3-point arc (A)"), ("arc_center", "Center-point arc"),
-                           ("arc_tan", "Tangent arc (Shift+A) — carry on smoothly from the end of a line or arc"),
-                           ("ellipse_arc", "Elliptical arc — centre, long axis, width, then start and end"),
-                           ("conic", "Conic — start, end, shoulder point, then rho")])
-        self._sk_group(h, [("spline", "Spline — through the points you click; double-click or Enter to finish"),
-                           ("spline_cp", "Control-point spline — the points pull the curve (Bézier style)")])
-        self._sketch_buttons["point"] = self._tb(h, "point", "Point (P or Shift+S)", lambda: self._sk_tool("point"),
+        self._sk_group(h, [("circle", QT_TRANSLATE_NOOP("FreeShape", "Circle (C)")), ("ellipse", QT_TRANSLATE_NOOP("FreeShape", "Ellipse"))])
+        self._sk_group(h, [("arc3", QT_TRANSLATE_NOOP("FreeShape", "3-point arc (A)")), ("arc_center", QT_TRANSLATE_NOOP("FreeShape", "Center-point arc")),
+                           ("arc_tan", QT_TRANSLATE_NOOP("FreeShape", "Tangent arc (Shift+A) — carry on smoothly from the end of a line or arc")),
+                           ("ellipse_arc", QT_TRANSLATE_NOOP("FreeShape", "Elliptical arc — centre, long axis, width, then start and end")),
+                           ("conic", QT_TRANSLATE_NOOP("FreeShape", "Conic — start, end, shoulder point, then rho"))])
+        self._sk_group(h, [("spline", QT_TRANSLATE_NOOP("FreeShape", "Spline — through the points you click; double-click or Enter to finish")),
+                           ("spline_cp", QT_TRANSLATE_NOOP("FreeShape", "Control-point spline — the points pull the curve (Bézier style)"))])
+        self._sketch_buttons["point"] = self._tb(h, "point", QT_TRANSLATE_NOOP("FreeShape", "Point (P or Shift+S)"), lambda: self._sk_tool("point"),
                                                  checkable=True)
-        self._sketch_buttons["text"] = self._tb(h, "sk_text", "Text", lambda: self._sk_tool("text"), checkable=True)
+        self._sketch_buttons["text"] = self._tb(h, "sk_text", QT_TRANSLATE_NOOP("FreeShape", "Text"), lambda: self._sk_tool("text"), checkable=True)
         h.addWidget(_sep())
-        b = self._tb(h, "construction", "Construction (Q)", lambda: self._sk("toggle_construction"), checkable=True)
+        b = self._tb(h, "construction", QT_TRANSLATE_NOOP("FreeShape", "Construction (Q)"), lambda: self._sk("toggle_construction"), checkable=True)
         self._sketch_buttons["construction"] = b
-        b = self._tb(h, "dimension", "Dimension (D)", lambda: self._sk_tool("dimension"), checkable=True)
+        b = self._tb(h, "dimension", QT_TRANSLATE_NOOP("FreeShape", "Dimension (D)"), lambda: self._sk_tool("dimension"), checkable=True)
         self._sketch_buttons["dimension"] = b
         h.addWidget(_sep())
         for name in ("coincident", "horizontal", "vertical", "parallel", "perpendicular", "tangent",
@@ -973,34 +979,36 @@ class MainWindow(QMainWindow):
                          lambda _=False, n=name: self._sk_tool(n), checkable=True)
             self._sketch_buttons[name] = b
         h.addWidget(_sep())
-        self._sk_group(h, [("sk_fillet", "Sketch fillet (Shift+F) — round a corner"),
-                           ("sk_chamfer", "Sketch chamfer — cut a corner straight")])
-        self._sk_group(h, [("offset", "Offset (O)"), ("slot", "Slot — two end centres, then the width")])
-        self._sketch_buttons["sk_mirror"] = self._tb(h, "sk_mirror", "Mirror — select geometry, then the mirror line",
+        self._sk_group(h, [("sk_fillet", QT_TRANSLATE_NOOP("FreeShape", "Sketch fillet (Shift+F) — round a corner")),
+                           ("sk_chamfer", QT_TRANSLATE_NOOP("FreeShape", "Sketch chamfer — cut a corner straight"))])
+        self._sk_group(h, [("offset", QT_TRANSLATE_NOOP("FreeShape", "Offset (O)")), ("slot", QT_TRANSLATE_NOOP("FreeShape", "Slot — two end centres, then the width"))])
+        self._sketch_buttons["sk_mirror"] = self._tb(h, "sk_mirror", QT_TRANSLATE_NOOP("FreeShape", "Mirror — select geometry, then the mirror line"),
                                                      lambda: self._sk_tool("sk_mirror"), checkable=True)
-        self._sk_group(h, [("sk_transform", "Transform — select geometry, then move and turn it"),
-                           ("sk_copy", "Copy — select geometry, then place a moved / turned copy")])
-        self._sk_group(h, [("sk_lpattern", "Linear pattern — select geometry, then a direction line"),
-                           ("sk_cpattern", "Circular pattern — select geometry, then the centre point")])
+        self._sk_group(h, [("sk_transform", QT_TRANSLATE_NOOP("FreeShape", "Transform — select geometry, then move and turn it")),
+                           ("sk_copy", QT_TRANSLATE_NOOP("FreeShape", "Copy — select geometry, then place a moved / turned copy"))])
+        self._sk_group(h, [("sk_lpattern", QT_TRANSLATE_NOOP("FreeShape", "Linear pattern — select geometry, then a direction line")),
+                           ("sk_cpattern", QT_TRANSLATE_NOOP("FreeShape", "Circular pattern — select geometry, then the centre point"))])
         h.addWidget(_sep())
-        self._sk_group(h, [("use", "Use (project) part edges (U)"),
-                           ("use_intersect", "Intersect — where part faces cross the sketch plane")])
-        self._sk_group(h, [("trim", "Trim (M)"), ("sk_split", "Split — cut a line or arc in two where you click"),
-                           ("sk_extend", "Extend (X) — lengthen a line or arc to the next curve")])
-        self._tb(h, "delete", "Delete selected (Del)", lambda: self._sk("delete_selection"))
-        self._tb_group(h, [("insert_dxf", "Insert DXF — bring a drawing's lines, arcs and curves into the sketch",
+        self._sk_group(h, [("use", QT_TRANSLATE_NOOP("FreeShape", "Use (project) part edges (U)")),
+                           ("use_intersect", QT_TRANSLATE_NOOP("FreeShape", "Intersect — where part faces cross the sketch plane"))])
+        self._sk_group(h, [("trim", QT_TRANSLATE_NOOP("FreeShape", "Trim (M)")), ("sk_split", QT_TRANSLATE_NOOP("FreeShape", "Split — cut a line or arc in two where you click")),
+                           ("sk_extend", QT_TRANSLATE_NOOP("FreeShape", "Extend (X) — lengthen a line or arc to the next curve"))])
+        self._tb(h, "delete", QT_TRANSLATE_NOOP("FreeShape", "Delete selected (Del)"), lambda: self._sk("delete_selection"))
+        self._tb_group(h, [("insert_dxf", QT_TRANSLATE_NOOP("FreeShape", "Insert DXF — bring a drawing's lines, arcs and curves into the sketch"),
                             self._sketch_insert_dxf),
-                           ("insert_image", "Insert image — a picture to trace over", self._sketch_insert_image)])
+                           ("insert_image", QT_TRANSLATE_NOOP("FreeShape", "Insert image — a picture to trace over"), self._sketch_insert_image)])
         h.addStretch(1)
-        self._tb(h, "normal_to", "Normal to sketch (N)", self._normal_to_sketch)
-        self._tb(h, "fit", "Zoom to fit (F, or double-click the middle button)", lambda: self.viewport.fit())
+        self._tb(h, "normal_to", QT_TRANSLATE_NOOP("FreeShape", "Normal to sketch (N)"), self._normal_to_sketch)
+        self._tb(h, "fit", QT_TRANSLATE_NOOP("FreeShape", "Zoom to fit (F, or double-click the middle button)"), lambda: self.viewport.fit())
         h.addWidget(_sep())
         # straight on to 3D: finish the sketch and start the feature with its regions already picked
         self._tb_group(h, [(f, tip, lambda _=False, f=f: self._feature_from_sketch(f)) for f, tip in (
-            ("extrude", "Extrude this sketch (Shift+E)"), ("revolve", "Revolve this sketch (Shift+W)"),
-            ("sweep", "Sweep this sketch — then pick the path"))])
+            ("extrude", QT_TRANSLATE_NOOP("FreeShape", "Extrude this sketch (Shift+E)")), ("revolve", QT_TRANSLATE_NOOP("FreeShape", "Revolve this sketch (Shift+W)")),
+            ("sweep", QT_TRANSLATE_NOOP("FreeShape", "Sweep this sketch — then pick the path")))])
         done = QToolButton()
-        done.setText(tr("✓  Finish sketch"))
+        done.setText(QCoreApplication.translate("FreeShape", "✓  Finish sketch"))
+        done.setProperty("command_id", "finish_sketch")
+        done.setProperty("shortcut_hint", "")
         done.setStyleSheet("QToolButton { background:%s; color:white; font-weight:600; padding:5px 12px; border-radius:4px; }"
                            "QToolButton:hover { background:%s; }" % (theme.ACCENT, theme.ACCENT_DARK))
         done.clicked.connect(self.finish_sketch)
@@ -1010,7 +1018,7 @@ class MainWindow(QMainWindow):
     def _sketch_insert_dxf(self):
         if not self.sketcher:
             return
-        path, _ = filedlg.getOpenFileName(self, "Insert DXF into the sketch", "", "DXF drawings (*.dxf)")
+        path, _ = filedlg.getOpenFileName(self, QT_TRANSLATE_NOOP("FreeShape", "Insert DXF into the sketch"), "", "DXF drawings (*.dxf)")
         if not path:
             return
         try:
@@ -1026,7 +1034,7 @@ class MainWindow(QMainWindow):
     def _sketch_insert_image(self):
         if not self.sketcher:
             return
-        path, _ = filedlg.getOpenFileName(self, "Insert image into the sketch", "",
+        path, _ = filedlg.getOpenFileName(self, QT_TRANSLATE_NOOP("FreeShape", "Insert image into the sketch"), "",
                                           "Pictures (*.png *.jpg *.jpeg *.bmp *.gif *.webp)")
         if not path:
             return
@@ -1051,6 +1059,7 @@ class MainWindow(QMainWindow):
         for name, tip in items:
             a = m.addAction(icon(icon_of.get(name, name), 20), tr(tip).split(" — ")[0])
             a.setToolTip(tr(tip))
+            a.setProperty("shortcut_hint", _shortcut_hint(tip))
             a.triggered.connect(lambda _=False, n=name: self._sk_tool(n))
             self._menu_actions.append((a, icon_of.get(name, name)))
             self._sketch_buttons[name] = b
@@ -1251,7 +1260,7 @@ class MainWindow(QMainWindow):
         if not items:
             return None
         m = QMenu(parent or self)
-        m.setTitle(tr("Select other…"))
+        m.setTitle(QCoreApplication.translate("FreeShape", "Select other…"))
         acts = {}
         for pk in items:
             a = m.addAction(self._pick_label(pk))
@@ -1302,14 +1311,14 @@ class MainWindow(QMainWindow):
                     sel.append(q)
             vp.set_selection(sel)
         if pk.kind == "face":
-            m.addAction(tr("Select tangent-connected faces"), lambda: add("face", ST.tangent_faces(shape, i)))
-            m.addAction(tr("Select adjacent faces"), lambda: add("face", ST.connected_faces(shape, i)))
-            m.addAction(tr("Select faces of the same size"), lambda: add("face", ST.same_faces(shape, i)))
-            m.addAction(tr("Select edges of this face"), lambda: add("edge", ST.face_edges(shape, i)))
+            m.addAction(QCoreApplication.translate("FreeShape", "Select tangent-connected faces"), lambda: add("face", ST.tangent_faces(shape, i)))
+            m.addAction(QCoreApplication.translate("FreeShape", "Select adjacent faces"), lambda: add("face", ST.connected_faces(shape, i)))
+            m.addAction(QCoreApplication.translate("FreeShape", "Select faces of the same size"), lambda: add("face", ST.same_faces(shape, i)))
+            m.addAction(QCoreApplication.translate("FreeShape", "Select edges of this face"), lambda: add("edge", ST.face_edges(shape, i)))
         elif pk.kind == "edge":
-            m.addAction(tr("Select tangent-connected edges"), lambda: add("edge", ST.tangent_edges(shape, i)))
-            m.addAction(tr("Select loop"), lambda: add("edge", ST.edge_loop(shape, i)))
-            m.addAction(tr("Select edges of the same size"), lambda: add("edge", ST.same_edges(shape, i)))
+            m.addAction(QCoreApplication.translate("FreeShape", "Select tangent-connected edges"), lambda: add("edge", ST.tangent_edges(shape, i)))
+            m.addAction(QCoreApplication.translate("FreeShape", "Select loop"), lambda: add("edge", ST.edge_loop(shape, i)))
+            m.addAction(QCoreApplication.translate("FreeShape", "Select edges of the same size"), lambda: add("edge", ST.same_edges(shape, i)))
 
     # ================================================================== doc → view
     def _on_doc_changed(self):
@@ -1520,7 +1529,7 @@ class MainWindow(QMainWindow):
         if not self._history_ok():
             return
         if self.mode != "idle":
-            self.status.showMessage("Finish the feature or sketch you're editing first", 5000)
+            self.status.showMessage(QT_TRANSLATE_NOOP("FreeShape", "Finish the feature or sketch you're editing first"), 5000)
             return
         from .history_ui import HistoryPanel
         self.history_panel = HistoryPanel(self)
@@ -1722,6 +1731,7 @@ class MainWindow(QMainWindow):
                     b.setProperty("icon_name", name)
                     b.setIcon(icon(name))
                     b.setToolTip(tr(tips[name]))
+                    b.setProperty("shortcut_hint", _shortcut_hint(tips[name]))
         for b, checked in on.values():
             b.setChecked(checked)
         if self.sketcher:
@@ -1942,17 +1952,17 @@ class MainWindow(QMainWindow):
         """The view cube's menu, as Onshape's: views, preferences, named / previous views, zoom, projection,
         render mode, hidden and tangent edges, quality, boundary edges and the section view."""
         vp = self.viewport
-        for name in ("Isometric", "Dimetric", "Trimetric"):
+        for name in (QT_TRANSLATE_NOOP("FreeShape", "Isometric"), QT_TRANSLATE_NOOP("FreeShape", "Dimetric"), QT_TRANSLATE_NOOP("FreeShape", "Trimetric")):
             m.addAction(name, lambda _=False, n=name: vp.set_standard_view(n))
         m.addSeparator()
-        m.addAction(tr("Graphics preferences…"), self.graphics_preferences)
+        m.addAction(QCoreApplication.translate("FreeShape", "Graphics preferences…"), self.graphics_preferences)
         m.addSeparator()
-        m.addAction(tr("Named views…"), self.named_views_dialog)
-        a = m.addAction(tr("Previous view"), lambda: vp.previous_view())
+        m.addAction(QCoreApplication.translate("FreeShape", "Named views…"), self.named_views_dialog)
+        a = m.addAction(QCoreApplication.translate("FreeShape", "Previous view"), lambda: vp.previous_view())
         a.setEnabled(vp.has_previous_view())
         m.addSeparator()
-        m.addAction(tr("Zoom to fit"), lambda: vp.fit())
-        m.addAction(tr("Zoom to window"), lambda: vp.start_zoom_window())
+        m.addAction(QCoreApplication.translate("FreeShape", "Zoom to fit"), lambda: vp.fit())
+        m.addAction(QCoreApplication.translate("FreeShape", "Zoom to window"), lambda: vp.start_zoom_window())
         m.addSeparator()
         self._fill_display_menu(m, clear=False)
         if not self.is_asm and not self.is_dwg:
@@ -1988,7 +1998,7 @@ class MainWindow(QMainWindow):
         tm = submenu(m, dict(TANGENT_EDGES)[vp.tangent_edges])
         for key, label in TANGENT_EDGES:
             check(tm, label, vp.tangent_edges == key, lambda k=key: self.set_display("tangent_edges", k))
-        check(m, "View in high quality", vp.high_quality,
+        check(m, QT_TRANSLATE_NOOP("FreeShape", "View in high quality"), vp.high_quality,
               lambda: self.set_display("high_quality", not vp.high_quality))
         check(m, "Highlight boundary edges", vp.highlight_boundary,
               lambda: self.set_display("highlight_boundary", not vp.highlight_boundary))
@@ -2002,7 +2012,7 @@ class MainWindow(QMainWindow):
             doc.named_views = {}
         vp = self.viewport
         dlg = QDialog(self)
-        dlg.setWindowTitle(tr("Named views"))
+        dlg.setWindowTitle(QCoreApplication.translate("FreeShape", "Named views"))
         lay = QVBoxLayout(dlg)
         from PySide6.QtWidgets import QListWidget
         lst = QListWidget()
@@ -2047,7 +2057,7 @@ class MainWindow(QMainWindow):
             b = QPushButton(tr(text))
             b.clicked.connect(lambda _=False, f=fn: f())
             row.addWidget(b)
-        close = QPushButton(tr("Close"))
+        close = QPushButton(QCoreApplication.translate("FreeShape", "Close"))
         close.clicked.connect(dlg.accept)
         row.addWidget(close)
         lay.addLayout(row)
@@ -2058,7 +2068,7 @@ class MainWindow(QMainWindow):
         """Display settings in one place: render mode, edges, translucency, quality, projection, shine."""
         vp = self.viewport
         dlg = QDialog(self)
-        dlg.setWindowTitle(tr("Graphics preferences"))
+        dlg.setWindowTitle(QCoreApplication.translate("FreeShape", "Graphics preferences"))
         from PySide6.QtWidgets import QCheckBox, QFormLayout, QSlider
         form = QFormLayout(dlg)
 
@@ -2069,15 +2079,15 @@ class MainWindow(QMainWindow):
             cb.setCurrentIndex(max(0, cb.findData(current)))
             cb.currentIndexChanged.connect(lambda _i: self.set_display(key, cb.currentData()))
             return cb
-        form.addRow(tr("Render mode"), combo(RENDER_MODES, vp.render_mode, "render_mode"))
-        form.addRow(tr("Hidden edges"), combo(HIDDEN_EDGES, vp.hidden_edges, "hidden_edges"))
-        form.addRow(tr("Tangent edges"), combo(TANGENT_EDGES, vp.tangent_edges, "tangent_edges"))
+        form.addRow(QCoreApplication.translate("FreeShape", "Render mode"), combo(RENDER_MODES, vp.render_mode, "render_mode"))
+        form.addRow(QCoreApplication.translate("FreeShape", "Hidden edges"), combo(HIDDEN_EDGES, vp.hidden_edges, "hidden_edges"))
+        form.addRow(QCoreApplication.translate("FreeShape", "Tangent edges"), combo(TANGENT_EDGES, vp.tangent_edges, "tangent_edges"))
         sl = QSlider(Qt.Horizontal)
         sl.setRange(5, 95)
         sl.setValue(int(round(vp.translucency * 100)))
         sl.valueChanged.connect(lambda v: self.set_display("translucency", v / 100.0))
-        form.addRow(tr("Translucent opacity"), sl)
-        for label, key, cur in (("View in high quality", "high_quality", vp.high_quality),
+        form.addRow(QCoreApplication.translate("FreeShape", "Translucent opacity"), sl)
+        for label, key, cur in ((QT_TRANSLATE_NOOP("FreeShape", "View in high quality"), "high_quality", vp.high_quality),
                                 ("Highlight boundary edges", "highlight_boundary", vp.highlight_boundary),
                                 ("Perspective view", "perspective", vp.cam.perspective),
                                 ("Orient normal to sketch on edit", "orient_on_sketch", self.orient_on_sketch)):
@@ -2085,11 +2095,11 @@ class MainWindow(QMainWindow):
             c.setChecked(bool(cur))
             c.toggled.connect(lambda on, k=key: self.set_display(k, bool(on)))
             form.addRow("", c)
-        sh = QCheckBox(tr("Shiny surfaces"))
+        sh = QCheckBox(QCoreApplication.translate("FreeShape", "Shiny surfaces"))
         sh.setChecked(vp.shiny)
         sh.toggled.connect(lambda on: self.set_shiny(on))
         form.addRow("", sh)
-        close = QPushButton(tr("Close"))
+        close = QPushButton(QCoreApplication.translate("FreeShape", "Close"))
         close.clicked.connect(dlg.accept)
         form.addRow("", close)
         dlg.exec()
@@ -2173,7 +2183,7 @@ class MainWindow(QMainWindow):
         from . import icons as ICONS
         ICONS.icon.cache_clear()
         self.set_theme(theme.MODE, save=False)
-        self.status.showMessage(tr("Icons reloaded"), 4000)
+        self.status.showMessage(QCoreApplication.translate("FreeShape", "Icons reloaded"), 4000)
 
     # ================================================================== theme
     def set_theme(self, mode, save=True):
@@ -2270,7 +2280,7 @@ class MainWindow(QMainWindow):
             self._update_thumbnail()
         self._refresh_home()
         self.main_stack.setCurrentIndex(1)
-        self.doc_label.setText(tr("Home"))
+        self.doc_label.setText(QCoreApplication.translate("FreeShape", "Home"))
         self.setWindowTitle(APP_NAME)
 
     def show_workspace(self):
@@ -2339,14 +2349,14 @@ class MainWindow(QMainWindow):
         m.clear()
         lst = [x for x in self._recent() if os.path.exists(x)]
         if not lst:
-            a = m.addAction(tr("No recent documents"))
+            a = m.addAction(QCoreApplication.translate("FreeShape", "No recent documents"))
             a.setEnabled(False)
             return
         for path in lst:
             a = m.addAction(os.path.basename(path), lambda p=path: self.open_any(p))
             a.setToolTip(path)
         m.addSeparator()
-        m.addAction(tr("Clear list"), self._clear_recent)
+        m.addAction(QCoreApplication.translate("FreeShape", "Clear list"), self._clear_recent)
 
     # ================================================================== autosave & recovery
     @staticmethod
@@ -2554,7 +2564,7 @@ class MainWindow(QMainWindow):
         if self.mode == "idle":
             self._show_state(self.doc.state)
         if self._flat_view and not getattr(self.doc.state, "sheet", None):
-            self.status.showMessage(tr("No sheet metal parts here yet — make one with Sheet metal first"), 5000)
+            self.status.showMessage(QCoreApplication.translate("FreeShape", "No sheet metal parts here yet — make one with Sheet metal first"), 5000)
         else:
             self.status.showMessage("Showing sheet metal parts flat" if self._flat_view else
                                     "Showing parts folded", 3000)
@@ -2730,12 +2740,12 @@ class MainWindow(QMainWindow):
         members = self.doc.folder_members(fo)
         m = QMenu(self)
         m.addAction("Collapse" if info.get("open", True) else "Expand", lambda: self._toggle_folder(fo))
-        m.addAction(tr("Rename…"), lambda: self._rename_folder(fo))
+        m.addAction(QCoreApplication.translate("FreeShape", "Rename…"), lambda: self._rename_folder(fo))
         m.addSeparator()
         all_sup = all((self.doc.feature(i) or {}).get("suppressed") for i in members)
         m.addAction("Unsuppress all" if all_sup else "Suppress all",
                     lambda: self.doc.set_folder_suppressed(fo, not all_sup))
-        m.addAction(tr("Ungroup (keep the features)"), lambda: self.doc.ungroup_folder(fo))
+        m.addAction(QCoreApplication.translate("FreeShape", "Ungroup (keep the features)"), lambda: self.doc.ungroup_folder(fo))
         m.addSeparator()
         m.addAction(f"Delete folder and its {len(members)} feature(s)", lambda: self._delete_features(members))
         m.exec(gpos)
@@ -2846,7 +2856,7 @@ class MainWindow(QMainWindow):
             if fid == "origin":                         # a small ring round the origin in each default plane
                 r = h * 0.06
                 a = np.linspace(0, 2 * np.pi, 33)
-                for name in ("Top", "Front", "Right"):
+                for name in (QT_TRANSLATE_NOOP("FreeShape", "Top"), QT_TRANSLATE_NOOP("FreeShape", "Front"), QT_TRANSLATE_NOOP("FreeShape", "Right")):
                     pl = K.std_plane(name)
                     polys.append(np.array([pl.to_world(r * np.cos(t), r * np.sin(t)) for t in a]))
             elif self._std_plane_shown(fid[4:]):
@@ -2919,7 +2929,7 @@ class MainWindow(QMainWindow):
             return True
         idx = self.doc.feature_index(fid)
         if idx is None or idx >= d.index:
-            self.status.showMessage(tr("Pick a feature from above this one in the list."), 6000)
+            self.status.showMessage(QCoreApplication.translate("FreeShape", "Pick a feature from above this one in the list."), 6000)
             return True
         fld.toggle(("feature", fid))
         return True
@@ -2959,42 +2969,42 @@ class MainWindow(QMainWindow):
             return
         m = QMenu(self)
         if kind == "std_plane":
-            m.addAction(tr("New sketch"), lambda: (self.viewport.set_selection([Pick("plane", ("std", fid))]),
+            m.addAction(QCoreApplication.translate("FreeShape", "New sketch"), lambda: (self.viewport.set_selection([Pick("plane", ("std", fid))]),
                                                self.start_sketch()))
-            m.addAction(tr("Normal to"), lambda: self.viewport.normal_to(K.std_plane(fid)))
-            m.addAction(tr("Show") if fid in self.doc.hidden_features else "Hide",
+            m.addAction(QCoreApplication.translate("FreeShape", "Normal to"), lambda: self.viewport.normal_to(K.std_plane(fid)))
+            m.addAction(QCoreApplication.translate("FreeShape", "Show") if fid in self.doc.hidden_features else QT_TRANSLATE_NOOP("FreeShape", "Hide"),
                         lambda: self.doc.toggle_feature_hidden(fid))
             m.exec(gpos)
             return
         f = self.doc.feature(fid)
         if f is None or self.mode != "idle":
             return
-        m.addAction(tr("Edit…"), lambda: self.edit_feature(fid))
-        m.addAction(tr("Rename…"), lambda: self._rename_feature(fid))
+        m.addAction(QCoreApplication.translate("FreeShape", "Edit…"), lambda: self.edit_feature(fid))
+        m.addAction(QCoreApplication.translate("FreeShape", "Rename…"), lambda: self._rename_feature(fid))
         sel_ids = self.left.features.selected_feature_ids()
         copy_ids = sel_ids if fid in sel_ids else [fid]
         m.addAction(f"Copy{' ' + str(len(copy_ids)) + ' features' if len(copy_ids) > 1 else ''}\tCtrl+C",
                     lambda: self.copy_features(copy_ids))
         if self._clipboard_features() is not None:
             idx_after = self.doc.feature_index(fid) + 1
-            m.addAction(tr("Paste after this\tCtrl+V"), lambda: self.paste_features(index=idx_after))
+            m.addAction(QCoreApplication.translate("FreeShape", "Paste after this\tCtrl+V"), lambda: self.paste_features(index=idx_after))
         if f["type"] in ("sketch", "plane"):
             sel = [i for i in self.left.features.selected_feature_ids()
                    if (self.doc.feature(i) or {}).get("type") in ("sketch", "plane")]
             vis = sel if fid in sel and len(sel) > 1 else [fid]
             hide = any(i not in self.doc.hidden_features for i in vis)
             n = f" {len(vis)} items" if len(vis) > 1 else ""
-            m.addAction(("Hide" if hide else "Show") + n, lambda: self.doc.set_features_hidden(vis, hide))
+            m.addAction((QT_TRANSLATE_NOOP("FreeShape", "Hide") if hide else "Show") + n, lambda: self.doc.set_features_hidden(vis, hide))
         if f["type"] == "plane":
-            m.addAction(tr("New sketch on plane"), lambda: (self.viewport.set_selection([Pick("plane", ("plane", fid))]),
+            m.addAction(QCoreApplication.translate("FreeShape", "New sketch on plane"), lambda: (self.viewport.set_selection([Pick("plane", ("plane", fid))]),
                                                         self.start_sketch()))
         m.addSeparator()
         m.addAction("Unsuppress" if f.get("suppressed") else "Suppress",
                     lambda: self.doc.set_suppressed(fid, not f.get("suppressed")))
         idx = self.doc.feature_index(fid)
-        m.addAction(tr("Roll to here"), lambda: (self.doc.checkpoint(), self.doc.set_rollback(idx + 1)))
+        m.addAction(QCoreApplication.translate("FreeShape", "Roll to here"), lambda: (self.doc.checkpoint(), self.doc.set_rollback(idx + 1)))
         if self.doc.rollback is not None:
-            m.addAction(tr("Roll to end"), lambda: (self.doc.checkpoint(), self.doc.set_rollback(None)))
+            m.addAction(QCoreApplication.translate("FreeShape", "Roll to end"), lambda: (self.doc.checkpoint(), self.doc.set_rollback(None)))
         m.addSeparator()
         ids = self.left.features.selected_feature_ids() or [fid]
         if fid not in ids:
@@ -3004,7 +3014,7 @@ class MainWindow(QMainWindow):
         if any((self.doc.feature(i) or {}).get("folder") for i in ids):
             m.addAction(f"Remove{n} from folder", lambda: self._remove_from_folder(ids))
         m.addSeparator()
-        m.addAction(tr("Delete"), lambda: self._delete_features(ids))
+        m.addAction(QCoreApplication.translate("FreeShape", "Delete"), lambda: self._delete_features(ids))
         err = self.doc.errors.get(fid)
         if err:
             m.addSeparator()
@@ -3044,20 +3054,20 @@ class MainWindow(QMainWindow):
             self._add_hide_actions(m, ids)
             m.addAction(f"Isolate {len(ids)} parts", lambda: self._isolate(ids))
             m.addAction(f"Auto colour {len(ids)} parts", lambda: self._auto_color(ids))
-            m.addAction(tr("Check interference"), lambda: self.check_interference(ids))
+            m.addAction(QCoreApplication.translate("FreeShape", "Check interference"), lambda: self.check_interference(ids))
             m.addSeparator()
             m.addAction(f"Export {len(ids)} parts as STEP…", lambda: self.export(ids, "step"))
             m.addAction(f"Export {len(ids)} parts as STL…", lambda: self.export(ids, "stl"))
             m.addAction(f"Export {len(ids)} parts as BREP…", lambda: self.export(ids, "brep"))
             m.exec(gpos)
             return
-        m.addAction(tr("Rename…"), lambda: self._rename_part(pid))
-        m.addAction(tr("Change colour…"), lambda: self._recolor_part(pid))
-        m.addAction(tr("Show") if pid in self.doc.hidden_parts else "Hide", lambda: self.doc.toggle_part_hidden(pid))
-        m.addAction(tr("Isolate"), lambda: self._isolate(pid))
+        m.addAction(QCoreApplication.translate("FreeShape", "Rename…"), lambda: self._rename_part(pid))
+        m.addAction(QCoreApplication.translate("FreeShape", "Change colour…"), lambda: self._recolor_part(pid))
+        m.addAction(QCoreApplication.translate("FreeShape", "Show") if pid in self.doc.hidden_parts else QT_TRANSLATE_NOOP("FreeShape", "Hide"), lambda: self.doc.toggle_part_hidden(pid))
+        m.addAction(QCoreApplication.translate("FreeShape", "Isolate"), lambda: self._isolate(pid))
         m.addSeparator()
-        m.addAction(tr("Mass properties"), lambda: self._mass_props(pid))
-        m.addAction(tr("Shape info…"), lambda: self._shape_info(pid))
+        m.addAction(QCoreApplication.translate("FreeShape", "Mass properties"), lambda: self._mass_props(pid))
+        m.addAction(QCoreApplication.translate("FreeShape", "Shape info…"), lambda: self._shape_info(pid))
         if F.is_compound_part(self.doc.state.parts.get(pid)):
             m.addAction(icon("explode_part", 16), "Explode into solids", lambda: self._explode_part(pid))
         m.addAction(icon("drawing", 16), "Create drawing…", lambda: self.new_drawing(
@@ -3067,9 +3077,9 @@ class MainWindow(QMainWindow):
             m.addAction(icon("nest", 16), "Nest for cutting…", self.nest_for_cutting)
             m.addAction(icon("drawing", 16), "Create drawing of the flat pattern…", lambda: self.new_drawing(
                 {"kind": "studio", "uid": self.doc.uid, "part": pid, "flat": True}))
-        m.addAction(tr("Export STEP…"), lambda: self.export([pid], "step"))
-        m.addAction(tr("Export STL…"), lambda: self.export([pid], "stl"))
-        m.addAction(tr("Export BREP…"), lambda: self.export([pid], "brep"))
+        m.addAction(QCoreApplication.translate("FreeShape", "Export STEP…"), lambda: self.export([pid], "step"))
+        m.addAction(QCoreApplication.translate("FreeShape", "Export STL…"), lambda: self.export([pid], "stl"))
+        m.addAction(QCoreApplication.translate("FreeShape", "Export BREP…"), lambda: self.export([pid], "brep"))
         m.exec(gpos)
 
     def _rename_part(self, pid):
@@ -3157,11 +3167,11 @@ class MainWindow(QMainWindow):
         n = len(pids)
         if not res:
             self.status.showMessage(f"No interference between the {n} parts.", 6000)
-            QMessageBox.information(self, tr("Check interference"), f"No interference — none of the {n} parts overlap.")
+            QMessageBox.information(self, QCoreApplication.translate("FreeShape", "Check interference"), f"No interference — none of the {n} parts overlap.")
             return res
         lines = [f"• {parts[a].name}  ×  {parts[b].name}:  {fmt(v, 2)} mm³" for a, b, v, _ov in res]
         self.status.showMessage(f"{len(res)} interference(s) found — shown in red until the model changes.", 8000)
-        QMessageBox.information(self, tr("Check interference"), f"{len(res)} pair(s) of parts overlap (shown in red):\n\n"
+        QMessageBox.information(self, QCoreApplication.translate("FreeShape", "Check interference"), f"{len(res)} pair(s) of parts overlap (shown in red):\n\n"
                                 + "\n".join(lines[:30]))
         return res
 
@@ -3202,10 +3212,10 @@ class MainWindow(QMainWindow):
         SALOME's 'What is'. Shows whether the solids of a compound share their touching faces."""
         p = self.doc.state.parts[pid]
         n = K.topology_counts(p.shape)
-        kind = "Compound of solids" if n["SOLID"] > 1 else "Solid" if n["SOLID"] else \
-            "Surface" if n["FACE"] else "Curve"
+        kind = "Compound of solids" if n["SOLID"] > 1 else QT_TRANSLATE_NOOP("FreeShape", "Solid") if n["SOLID"] else \
+            QT_TRANSLATE_NOOP("FreeShape", "Surface") if n["FACE"] else "Curve"
         rows = "".join(f"<tr><td>{k}</td><td align=right>&nbsp;&nbsp;<b>{v}</b></td></tr>" for k, v in n.items())
-        QMessageBox.information(self, tr("Shape info"), f"<b>{p.name}</b> — {kind}<br><br><table>{rows}</table>")
+        QMessageBox.information(self, QCoreApplication.translate("FreeShape", "Shape info"), f"<b>{p.name}</b> — {kind}<br><br><table>{rows}</table>")
 
     def _mass_props(self, pid):
         p = self.doc.state.parts[pid]
@@ -3216,7 +3226,7 @@ class MainWindow(QMainWindow):
         lo, hi = K.bbox(shape)
         c = mp["centroid"]
         QMessageBox.information(
-            self, tr("Mass properties"),
+            self, QCoreApplication.translate("FreeShape", "Mass properties"),
             f"<b>{name}</b><br><br>Volume: {U.volume(mp['volume'], 3)}<br>"
             f"Surface area: {U.area(mp['area'], 3)}<br>"
             f"Mass (PLA, 1.24 g/cm³): {fmt(mp['volume'] * 1.24e-3, 2)} g<br>"
@@ -3245,9 +3255,9 @@ class MainWindow(QMainWindow):
             return
         m = QMenu(self)
         if self.mode == "sketch":
-            m.addAction(tr("Normal to sketch"), self._normal_to_sketch)
-            m.addAction(tr("Finish sketch"), self.finish_sketch)
-            m.addAction(tr("Cancel sketch"), self.cancel_sketch)
+            m.addAction(QCoreApplication.translate("FreeShape", "Normal to sketch"), self._normal_to_sketch)
+            m.addAction(QCoreApplication.translate("FreeShape", "Finish sketch"), self.finish_sketch)
+            m.addAction(QCoreApplication.translate("FreeShape", "Cancel sketch"), self.cancel_sketch)
             m.exec(gpos)
             return
         if self.mode != "idle":
@@ -3263,16 +3273,16 @@ class MainWindow(QMainWindow):
             if pk.kind in ("plane", "face"):
                 item = pick_to_item(self.viewport, pk, {"plane"})
                 if item:
-                    m.addAction(tr("New sketch"), lambda: (self.viewport.set_selection([pk]), self.start_sketch()))
+                    m.addAction(QCoreApplication.translate("FreeShape", "New sketch"), lambda: (self.viewport.set_selection([pk]), self.start_sketch()))
 
                     def nt(item=item):
                         try:
                             self.viewport.normal_to(F.resolve_plane(self.doc.state, item[1]))
                         except K.KernelError:
                             pass
-                    m.addAction(tr("Normal to"), nt)
+                    m.addAction(QCoreApplication.translate("FreeShape", "Normal to"), nt)
                 if pk.kind == "plane" and self.doc.plane_sizes.get(self.doc.plane_key(pk.key)):
-                    m.addAction(tr("Reset plane size"), lambda: self.doc.set_plane_rect(pk.key, None))
+                    m.addAction(QCoreApplication.translate("FreeShape", "Reset plane size"), lambda: self.doc.set_plane_rect(pk.key, None))
             if pk.kind in ("face", "edge", "part", "vertex"):
                 pid = pk.key[0]
                 ids = self._menu_parts(pid)
@@ -3280,32 +3290,32 @@ class MainWindow(QMainWindow):
                 if len(ids) > 1:
                     m.addAction(f"Isolate {len(ids)} parts", lambda: self._isolate(ids))
                     m.addAction(f"Auto colour {len(ids)} parts", lambda: self._auto_color(ids))
-                    m.addAction(tr("Check interference"), lambda: self.check_interference(ids))
+                    m.addAction(QCoreApplication.translate("FreeShape", "Check interference"), lambda: self.check_interference(ids))
                 else:
-                    m.addAction(tr("Isolate part"), lambda: self._isolate(pid))
-                    m.addAction(tr("Select part"), lambda: self.viewport.set_selection([Pick("part", (pid,))]))
-                    m.addAction(tr("Mass properties"), lambda: self._mass_props(pid))
-                    m.addAction(tr("Shape info…"), lambda: self._shape_info(pid))
+                    m.addAction(QCoreApplication.translate("FreeShape", "Isolate part"), lambda: self._isolate(pid))
+                    m.addAction(QCoreApplication.translate("FreeShape", "Select part"), lambda: self.viewport.set_selection([Pick("part", (pid,))]))
+                    m.addAction(QCoreApplication.translate("FreeShape", "Mass properties"), lambda: self._mass_props(pid))
+                    m.addAction(QCoreApplication.translate("FreeShape", "Shape info…"), lambda: self._shape_info(pid))
             if pk.kind in ("region", "sketch_line"):
                 fid = pk.key[0]
-                m.addAction(tr("Edit sketch"), lambda: self.edit_feature(fid))
+                m.addAction(QCoreApplication.translate("FreeShape", "Edit sketch"), lambda: self.edit_feature(fid))
                 fids = self._menu_features(fid, ("region", "sketch_line"))
-                m.addAction(f"Hide {len(fids)} sketches" if len(fids) > 1 else "Hide sketch",
+                m.addAction(f"Hide {len(fids)} sketches" if len(fids) > 1 else QT_TRANSLATE_NOOP("FreeShape", "Hide sketch"),
                             lambda: self.doc.set_features_hidden(fids, True))
             if pk.kind == "plane":
                 hid = pk.key[1]
                 fids = self._menu_features(hid, ("plane",))
-                m.addAction(f"Hide {len(fids)} planes" if len(fids) > 1 else "Hide plane",
+                m.addAction(f"Hide {len(fids)} planes" if len(fids) > 1 else QT_TRANSLATE_NOOP("FreeShape", "Hide plane"),
                             lambda: self.doc.set_features_hidden(fids, True))
             m.addSeparator()
-        m.addAction(tr("Zoom to fit"), lambda: self.viewport.fit())
-        vm = submenu(m, "Views")
-        for name in ("Front", "Back", "Left", "Right", "Top", "Bottom", "Isometric"):
+        m.addAction(QCoreApplication.translate("FreeShape", "Zoom to fit"), lambda: self.viewport.fit())
+        vm = submenu(m, QT_TRANSLATE_NOOP("FreeShape", "Views"))
+        for name in (QT_TRANSLATE_NOOP("FreeShape", "Front"), QT_TRANSLATE_NOOP("FreeShape", "Back"), QT_TRANSLATE_NOOP("FreeShape", "Left"), QT_TRANSLATE_NOOP("FreeShape", "Right"), QT_TRANSLATE_NOOP("FreeShape", "Top"), QT_TRANSLATE_NOOP("FreeShape", "Bottom"), QT_TRANSLATE_NOOP("FreeShape", "Isometric")):
             vm.addAction(name, lambda _=False, n=name: self.viewport.set_standard_view(n))
         if self.doc.hidden_parts:
-            m.addAction(tr("Show all parts"), self._show_all_parts)
+            m.addAction(QCoreApplication.translate("FreeShape", "Show all parts"), self._show_all_parts)
         if len(self.doc.state.parts) > 1:
-            m.addAction(tr("Auto colour all parts"), lambda: self._auto_color(list(self.doc.state.parts)))
+            m.addAction(QCoreApplication.translate("FreeShape", "Auto colour all parts"), lambda: self._auto_color(list(self.doc.state.parts)))
         m.exec(gpos)
 
     def _selection_changed(self):
@@ -3473,14 +3483,14 @@ class MainWindow(QMainWindow):
         from .. import units as U
         u = getattr(self.doc, "units", "mm") if self.doc is not None and self.doc.kind != "drawing" else "mm"
         U.set_unit(u)
-        self.units_label.setText(tr("Units: {unit} ▾").format(unit=tr(U.NAMES[U.unit()])))
+        self.units_label.setText(QCoreApplication.translate("FreeShape", "Units: {unit} ▾").format(unit=tr(U.NAMES[U.unit()])))
         self.units_label.setEnabled(self.doc is not None and self.doc.kind != "drawing")
 
     def _fill_units_menu(self, m):
         from PySide6.QtGui import QActionGroup
         from .. import units as U
         m.clear()
-        m.addSection(tr("This document"))
+        m.addSection(QCoreApplication.translate("FreeShape", "This document"))
         grp = QActionGroup(m)
         cur = getattr(self.doc, "units", "mm")
         for u in U.ORDER:
@@ -3489,8 +3499,8 @@ class MainWindow(QMainWindow):
             a.setChecked(u == cur)
             grp.addAction(a)
             a.triggered.connect(lambda _=False, uu=u: self.set_doc_units(uu))
-        m.addSection(tr("New documents"))
-        dm = submenu(m, tr("Default: {unit}").format(unit=tr(U.NAMES[self.default_units()])))
+        m.addSection(QCoreApplication.translate("FreeShape", "New documents"))
+        dm = submenu(m, QCoreApplication.translate("FreeShape", "Default: {unit}").format(unit=tr(U.NAMES[self.default_units()])))
         for u in U.ORDER:
             a = dm.addAction(tr(U.NAMES[u]).capitalize())
             a.setCheckable(True)
@@ -3632,7 +3642,7 @@ class MainWindow(QMainWindow):
                                     "from another Part Studio tab or file.")
             return
         dlg = QDialog(self)
-        dlg.setWindowTitle(tr("Derived parts"))
+        dlg.setWindowTitle(QCoreApplication.translate("FreeShape", "Derived parts"))
         form = QFormLayout(dlg)
         studio = QComboBox()
         for d in others:
@@ -3640,10 +3650,10 @@ class MainWindow(QMainWindow):
         cfg = QComboBox()
         parts = QListWidget()
         parts.setSelectionMode(QListWidget.ExtendedSelection)
-        form.addRow(tr("From:"), studio)
-        cfg_label = QLabel(tr("Configuration:"))
+        form.addRow(QCoreApplication.translate("FreeShape", "From:"), studio)
+        cfg_label = QLabel(QCoreApplication.translate("FreeShape", "Configuration:"))
         form.addRow(cfg_label, cfg)
-        form.addRow(tr("Parts (none picked = all):"), parts)
+        form.addRow(QCoreApplication.translate("FreeShape", "Parts (none picked = all):"), parts)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(dlg.accept)
         bb.rejected.connect(dlg.reject)
@@ -3716,7 +3726,7 @@ class MainWindow(QMainWindow):
         turns to face it) or a sketch is open, it leaves the view alone rather than snapping it back."""
         if self.viewport._anim is not None or self.mode == "sketch":
             return
-        self.viewport.set_standard_view("Isometric", animate=False)
+        self.viewport.set_standard_view(QT_TRANSLATE_NOOP("FreeShape", "Isometric"), animate=False)
         self.viewport.reset_view_history()
 
     def _switch_tab(self, i):
@@ -3804,10 +3814,10 @@ class MainWindow(QMainWindow):
         if i < 0:
             return
         m = QMenu(self)
-        m.addAction(tr("Rename…"), lambda: self._rename_tab(i))
-        m.addAction(tr("Duplicate"), lambda: self._duplicate_tab(i))
+        m.addAction(QCoreApplication.translate("FreeShape", "Rename…"), lambda: self._rename_tab(i))
+        m.addAction(QCoreApplication.translate("FreeShape", "Duplicate"), lambda: self._duplicate_tab(i))
         m.addSeparator()
-        m.addAction(tr("Close"), lambda: self.close_tab(i))
+        m.addAction(QCoreApplication.translate("FreeShape", "Close"), lambda: self.close_tab(i))
         m.exec(self.tabs.mapToGlobal(pos))
 
     def _duplicate_tab(self, i):
@@ -4170,7 +4180,7 @@ class MainWindow(QMainWindow):
         prog = ImportProgress(self, f"Opening {os.path.basename(path)}")
         try:
             if not path.lower().endswith((".fasm", ".fdwg")) and not self._prefetch_imports(path, prog):
-                self.status.showMessage(tr("Opening cancelled"), 5000)
+                self.status.showMessage(QCoreApplication.translate("FreeShape", "Opening cancelled"), 5000)
                 return
             prog.stage("Rebuilding the model…")
             self.viewport.progress_cb = prog.step
@@ -4251,7 +4261,7 @@ class MainWindow(QMainWindow):
     def import_step(self, into_current=False):
         if self.mode != "idle":
             self._leave_modes()
-        path, _ = filedlg.getOpenFileName(self, "Import", "", "STEP or BREP files (*.step *.stp *.brep *.brp);;"
+        path, _ = filedlg.getOpenFileName(self, QT_TRANSLATE_NOOP("FreeShape", "Import"), "", "STEP or BREP files (*.step *.stp *.brep *.brp);;"
                                               "STEP files (*.step *.stp);;BREP files (*.brep *.brp);;All files (*)")
         if path:
             self.import_step_file(path, into_current)
@@ -4268,7 +4278,7 @@ class MainWindow(QMainWindow):
         prog = ImportProgress(self, f"Importing {fname}")
         try:
             if not F.is_brep_name(fname) and not read_step_in_background(raw, prog, self):
-                self.status.showMessage(tr("Import cancelled"), 5000)
+                self.status.showMessage(QCoreApplication.translate("FreeShape", "Import cancelled"), 5000)
                 return
             params = {"data": base64.b64encode(raw).decode(), "filename": fname}
             if not F.is_brep_name(fname):
@@ -4364,7 +4374,7 @@ class MainWindow(QMainWindow):
             return None
         from PySide6.QtWidgets import QComboBox, QDialogButtonBox, QDoubleSpinBox, QFormLayout
         dlg = QDialog(self)
-        dlg.setWindowTitle(tr("STL resolution"))
+        dlg.setWindowTitle(QCoreApplication.translate("FreeShape", "STL resolution"))
         form = QFormLayout(dlg)
         combo = QComboBox()
         for key, label in (("coarse", "Coarse — small files, visible facets"),
@@ -4379,9 +4389,9 @@ class MainWindow(QMainWindow):
         ang.setDecimals(1)
         ang.setRange(0.5, 90.0)
         ang.setSuffix(" °")
-        form.addRow(tr("Resolution"), combo)
-        form.addRow(tr("Deviation (distance from the true surface)"), dev)
-        form.addRow(tr("Angle (between neighbouring facets)"), ang)
+        form.addRow(QCoreApplication.translate("FreeShape", "Resolution"), combo)
+        form.addRow(QCoreApplication.translate("FreeShape", "Deviation (distance from the true surface)"), dev)
+        form.addRow(QCoreApplication.translate("FreeShape", "Angle (between neighbouring facets)"), ang)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(dlg.accept)
         bb.rejected.connect(dlg.reject)
@@ -4415,7 +4425,7 @@ class MainWindow(QMainWindow):
             return
         if self.is_asm:
             if not self.doc.instances:
-                QMessageBox.information(self, APP_NAME, "Insert some parts first.")
+                QMessageBox.information(self, APP_NAME, QT_TRANSLATE_NOOP("FreeShape", "Insert some parts first."))
                 return
             path = self._export_path("Export assembly", self.doc.name.replace(" ", "_"), fmt_)
             if not path:
@@ -4435,7 +4445,7 @@ class MainWindow(QMainWindow):
         base = "part"
         if part_ids and len(part_ids) == 1:
             base = self.doc.state.parts[part_ids[0]].name.replace(" ", "_")
-        path = self._export_path("Export", base, fmt_)
+        path = self._export_path(QT_TRANSLATE_NOOP("FreeShape", "Export"), base, fmt_)
         if not path:
             return
         stl = self._stl_options(path)
@@ -4449,7 +4459,7 @@ class MainWindow(QMainWindow):
 
     def show_about(self):
         from .. import __version__
-        QMessageBox.about(self, "About FreeShape", (
+        QMessageBox.about(self, QT_TRANSLATE_NOOP("FreeShape", "About FreeShape"), (
             f"<h3>FreeShape {__version__}</h3>"
             "<p>Free, offline, Onshape-style parametric CAD — parts, assemblies, drawings and sheet metal.</p>"
             "<p>Copyright © 2026 Richard Willmott</p>"
@@ -4485,7 +4495,7 @@ class MainWindow(QMainWindow):
             return
         fids = list(fids) if fids else self.left.features.selected_feature_ids()
         if not fids:
-            self.status.showMessage(tr("Select features in the feature list to copy them"), 4000)
+            self.status.showMessage(QCoreApplication.translate("FreeShape", "Select features in the feature list to copy them"), 4000)
             return
         payload = FC.copy_features(self.doc, fids)
         self._feature_clip = payload
@@ -4561,7 +4571,7 @@ class MainWindow(QMainWindow):
         if self.mode == "sketch":
             self.finish_sketch()
         elif self.mode == "dialog":
-            self.status.showMessage("Finish or cancel the feature you're editing first", 5000)
+            self.status.showMessage(QT_TRANSLATE_NOOP("FreeShape", "Finish or cancel the feature you're editing first"), 5000)
             return
         docs = S.linked(self._open_docs(), self.doc)
         base = self.doc.name.replace(" ", "_") + ".py"
@@ -4747,7 +4757,7 @@ class _MeasurePanel(QFrame):
         row.setSpacing(6)
         self.value = QLabel()
         self.value.setCursor(Qt.PointingHandCursor)
-        self.value.setToolTip(tr("Click to show all the measurements of the selection"))
+        self.value.setToolTip(QCoreApplication.translate("FreeShape", "Click to show all the measurements of the selection"))
         self.value.mousePressEvent = lambda _e: self._toggle()
         row.addWidget(self.value)
         self.create = QToolButton()

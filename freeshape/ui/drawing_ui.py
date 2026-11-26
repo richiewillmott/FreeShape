@@ -2,6 +2,9 @@
 inserting base / projected / isometric views, dimensions, notes, sheet setup, and DXF / PDF export."""
 from __future__ import annotations
 
+from PySide6.QtCore import QCoreApplication
+from ..i18n import QT_TRANSLATE_NOOP
+
 from ..i18n import tr
 
 import math
@@ -448,7 +451,7 @@ class DrawingPanel(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
-        h = QLabel(tr("Drawing"))
+        h = QLabel(QCoreApplication.translate("FreeShape", "Drawing"))
         h.setObjectName("sectionHeader")
         lay.addWidget(h)
         self.source = QLabel("")
@@ -492,7 +495,7 @@ class DrawingPanel(QWidget):
         names = {k: n for n, (d, _u) in DIRECTIONS.items() for k in [tuple(np.round(DW._unit(d), 6))]}
         for v in doc.views:
             nm = names.get(tuple(np.round(DW._unit(v["d"]), 6)))
-            kind = {"base": "Base view", "projected": "Projected view", "iso": "Isometric view"}.get(v["type"], "View")
+            kind = {"base": "Base view", "projected": QT_TRANSLATE_NOOP("FreeShape", "Projected view"), "iso": "Isometric view"}.get(v["type"], "View")
             label = f"{kind}" + (f" — {nm}" if nm and nm != "Isometric" else "")
             if v.get("scale"):
                 label += f"  ({scale_label(v['scale'])})"
@@ -558,10 +561,10 @@ class NewDrawingDialog(QDialog):
 
     def __init__(self, parent, sources, preselect=None, settings=None):
         super().__init__(parent)
-        self.setWindowTitle(tr("New drawing"))
+        self.setWindowTitle(QCoreApplication.translate("FreeShape", "New drawing"))
         self.setMinimumWidth(460)
         lay = QVBoxLayout(self)
-        lay.addWidget(QLabel(tr("<b>What should the drawing show?</b>")))
+        lay.addWidget(QLabel(QCoreApplication.translate("FreeShape", "<b>What should the drawing show?</b>")))
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
         self.tree.setMinimumHeight(220)
@@ -587,23 +590,23 @@ class NewDrawingDialog(QDialog):
         s = settings
         self.size = _combo([(f"{k}  ({int(w)} × {int(h)} mm)", k) for k, (w, h) in SHEETS.items()],
                            (s.value("dwg_size", "A3") if s else "A3"))
-        self.orient = _combo([("Landscape", False), ("Portrait", True)])
-        self.proj = _combo([("First angle (ISO / BS 8888 — UK & Europe)", "first"),
+        self.orient = _combo([(QT_TRANSLATE_NOOP("FreeShape", "Landscape"), False), (QT_TRANSLATE_NOOP("FreeShape", "Portrait"), True)])
+        self.proj = _combo([(QT_TRANSLATE_NOOP("FreeShape", "First angle (ISO / BS 8888 — UK & Europe)"), "first"),
                             ("Third angle (ANSI — USA)", "third")], (s.value("dwg_proj", "first") if s else "first"))
-        self.views = QCheckBox(tr("Add the standard views (front, plan, side and isometric) at a scale that fits"))
+        self.views = QCheckBox(QCoreApplication.translate("FreeShape", "Add the standard views (front, plan, side and isometric) at a scale that fits"))
         self.views.setChecked(True)
         self.drawn = QLineEdit(s.value("dwg_drawn", "") if s else "")
-        self.drawn.setPlaceholderText(tr("Your name or initials"))
+        self.drawn.setPlaceholderText(QCoreApplication.translate("FreeShape", "Your name or initials"))
         self.company = QLineEdit(s.value("dwg_company", "") if s else "")
-        f.addRow(tr("Sheet"), self.size)
+        f.addRow(QCoreApplication.translate("FreeShape", "Sheet"), self.size)
         f.addRow("", self.orient)
-        f.addRow(tr("Projection"), self.proj)
-        f.addRow(tr("Drawn by"), self.drawn)
-        f.addRow(tr("Company"), self.company)
+        f.addRow(QCoreApplication.translate("FreeShape", "Projection"), self.proj)
+        f.addRow(QCoreApplication.translate("FreeShape", "Drawn by"), self.drawn)
+        f.addRow(QCoreApplication.translate("FreeShape", "Company"), self.company)
         lay.addLayout(f)
         lay.addWidget(self.views)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        bb.button(QDialogButtonBox.Ok).setText(tr("Create drawing"))
+        bb.button(QDialogButtonBox.Ok).setText(QCoreApplication.translate("FreeShape", "Create drawing"))
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
@@ -628,23 +631,23 @@ def _same_source(a, b):
 class SheetDialog(QDialog):
     def __init__(self, parent, doc):
         super().__init__(parent)
-        self.setWindowTitle(tr("Sheet and title block"))
+        self.setWindowTitle(QCoreApplication.translate("FreeShape", "Sheet and title block"))
         lay = QVBoxLayout(self)
         g = QGridLayout()
         self.size = _combo([(k, k) for k in SHEETS], doc.sheet.get("size"))
-        self.orient = _combo([("Landscape", False), ("Portrait", True)], bool(doc.sheet.get("portrait")))
+        self.orient = _combo([(QT_TRANSLATE_NOOP("FreeShape", "Landscape"), False), (QT_TRANSLATE_NOOP("FreeShape", "Portrait"), True)], bool(doc.sheet.get("portrait")))
         self.scale = _combo(_scale_items(), float(doc.sheet.get("scale", 1.0)))
-        self.proj = _combo([("First angle (ISO)", "first"), ("Third angle (ANSI)", "third")],
+        self.proj = _combo([(QT_TRANSLATE_NOOP("FreeShape", "First angle (ISO)"), "first"), (QT_TRANSLATE_NOOP("FreeShape", "Third angle (ANSI)"), "third")],
                            doc.sheet.get("projection", "first"))
-        g.addWidget(QLabel(tr("Size")), 0, 0)
+        g.addWidget(QLabel(QCoreApplication.translate("FreeShape", "Size")), 0, 0)
         g.addWidget(self.size, 0, 1)
         g.addWidget(self.orient, 0, 2)
-        g.addWidget(QLabel(tr("Scale")), 1, 0)
+        g.addWidget(QLabel(QCoreApplication.translate("FreeShape", "Scale")), 1, 0)
         g.addWidget(self.scale, 1, 1)
-        g.addWidget(QLabel(tr("Projection")), 2, 0)
+        g.addWidget(QLabel(QCoreApplication.translate("FreeShape", "Projection")), 2, 0)
         g.addWidget(self.proj, 2, 1, 1, 2)
         lay.addLayout(g)
-        lay.addWidget(QLabel(tr("<b>Title block</b>")))
+        lay.addWidget(QLabel(QCoreApplication.translate("FreeShape", "<b>Title block</b>")))
         f = QFormLayout()
         self.fields = {}
         for key, label in TITLE_FIELDS:
@@ -668,36 +671,36 @@ class SheetDialog(QDialog):
 class ViewDialog(QDialog):
     def __init__(self, parent, doc, v, new=False):
         super().__init__(parent)
-        self.setWindowTitle(tr("Insert a view" if new else "View properties"))
+        self.setWindowTitle(tr(QT_TRANSLATE_NOOP("FreeShape", "Insert a view") if new else QT_TRANSLATE_NOOP("FreeShape", "View properties")))
         lay = QVBoxLayout(self)
         f = QFormLayout()
         cur = None
         for n, (d, _u) in DIRECTIONS.items():
             if v is not None and np.allclose(DW._unit(d), DW._unit(v["d"]), atol=1e-6):
                 cur = n
-        self.dir = _combo([(n, n) for n in DIRECTIONS], cur or "Front")
+        self.dir = _combo([(n, n) for n in DIRECTIONS], cur or QT_TRANSLATE_NOOP("FreeShape", "Front"))
         self.dir.setEnabled(new or (v is not None and v["type"] != "projected"))
         if v is not None and cur is None:
             self.dir.insertItem(0, "(as projected)", None)
             self.dir.setCurrentIndex(0)
         self.scale = _combo(_scale_items(True), v.get("scale") if v else None)
-        self.hidden = QCheckBox(tr("Show hidden edges (dashed)"))
+        self.hidden = QCheckBox(QCoreApplication.translate("FreeShape", "Show hidden edges (dashed)"))
         self.hidden.setChecked(bool(v.get("hidden", True)) if v else True)
-        self.tangent = QCheckBox(tr("Show tangent edges (where rounded faces meet)"))
+        self.tangent = QCheckBox(QCoreApplication.translate("FreeShape", "Show tangent edges (where rounded faces meet)"))
         self.tangent.setChecked(bool(v.get("tangent", False)) if v else False)
-        self.marks = QCheckBox(tr("Centre marks on holes and round edges"))
+        self.marks = QCheckBox(QCoreApplication.translate("FreeShape", "Centre marks on holes and round edges"))
         self.marks.setChecked(bool(v.get("centre_marks", True)) if v else True)
         self.label = QLineEdit(v.get("label", "") if v else "")
-        self.label.setPlaceholderText(tr("e.g. VIEW A  (optional)"))
-        f.addRow(tr("Looking from"), self.dir)
-        f.addRow(tr("Scale"), self.scale)
-        f.addRow(tr("Label"), self.label)
+        self.label.setPlaceholderText(QCoreApplication.translate("FreeShape", "e.g. VIEW A  (optional)"))
+        f.addRow(QCoreApplication.translate("FreeShape", "Looking from"), self.dir)
+        f.addRow(QCoreApplication.translate("FreeShape", "Scale"), self.scale)
+        f.addRow(QCoreApplication.translate("FreeShape", "Label"), self.label)
         lay.addLayout(f)
         for w in (self.hidden, self.tangent, self.marks):
             lay.addWidget(w)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         if new:
-            bb.button(QDialogButtonBox.Ok).setText(tr("Place on the sheet"))
+            bb.button(QDialogButtonBox.Ok).setText(QCoreApplication.translate("FreeShape", "Place on the sheet"))
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
@@ -706,26 +709,26 @@ class ViewDialog(QDialog):
 class DimDialog(QDialog):
     def __init__(self, parent, doc, a):
         super().__init__(parent)
-        self.setWindowTitle(tr("Dimension"))
+        self.setWindowTitle(QCoreApplication.translate("FreeShape", "Dimension"))
         g = doc.dim_geometry(a)
         lay = QVBoxLayout(self)
         lay.addWidget(QLabel(f"Measured: <b>{DW.fmt_value(g[2], 4) if g else '?'}</b> mm"))
         f = QFormLayout()
-        self.dp = _combo([("Automatic", None)] + [(str(i), i) for i in range(0, 5)], a.get("dp"))
+        self.dp = _combo([(QT_TRANSLATE_NOOP("FreeShape", "Automatic"), None)] + [(str(i), i) for i in range(0, 5)], a.get("dp"))
         self.prefix = QLineEdit(a.get("prefix", ""))
         self.prefix.setPlaceholderText("e.g. 4×  ")
         self.suffix = QLineEdit(a.get("suffix", ""))
         self.suffix.setPlaceholderText("e.g.  ±0.1  or  THRU")
         self.text = QLineEdit(a.get("text", ""))
-        self.text.setPlaceholderText(tr("Leave empty to show the measured value"))
-        f.addRow(tr("Decimal places"), self.dp)
-        f.addRow(tr("Before the value"), self.prefix)
-        f.addRow(tr("After the value"), self.suffix)
-        f.addRow(tr("Replace the text"), self.text)
+        self.text.setPlaceholderText(QCoreApplication.translate("FreeShape", "Leave empty to show the measured value"))
+        f.addRow(QCoreApplication.translate("FreeShape", "Decimal places"), self.dp)
+        f.addRow(QCoreApplication.translate("FreeShape", "Before the value"), self.prefix)
+        f.addRow(QCoreApplication.translate("FreeShape", "After the value"), self.suffix)
+        f.addRow(QCoreApplication.translate("FreeShape", "Replace the text"), self.text)
         if a["type"] == "lin":
-            self.orient = _combo([("Aligned with the points", "a"), ("Horizontal", "h"), ("Vertical", "v")],
+            self.orient = _combo([(QT_TRANSLATE_NOOP("FreeShape", "Aligned with the points"), "a"), (QT_TRANSLATE_NOOP("FreeShape", "Horizontal"), "h"), (QT_TRANSLATE_NOOP("FreeShape", "Vertical"), "v")],
                                  a.get("orient", "a"))
-            f.addRow(tr("Direction"), self.orient)
+            f.addRow(QCoreApplication.translate("FreeShape", "Direction"), self.orient)
         lay.addLayout(f)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(self.accept)
@@ -866,7 +869,7 @@ class DrawingController:
             return True
         from PySide6.QtWidgets import QApplication, QProgressDialog
         import time
-        dlg = QProgressDialog("Working out the exact views…", "Cancel", 0, 0, self.w)
+        dlg = QProgressDialog("Working out the exact views…", QT_TRANSLATE_NOOP("FreeShape", "Cancel"), 0, 0, self.w)
         dlg.setWindowTitle("FreeShape")
         dlg.setMinimumDuration(0)
         dlg.show()
@@ -939,7 +942,7 @@ class DrawingController:
         dlg = ViewDialog(self.w, doc, None, new=True)
         if dlg.exec() != QDialog.Accepted:
             return
-        name = dlg.dir.currentData() or "Front"
+        name = dlg.dir.currentData() or QT_TRANSLATE_NOOP("FreeShape", "Front")
         d, up = DIRECTIONS[name]
         self.set_tool("place", place={"kind": "base", "d": d, "up": up, "iso": name == "Isometric",
                                       "scale": dlg.scale.currentData(), "hidden": dlg.hidden.isChecked(),
@@ -1006,7 +1009,7 @@ class DrawingController:
         if at is None:
             self.set_tool("note")
             return
-        txt, ok = QInputDialog.getMultiLineText(self.w, "Note", "Text:")
+        txt, ok = QInputDialog.getMultiLineText(self.w, QT_TRANSLATE_NOOP("FreeShape", "Note"), "Text:")
         if ok and txt.strip():
             doc.add_annot({"type": "note", "text": txt.strip(), "pos": [float(at[0]), float(at[1])], "height": DW.TEXT_H})
 
@@ -1316,34 +1319,34 @@ class DrawingController:
         m = QMenu(self.w)
         v, a = doc.view(oid), doc.annot(oid)
         if v is not None:
-            m.addAction(tr("View properties…"), lambda: self.edit(oid))
-            m.addAction(tr("Projected view from this…"), lambda: (setattr(self, "selection", [oid]),
+            m.addAction(QCoreApplication.translate("FreeShape", "View properties…"), lambda: self.edit(oid))
+            m.addAction(QCoreApplication.translate("FreeShape", "Projected view from this…"), lambda: (setattr(self, "selection", [oid]),
                                                                 self.set_tool("projected")))
             m.addAction(icon("section_view", 16), "Section view…", lambda: self.set_tool("section"))
             m.addAction(icon("detail_view", 16), "Detail view…", lambda: self.set_tool("detail"))
             if doc.bom:
                 m.addAction(icon("balloon", 16), "Auto balloon this view", lambda: self.auto_balloon(oid))
-            act = m.addAction(tr("Hidden edges"))
+            act = m.addAction(QCoreApplication.translate("FreeShape", "Hidden edges"))
             act.setCheckable(True)
             act.setChecked(bool(v.get("hidden")))
             act.triggered.connect(lambda on: self._set_view(v, "hidden", on))
-            act = m.addAction(tr("Centre marks"))
+            act = m.addAction(QCoreApplication.translate("FreeShape", "Centre marks"))
             act.setCheckable(True)
             act.setChecked(bool(v.get("centre_marks", True)))
             act.triggered.connect(lambda on: self._set_view(v, "centre_marks", on))
             m.addSeparator()
-            m.addAction(tr("Delete view"), lambda: doc.delete([oid]))
+            m.addAction(QCoreApplication.translate("FreeShape", "Delete view"), lambda: doc.delete([oid]))
         elif a is not None:
-            m.addAction(tr("Edit…"), lambda: self.edit(oid))
-            m.addAction(tr("Delete"), lambda: doc.delete([oid]))
+            m.addAction(QCoreApplication.translate("FreeShape", "Edit…"), lambda: self.edit(oid))
+            m.addAction(QCoreApplication.translate("FreeShape", "Delete"), lambda: doc.delete([oid]))
         else:
             m.addAction(icon("base_view", 16), "Insert view…", self.insert_view)
-            m.addAction(icon("dim", 16), "Dimension (D)", lambda: self.set_tool("dim"))
+            m.addAction(icon("dim", 16), QT_TRANSLATE_NOOP("FreeShape", "Dimension (D)"), lambda: self.set_tool("dim"))
             if at is not None:
                 m.addAction(icon("note", 16), "Note here…", lambda: self.add_note(at))
             m.addSeparator()
             m.addAction(icon("sheet", 16), "Sheet and title block…", self.sheet_setup)
-            m.addAction(tr("Zoom to fit (F)"), self.canvas.fit)
+            m.addAction(QCoreApplication.translate("FreeShape", "Zoom to fit (F)"), self.canvas.fit)
         m.exec(gpos)
 
     def _set_view(self, v, key, value):
@@ -1389,7 +1392,7 @@ class DrawingController:
         if a["type"] in ("bom", "balloon"):
             return
         if a["type"] == "note":
-            txt, ok = QInputDialog.getMultiLineText(self.w, "Note", "Text:", a.get("text", ""))
+            txt, ok = QInputDialog.getMultiLineText(self.w, QT_TRANSLATE_NOOP("FreeShape", "Note"), "Text:", a.get("text", ""))
             if ok:
                 doc.checkpoint()
                 a["text"] = txt.strip()
@@ -1450,7 +1453,7 @@ class DrawingController:
             nd = d + r * np.sign(side[0]) + u * np.sign(side[1])
             lo, hi = doc.model_extent(nd, u)
             w, h = (hi - lo) * sc
-            return (P[0] - w / 2, P[1] - h / 2, P[0] + w / 2, P[1] + h / 2), "Isometric"
+            return (P[0] - w / 2, P[1] - h / 2, P[0] + w / 2, P[1] + h / 2), QT_TRANSLATE_NOOP("FreeShape", "Isometric")
         nd, nup, al = doc.projected_dir(parent, side)
         lo, hi = doc.model_extent(nd, nup)
         w, h = (hi - lo) * sc
@@ -1771,7 +1774,7 @@ class DrawingController:
                 if name:
                     draw_text(p, ((x0 + x1) / 2, y1 + 2.5), name, 3.0, 0.0, "center", "bottom", ACCENT)
         if self.tool == "note" and P is not None:
-            draw_text(p, (P[0] + 2, P[1] - 2), "Note", 3.5, 0.0, "left", "top", QColor(31, 111, 209, 140))
+            draw_text(p, (P[0] + 2, P[1] - 2), QT_TRANSLATE_NOOP("FreeShape", "Note"), 3.5, 0.0, "left", "top", QColor(31, 111, 209, 140))
 
     def _draw_pick(self, p, pk, z, col):
         r = 4.5 / z
@@ -1821,7 +1824,7 @@ class DrawingController:
         if not self.wait_exact():
             return
         if fmt_ == "pdf":
-            path, _ = filedlg.getSaveFileName(self.w, "Export PDF", base + ".pdf", "PDF (*.pdf)")
+            path, _ = filedlg.getSaveFileName(self.w, QT_TRANSLATE_NOOP("FreeShape", "Export PDF"), base + ".pdf", "PDF (*.pdf)")
             if not path:
                 return
             if not path.lower().endswith(".pdf"):
@@ -1833,9 +1836,9 @@ class DrawingController:
                 QMessageBox.critical(self.w, "FreeShape", f"Export failed:\n{e}")
             return
         dlg = QDialog(self.w)
-        dlg.setWindowTitle(tr("Export DXF"))
+        dlg.setWindowTitle(QCoreApplication.translate("FreeShape", "Export DXF"))
         lay = QVBoxLayout(dlg)
-        lay.addWidget(QLabel(tr("How should the drawing be sized in the DXF?")))
+        lay.addWidget(QLabel(QCoreApplication.translate("FreeShape", "How should the drawing be sized in the DXF?")))
         c1 = QCheckBox(f"Views at true size (1:1) — everything scaled by {DW.fmt_value(1 / doc.sheet.get('scale', 1))}×")
         c1.setToolTip("Best for working on the geometry in AutoCAD: a 50 mm edge measures 50 mm.\n"
                       "Leave it off to get the sheet exactly as it prints (paper millimetres).")

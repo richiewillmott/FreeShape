@@ -2,6 +2,9 @@
 the studio's variables, plus any features you add a column for (ticked = suppressed in that configuration)."""
 from __future__ import annotations
 
+from PySide6.QtCore import QCoreApplication
+from ..i18n import QT_TRANSLATE_NOOP
+
 from ..i18n import tr
 
 from PySide6.QtCore import Qt
@@ -25,7 +28,7 @@ class ConfigDialog(QDialog):
     def __init__(self, parent, doc):
         super().__init__(parent)
         self.doc = doc
-        self.setWindowTitle(tr("Configurations"))
+        self.setWindowTitle(QCoreApplication.translate("FreeShape", "Configurations"))
         self.resize(720, 380)
         lay = QVBoxLayout(self)
         hint = QLabel("Each row is a configuration of this Part Studio: it sets the variables (type a value or an "
@@ -48,13 +51,13 @@ class ConfigDialog(QDialog):
         for r in rows:
             self._add_row(r)
         btns = QHBoxLayout()
-        for text, fn in (("Add configuration", lambda: self._add_row(None)), ("Remove", self._remove_row),
-                         ("Add feature column…", self._add_feature_col)):
+        for text, fn in ((QT_TRANSLATE_NOOP("FreeShape", "Add configuration"), lambda: self._add_row(None)), (QT_TRANSLATE_NOOP("FreeShape", "Remove"), self._remove_row),
+                         (QT_TRANSLATE_NOOP("FreeShape", "Add feature column…"), self._add_feature_col)):
             b = QPushButton(tr(text))
             b.clicked.connect(fn)
             btns.addWidget(b)
         btns.addStretch(1)
-        btns.addWidget(QLabel(tr("Active:")))
+        btns.addWidget(QLabel(QCoreApplication.translate("FreeShape", "Active:")))
         self.active = QComboBox()
         btns.addWidget(self.active)
         lay.addLayout(btns)
@@ -71,7 +74,7 @@ class ConfigDialog(QDialog):
                          "them in dimensions (#name), or add feature columns to switch features on and off.")
 
     def _build_columns(self):
-        heads = [tr("Name")] + [f"#{v}" for v in self.vars] + [
+        heads = [QCoreApplication.translate("FreeShape", "Name")] + [f"#{v}" for v in self.vars] + [
             "Suppress " + (self.doc.feature(f) or {}).get("name", f) for f in self.feat_cols]
         self.table.setColumnCount(len(heads))
         self.table.setHorizontalHeaderLabels(heads)
@@ -110,7 +113,7 @@ class ConfigDialog(QDialog):
         feats = [f for f in self.doc.features if f["type"] not in ("variable",) and f["id"] not in self.feat_cols]
         if not feats:
             return
-        name, ok = QInputDialog.getItem(self, "Feature column", "Feature to switch on and off:",
+        name, ok = QInputDialog.getItem(self, QT_TRANSLATE_NOOP("FreeShape", "Feature column"), QT_TRANSLATE_NOOP("FreeShape", "Feature to switch on and off:"),
                                         [f["name"] for f in feats], 0, False)
         if not ok:
             return
@@ -154,7 +157,7 @@ class ConfigDialog(QDialog):
         rows = self.rows()
         names = [r["name"] for r in rows]
         if any(not n for n in names) or len(set(names)) != len(names):
-            QMessageBox.information(self, tr("Configurations"), "Give every configuration its own name.")
+            QMessageBox.information(self, QCoreApplication.translate("FreeShape", "Configurations"), QT_TRANSLATE_NOOP("FreeShape", "Give every configuration its own name."))
             return
         self.doc.set_configs(rows, max(self.active.currentIndex(), 0))
         self.accept()

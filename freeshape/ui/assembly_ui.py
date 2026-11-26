@@ -2,6 +2,9 @@
 through their mates, precise moves, interference check and the bill of materials."""
 from __future__ import annotations
 
+from PySide6.QtCore import QCoreApplication
+from ..i18n import QT_TRANSLATE_NOOP
+
 from ..i18n import tr
 
 import copy
@@ -83,7 +86,7 @@ class AssemblyPanel(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
-        self.inst_header = QLabel(tr("Instances"))
+        self.inst_header = QLabel(QCoreApplication.translate("FreeShape", "Instances"))
         self.inst_header.setObjectName("sectionHeader")
         lay.addWidget(self.inst_header)
         self.instances = QListWidget()
@@ -99,7 +102,7 @@ class AssemblyPanel(QWidget):
         sep.setFixedHeight(1)
         sep.setStyleSheet("background:#d5d9de;")
         lay.addWidget(sep)
-        self.mate_header = QLabel(tr("Mates"))
+        self.mate_header = QLabel(QCoreApplication.translate("FreeShape", "Mates"))
         self.mate_header.setObjectName("sectionHeader")
         lay.addWidget(self.mate_header)
         self.mates = QListWidget()
@@ -207,7 +210,7 @@ class AssemblyPanel(QWidget):
         self.inst_header.setText(f"Instances ({len(doc.instances)})")
         self.mate_header.setText(f"Mates ({len(doc.mates)})")
         if not doc.instances:
-            self.status.setText(tr("Insert parts from your Part Studios (or a STEP file) with the Insert button."))
+            self.status.setText(QCoreApplication.translate("FreeShape", "Insert parts from your Part Studios (or a STEP file) with the Insert button."))
         else:
             free = sum(1 for i in doc.instances if not i.get("fixed"))
             bad = sum(1 for m in doc.mates if m["id"] in doc.errors and not m.get("suppressed"))
@@ -246,7 +249,7 @@ class InsertPanel(QFrame):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(10, 8, 10, 10)
         lay.setSpacing(6)
-        head, self.title = _head(self, tr("Insert parts"), "insert", None, self.close_panel, cancel_tip="Close (Esc)")
+        head, self.title = _head(self, QCoreApplication.translate("FreeShape", "Insert parts"), "insert", None, self.close_panel, cancel_tip=QT_TRANSLATE_NOOP("FreeShape", "Close (Esc)"))
         self.title.setReadOnly(True)
         lay.addLayout(head)
         lay.addWidget(_hline())
@@ -262,12 +265,12 @@ class InsertPanel(QFrame):
         self.tree.itemDoubleClicked.connect(lambda it, _c: self._insert_item(it))
         lay.addWidget(self.tree)
         row = QHBoxLayout()
-        b = QPushButton(tr("Insert"))
+        b = QPushButton(QCoreApplication.translate("FreeShape", "Insert"))
         b.setDefault(True)
         b.clicked.connect(lambda: self._insert_item(self.tree.currentItem()))
         row.addWidget(b)
-        f = QPushButton(tr("From file…"))
-        f.setToolTip(tr("A FreeShape document (.fshape) or a STEP file"))
+        f = QPushButton(QCoreApplication.translate("FreeShape", "From file…"))
+        f.setToolTip(QCoreApplication.translate("FreeShape", "A FreeShape document (.fshape) or a STEP file"))
         f.clicked.connect(self._from_file)
         row.addWidget(f)
         lay.addLayout(row)
@@ -290,23 +293,23 @@ class InsertPanel(QFrame):
         box = _W()
         form = QFormLayout(box)
         form.setContentsMargins(0, 0, 0, 0)
-        title = QLabel(tr("<b>Standard parts</b>"))
+        title = QLabel(QCoreApplication.translate("FreeShape", "<b>Standard parts</b>"))
         form.addRow(title)
         self.std_family = QComboBox()
         for key, (label, *_rest) in SP.FAMILIES.items():
             self.std_family.addItem(label, key)
         self.std_size = QComboBox()
         self.std_len = QComboBox()
-        form.addRow(tr("Type:"), self.std_family)
-        form.addRow(tr("Size:"), self.std_size)
-        self.std_len_label = QLabel(tr("Length:"))
+        form.addRow(QCoreApplication.translate("FreeShape", "Type:"), self.std_family)
+        form.addRow(QCoreApplication.translate("FreeShape", "Size:"), self.std_size)
+        self.std_len_label = QLabel(QCoreApplication.translate("FreeShape", "Length:"))
         form.addRow(self.std_len_label, self.std_len)
         row = QHBoxLayout()
         self.std_qty = QSpinBox()
         self.std_qty.setRange(1, 200)
         self.std_qty.setPrefix("× ")
         row.addWidget(self.std_qty)
-        b = QPushButton(tr("Insert standard part"))
+        b = QPushButton(QCoreApplication.translate("FreeShape", "Insert standard part"))
         b.clicked.connect(self._insert_std)
         row.addWidget(b, 1)
         form.addRow(row)
@@ -364,7 +367,7 @@ class InsertPanel(QFrame):
                     it.setData(0, ROLE_ID, (doc.uid, p.id, cfg))
                     top.addChild(it)
                 if not st.parts:
-                    it = QTreeWidgetItem([tr("(no parts yet)")])
+                    it = QTreeWidgetItem([QCoreApplication.translate("FreeShape", "(no parts yet)")])
                     it.setDisabled(True)
                     top.addChild(it)
                 self.tree.addTopLevelItem(top)
@@ -380,7 +383,7 @@ class InsertPanel(QFrame):
                               "in its own tab show up here.")
             self.tree.addTopLevelItem(top)
         if self.tree.topLevelItemCount() == 0:
-            it = QTreeWidgetItem([tr("No Part Studios open — use “From file…”")])
+            it = QTreeWidgetItem([QCoreApplication.translate("FreeShape", "No Part Studios open — use “From file…”")])
             it.setDisabled(True)
             self.tree.addTopLevelItem(it)
 
@@ -409,7 +412,7 @@ class InsertPanel(QFrame):
             try:
                 asm = self.ctl.w._resolve_assembly({"path": path})
             except Exception as e:
-                QMessageBox.warning(self, tr("Insert"), f"Couldn't open the assembly:\n{e}")
+                QMessageBox.warning(self, QCoreApplication.translate("FreeShape", "Insert"), f"Couldn't open the assembly:\n{e}")
                 return
             if asm is not None and self.ctl.insert_subassembly(asm):
                 self.msg.setText(f"Inserted {asm.name} as a sub-assembly")
@@ -449,7 +452,7 @@ class ExplodePanel(QFrame):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(10, 8, 10, 10)
         lay.setSpacing(6)
-        head, self.title = _head(self, tr("Exploded view"), "explode", None, self.close_panel, cancel_tip="Close (Esc)")
+        head, self.title = _head(self, QCoreApplication.translate("FreeShape", "Exploded view"), "explode", None, self.close_panel, cancel_tip=QT_TRANSLATE_NOOP("FreeShape", "Close (Esc)"))
         self.title.setReadOnly(True)
         lay.addLayout(head)
         lay.addWidget(_hline())
@@ -458,11 +461,11 @@ class ExplodePanel(QFrame):
         hint.setWordWrap(True)
         hint.setObjectName("muted")
         lay.addWidget(hint)
-        auto = QPushButton(tr("Auto explode"))
-        auto.setToolTip(tr("Move every part out from the fixed one along its nearest main axis"))
+        auto = QPushButton(QCoreApplication.translate("FreeShape", "Auto explode"))
+        auto.setToolTip(QCoreApplication.translate("FreeShape", "Move every part out from the fixed one along its nearest main axis"))
         auto.clicked.connect(self._auto)
         lay.addWidget(auto)
-        lay.addWidget(QLabel(tr("<b>Add a step</b> — select parts, then:")))
+        lay.addWidget(QLabel(QCoreApplication.translate("FreeShape", "<b>Add a step</b> — select parts, then:")))
         row = QHBoxLayout()
         self.dir = QComboBox()
         for lab, v in (("+Z", (0, 0, 1)), ("−Z", (0, 0, -1)), ("+X", (1, 0, 0)), ("−X", (-1, 0, 0)),
@@ -474,7 +477,7 @@ class ExplodePanel(QFrame):
         self.dist.setValue(30)
         self.dist.setSuffix(" mm")
         row.addWidget(self.dist, 1)
-        add = QPushButton(tr("Add"))
+        add = QPushButton(QCoreApplication.translate("FreeShape", "Add"))
         add.clicked.connect(self._add)
         row.addWidget(add)
         lay.addLayout(row)
@@ -482,20 +485,20 @@ class ExplodePanel(QFrame):
         self.steps.setMinimumHeight(110)
         lay.addWidget(self.steps)
         row = QHBoxLayout()
-        rm = QPushButton(tr("Remove step"))
+        rm = QPushButton(QCoreApplication.translate("FreeShape", "Remove step"))
         rm.clicked.connect(self._remove)
         row.addWidget(rm)
-        clr = QPushButton(tr("Clear all"))
+        clr = QPushButton(QCoreApplication.translate("FreeShape", "Clear all"))
         clr.clicked.connect(lambda: (self.ctl.doc.clear_explode(), self.fill()))
         row.addWidget(clr)
         lay.addLayout(row)
-        lay.addWidget(QLabel(tr("Assembled ↔ exploded")))
+        lay.addWidget(QLabel(QCoreApplication.translate("FreeShape", "Assembled ↔ exploded")))
         self.slider = QSlider(Qt.Horizontal)
         self.slider.setRange(0, 100)
         self.slider.setValue(int(round(100 * float(self.ctl.doc.explode.get("amount", 1.0)))))
         self.slider.valueChanged.connect(self._amount)
         lay.addWidget(self.slider)
-        dwg = QPushButton(tr("Drawing of this exploded view…"))
+        dwg = QPushButton(QCoreApplication.translate("FreeShape", "Drawing of this exploded view…"))
         dwg.clicked.connect(lambda: self.ctl.w.new_drawing({"kind": "assembly", "uid": self.ctl.doc.uid,
                                                             "part": "*", "exploded": True}))
         lay.addWidget(dwg)
@@ -581,7 +584,7 @@ class ConnectorField(QFrame):
         top.addWidget(t, 1)
         self.clear_btn = QToolButton()
         self.clear_btn.setText("✕")
-        self.clear_btn.setToolTip(tr("Clear"))
+        self.clear_btn.setToolTip(QCoreApplication.translate("FreeShape", "Clear"))
         top.addWidget(self.clear_btn)
         lay.addLayout(top)
         self.text = QLabel("—")
@@ -654,21 +657,21 @@ class MateDialog(QFrame):
         # options
         orow = QHBoxLayout()
         self.flip = QToolButton()
-        self.flip.setText(tr("⇅ Flip"))
+        self.flip.setText(QCoreApplication.translate("FreeShape", "⇅ Flip"))
         self.flip.setCheckable(True)
-        self.flip.setToolTip(tr("Flip the primary (Z) axis — e.g. put a pin in the other way round"))
+        self.flip.setToolTip(QCoreApplication.translate("FreeShape", "Flip the primary (Z) axis — e.g. put a pin in the other way round"))
         self.flip.clicked.connect(lambda c: self._set("flip", bool(c)))
         orow.addWidget(self.flip)
         self.rot = QToolButton()
         self.rot.setText("⟳ 90°")
-        self.rot.setToolTip(tr("Turn the second part 90° about the Z axis"))
+        self.rot.setToolTip(QCoreApplication.translate("FreeShape", "Turn the second part 90° about the Z axis"))
         self.rot.clicked.connect(self._rotate90)
         orow.addWidget(self.rot)
         orow.addStretch(1)
         lay.addLayout(orow)
-        self.offset_row, self.offset = self._num_row("Offset", self.mate.get("offset", 0.0), "offset", "mm")
+        self.offset_row, self.offset = self._num_row(QT_TRANSLATE_NOOP("FreeShape", "Offset"), self.mate.get("offset", 0.0), "offset", "mm")
         lay.addWidget(self.offset_row)
-        self.angle_row, self.angle = self._num_row("Angle", self.mate.get("angle", 0.0), "angle", "°")
+        self.angle_row, self.angle = self._num_row(QT_TRANSLATE_NOOP("FreeShape", "Angle"), self.mate.get("angle", 0.0), "angle", "°")
         lay.addWidget(self.angle_row)
         self.err = QLabel("")
         self.err.setObjectName("dialogError")
@@ -770,7 +773,7 @@ class MateDialog(QFrame):
         for f, side in ((self.fa, "a"), (self.fb, "b")):
             c = self.mate.get(side)
             if not c:
-                f.text.setText(tr("Click to select") if f is self.active else "—")
+                f.text.setText(QCoreApplication.translate("FreeShape", "Click to select") if f is self.active else "—")
                 f.text.setStyleSheet("color:#8a94a3;")
             else:
                 inst = self.doc.instance(c["inst"])
@@ -892,7 +895,7 @@ class MoveDialog(QFrame):
         lay.setContentsMargins(10, 8, 10, 10)
         lay.setSpacing(6)
         names = ", ".join(self.doc.instance(i)["name"] for i in self.ids)
-        head, self.title = _head(self, tr("Move"), "move", self.accept, self.reject)
+        head, self.title = _head(self, QCoreApplication.translate("FreeShape", "Move"), "move", self.accept, self.reject)
         self.title.setReadOnly(True)
         lay.addLayout(head)
         lay.addWidget(_hline())
@@ -901,8 +904,8 @@ class MoveDialog(QFrame):
         lab.setObjectName("muted")
         lay.addWidget(lab)
         self.eds = {}
-        for key, label, unit in (("dx", "Move X", "mm"), ("dy", "Move Y", "mm"), ("dz", "Move Z", "mm"),
-                                 ("angle", "Rotate", "°")):
+        for key, label, unit in (("dx", QT_TRANSLATE_NOOP("FreeShape", "Move X"), "mm"), ("dy", QT_TRANSLATE_NOOP("FreeShape", "Move Y"), "mm"), ("dz", QT_TRANSLATE_NOOP("FreeShape", "Move Z"), "mm"),
+                                 ("angle", QT_TRANSLATE_NOOP("FreeShape", "Rotate"), "°")):
             w = QWidget()
             h = QHBoxLayout(w)
             h.setContentsMargins(0, 0, 0, 0)
@@ -922,7 +925,7 @@ class MoveDialog(QFrame):
                 h.addWidget(cb)
             self.eds[key] = ed
             lay.addWidget(w)
-        note = QLabel("Rotation is about the part's centre. Mated parts follow their mates afterwards.")
+        note = QLabel(QT_TRANSLATE_NOOP("FreeShape", "Rotation is about the part's centre. Mated parts follow their mates afterwards."))
         note.setWordWrap(True)
         note.setObjectName("muted")
         lay.addWidget(note)
@@ -997,7 +1000,7 @@ class BomDialog(QDialog):
         self.rows = doc.bom()
         lay = QVBoxLayout(self)
         t = QTableWidget(len(self.rows), 6)
-        t.setHorizontalHeaderLabels([tr("Item"), tr("Part"), tr("Quantity"), tr("From"), tr("Volume (mm³)"), tr("Mass PLA (g)")])
+        t.setHorizontalHeaderLabels([QCoreApplication.translate("FreeShape", "Item"), QCoreApplication.translate("FreeShape", "Part"), QCoreApplication.translate("FreeShape", "Quantity"), QCoreApplication.translate("FreeShape", "From"), QCoreApplication.translate("FreeShape", "Volume (mm³)"), QCoreApplication.translate("FreeShape", "Mass PLA (g)")])
         t.verticalHeader().setVisible(False)
         t.setEditTriggers(QAbstractItemView.NoEditTriggers)
         for r, row in enumerate(self.rows):
@@ -1018,14 +1021,14 @@ class BomDialog(QDialog):
         lay.addWidget(QLabel(f"{len(self.rows)} different part(s), {total} in total"))
         row = QHBoxLayout()
         row.addStretch(1)
-        cp = QPushButton(tr("Copy"))
-        cp.setToolTip(tr("Copy as a table you can paste into a spreadsheet"))
+        cp = QPushButton(QCoreApplication.translate("FreeShape", "Copy"))
+        cp.setToolTip(QCoreApplication.translate("FreeShape", "Copy as a table you can paste into a spreadsheet"))
         cp.clicked.connect(lambda: QGuiApplication.clipboard().setText(self.csv("\t")))
         row.addWidget(cp)
-        ex = QPushButton(tr("Export CSV…"))
+        ex = QPushButton(QCoreApplication.translate("FreeShape", "Export CSV…"))
         ex.clicked.connect(self._export)
         row.addWidget(ex)
-        close = QPushButton(tr("Close"))
+        close = QPushButton(QCoreApplication.translate("FreeShape", "Close"))
         close.clicked.connect(self.accept)
         row.addWidget(close)
         lay.addLayout(row)
@@ -1199,7 +1202,7 @@ class AssemblyController:
                 iid = doc.insert(src, T=T, checkpoint=False)
                 first_new.append(iid)
             except K.KernelError as e:
-                QMessageBox.warning(self.w, tr("Insert"), str(e))
+                QMessageBox.warning(self.w, QCoreApplication.translate("FreeShape", "Insert"), str(e))
         if part_ids is None and len(first_new) > 1 and not any(
                 doc.instance(i).get("fixed") for i in first_new[1:]):
             pass
@@ -1209,12 +1212,12 @@ class AssemblyController:
     def insert_subassembly(self, other):
         """Insert another assembly as a rigid sub-assembly. True if it went in."""
         if other is None:
-            QMessageBox.warning(self.w, tr("Insert"), "That assembly isn't open and its file wasn't found.")
+            QMessageBox.warning(self.w, QCoreApplication.translate("FreeShape", "Insert"), QT_TRANSLATE_NOOP("FreeShape", "That assembly isn't open and its file wasn't found."))
             return False
         try:
             self.doc.insert_assembly(other)
         except K.KernelError as e:
-            QMessageBox.warning(self.w, tr("Insert"), str(e))
+            QMessageBox.warning(self.w, QCoreApplication.translate("FreeShape", "Insert"), str(e))
             return False
         self.w.status.showMessage(f"Inserted {other.name} as a sub-assembly", 4000)
         QTimer.singleShot(0, lambda: self.vp.fit())
@@ -1229,7 +1232,7 @@ class AssemblyController:
             try:
                 made.append(doc.insert(dict(spec), checkpoint=False))
             except K.KernelError as e:
-                QMessageBox.warning(self.w, tr("Insert"), str(e))
+                QMessageBox.warning(self.w, QCoreApplication.translate("FreeShape", "Insert"), str(e))
                 break
         self.w.status.showMessage(f"Inserted {len(made)} standard part(s)", 4000)
         QTimer.singleShot(0, lambda: self.vp.fit())
@@ -1252,7 +1255,7 @@ class AssemblyController:
         except Exception as e:
             prog.close()
             prog = None
-            QMessageBox.warning(self.w, tr("Insert"), f"Couldn't read {os.path.basename(path)}:\n{e}")
+            QMessageBox.warning(self.w, QCoreApplication.translate("FreeShape", "Insert"), f"Couldn't read {os.path.basename(path)}:\n{e}")
             return 0
         finally:
             if prog is not None:
@@ -1284,7 +1287,7 @@ class AssemblyController:
                 self.mate_dialog.set_type(mtype)
             return
         if len([i for i in self.doc.instances if i["id"] in self.doc.parts]) < 2:
-            w.status.showMessage(tr("Insert at least two parts before adding a mate"), 5000)
+            w.status.showMessage(QCoreApplication.translate("FreeShape", "Insert at least two parts before adding a mate"), 5000)
             return
         self.close_insert()
         if edit_mid:
@@ -1324,10 +1327,10 @@ class AssemblyController:
         typ = QComboBox()
         for k, (lab, _tip) in A.RELATION_TYPES.items():
             typ.addItem(tr(lab), k)
-        form.addRow(tr("Type:"), typ)
+        form.addRow(QCoreApplication.translate("FreeShape", "Type:"), typ)
         ma, mb = QComboBox(), QComboBox()
-        form.addRow(tr("Driving mate:"), ma)
-        mb_label = QLabel(tr("Driven mate:"))
+        form.addRow(QCoreApplication.translate("FreeShape", "Driving mate:"), ma)
+        mb_label = QLabel(QCoreApplication.translate("FreeShape", "Driven mate:"))
         form.addRow(mb_label, mb)
         t1, t2 = QDoubleSpinBox(), QDoubleSpinBox()
         for t in (t1, t2):
@@ -1335,7 +1338,7 @@ class AssemblyController:
             t.setDecimals(0)
         t1.setValue(20)
         t2.setValue(20)
-        t1_label, t2_label = QLabel(tr("Teeth (driving):")), QLabel(tr("Teeth (driven):"))
+        t1_label, t2_label = QLabel(QCoreApplication.translate("FreeShape", "Teeth (driving):")), QLabel(QCoreApplication.translate("FreeShape", "Teeth (driven):"))
         form.addRow(t1_label, t1)
         form.addRow(t2_label, t2)
         num = QDoubleSpinBox()
@@ -1344,7 +1347,7 @@ class AssemblyController:
         num.setSuffix(" mm")
         num_label = QLabel("")
         form.addRow(num_label, num)
-        rev = QCheckBox(tr("Opposite direction"))
+        rev = QCheckBox(QCoreApplication.translate("FreeShape", "Opposite direction"))
         form.addRow("", rev)
         tip = QLabel("")
         tip.setWordWrap(True)
@@ -1394,7 +1397,7 @@ class AssemblyController:
         else:
             num.setValue(10.0)
         if ma.count() == 0:
-            QMessageBox.information(self.w, tr("Relation"), "Make the mates first: revolute mates for gears, a revolute and "
+            QMessageBox.information(self.w, QCoreApplication.translate("FreeShape", "Relation"), "Make the mates first: revolute mates for gears, a revolute and "
                                     "a slider for rack and pinion, a cylindrical mate for a screw.")
             return
         if dlg.exec() != QDialog.Accepted:
@@ -1411,7 +1414,7 @@ class AssemblyController:
             else:
                 doc.add_relation(k, ma.currentData(), mb.currentData() if k != "screw" else None, **kw)
         except K.KernelError as e:
-            QMessageBox.warning(self.w, tr("Relation"), str(e))
+            QMessageBox.warning(self.w, QCoreApplication.translate("FreeShape", "Relation"), str(e))
 
     def pattern_dialog(self, ptype="linear", edit=None):
         from PySide6.QtWidgets import QDialog, QFormLayout, QDialogButtonBox, QDoubleSpinBox, QSpinBox
@@ -1420,7 +1423,7 @@ class AssemblyController:
         seeds = pat["seeds"] if pat else self.selected_instance_ids()
         seeds = [s_ for s_ in seeds if doc.instance(s_) is not None and not doc.instance(s_).get("pattern")]
         if not seeds:
-            QMessageBox.information(self.w, tr("Pattern"), "Select the parts to pattern first (in the list or the view).")
+            QMessageBox.information(self.w, QCoreApplication.translate("FreeShape", "Pattern"), QT_TRANSLATE_NOOP("FreeShape", "Select the parts to pattern first (in the list or the view)."))
             return
         ptype = pat["type"] if pat else ptype
         dlg = QDialog(self.w)
@@ -1428,30 +1431,30 @@ class AssemblyController:
         form = QFormLayout(dlg)
         form.addRow(QLabel(", ".join(doc.instance(s_)["name"] for s_ in seeds)))
         axis = QComboBox()
-        for lab, ax in (("X axis", {"kind": "world", "name": "X"}), ("Y axis", {"kind": "world", "name": "Y"}),
-                        ("Z axis", {"kind": "world", "name": "Z"})):
+        for lab, ax in ((QT_TRANSLATE_NOOP("FreeShape", "X axis"), {"kind": "world", "name": "X"}), (QT_TRANSLATE_NOOP("FreeShape", "Y axis"), {"kind": "world", "name": "Y"}),
+                        (QT_TRANSLATE_NOOP("FreeShape", "Z axis"), {"kind": "world", "name": "Z"})):
             axis.addItem(tr(lab), ax)
         for m in doc.mates:
             if m["type"] in ("revolute", "cylindrical", "slider"):
                 axis.addItem(f"Axis of {m['name']}", {"kind": "mate", "mate": m["id"]})
         form.addRow("Direction:" if ptype == "linear" else "Round:", axis)
-        flip = QCheckBox(tr("Opposite direction"))
+        flip = QCheckBox(QCoreApplication.translate("FreeShape", "Opposite direction"))
         form.addRow("", flip)
         count = QSpinBox()
         count.setRange(2, 1000)
         count.setValue(pat["count"] if pat else (3 if ptype == "linear" else 6))
-        form.addRow(tr("Count (with the original):"), count)
+        form.addRow(QCoreApplication.translate("FreeShape", "Count (with the original):"), count)
         amt = QDoubleSpinBox()
         amt.setRange(-100000, 100000)
         amt.setDecimals(3)
         if ptype == "linear":
             amt.setSuffix(" mm")
             amt.setValue(pat["spacing"] if pat else 20.0)
-            form.addRow(tr("Spacing:"), amt)
+            form.addRow(QCoreApplication.translate("FreeShape", "Spacing:"), amt)
         else:
             amt.setSuffix("°")
             amt.setValue(pat["angle"] if pat else 360.0)
-            form.addRow(tr("Angle (360 = all the way round):"), amt)
+            form.addRow(QCoreApplication.translate("FreeShape", "Angle (360 = all the way round):"), amt)
         if pat:
             for i in range(axis.count()):
                 if axis.itemData(i) == {k_: v for k_, v in pat["axis"].items() if k_ != "flip"}:
@@ -1476,7 +1479,7 @@ class AssemblyController:
             else:
                 doc.add_pattern(ptype, seeds, **kw)
         except K.KernelError as e:
-            QMessageBox.warning(self.w, tr("Pattern"), str(e))
+            QMessageBox.warning(self.w, QCoreApplication.translate("FreeShape", "Pattern"), str(e))
 
     def _close_mate(self):
         d = self.mate_dialog
@@ -1510,7 +1513,7 @@ class AssemblyController:
     def start_move(self, ids=None):
         ids = ids or self.selected_instance_ids()
         if not ids:
-            self.w.status.showMessage(tr("Select a part (in the list or the graphics area) to move it"), 5000)
+            self.w.status.showMessage(QCoreApplication.translate("FreeShape", "Select a part (in the list or the graphics area) to move it"), 5000)
             return
         if self.w.mode != "idle":
             return
@@ -1702,24 +1705,24 @@ class AssemblyController:
         if iid not in ids:
             ids = [iid]
         m = QMenu(self.w)
-        m.addAction(tr("Rename…"), lambda: self.rename(iid))
-        m.addAction(tr("Unfix") if inst.get("fixed") else "Fix", lambda: doc.set_fixed(iid, not inst.get("fixed")))
-        m.addAction(tr("Show") if inst.get("hidden") else "Hide", lambda: doc.set_hidden(iid, not inst.get("hidden")))
-        m.addAction(tr("Isolate"), lambda: self.isolate(iid))
-        m.addAction(tr("Change colour…"), lambda: self.recolor(iid))
+        m.addAction(QCoreApplication.translate("FreeShape", "Rename…"), lambda: self.rename(iid))
+        m.addAction(QCoreApplication.translate("FreeShape", "Unfix") if inst.get("fixed") else QT_TRANSLATE_NOOP("FreeShape", "Fix"), lambda: doc.set_fixed(iid, not inst.get("fixed")))
+        m.addAction(QCoreApplication.translate("FreeShape", "Show") if inst.get("hidden") else QT_TRANSLATE_NOOP("FreeShape", "Hide"), lambda: doc.set_hidden(iid, not inst.get("hidden")))
+        m.addAction(QCoreApplication.translate("FreeShape", "Isolate"), lambda: self.isolate(iid))
+        m.addAction(QCoreApplication.translate("FreeShape", "Change colour…"), lambda: self.recolor(iid))
         if inst.get("color"):
-            m.addAction("Use the part's colour", lambda: doc.set_color(iid, None))
+            m.addAction(QT_TRANSLATE_NOOP("FreeShape", "Use the part's colour"), lambda: doc.set_color(iid, None))
         m.addSeparator()
-        m.addAction(tr("Move / rotate…"), lambda: self.start_move(ids))
-        m.addAction(tr("Duplicate"), lambda: self.duplicate(ids))
+        m.addAction(QCoreApplication.translate("FreeShape", "Move / rotate…"), lambda: self.start_move(ids))
+        m.addAction(QCoreApplication.translate("FreeShape", "Duplicate"), lambda: self.duplicate(ids))
         if inst["source"].get("kind") == "studio":
-            m.addAction(tr("Open Part Studio"), lambda: self.open_source(iid))
-        m.addAction(tr("Mass properties"), lambda: self.w._mass_props_shape(inst["name"], doc.world_shape(iid)))
+            m.addAction(QCoreApplication.translate("FreeShape", "Open Part Studio"), lambda: self.open_source(iid))
+        m.addAction(QCoreApplication.translate("FreeShape", "Mass properties"), lambda: self.w._mass_props_shape(inst["name"], doc.world_shape(iid)))
         dof = doc.instance_dof(iid)
         a = m.addAction(f"Degrees of freedom: {dof}" + (" (fixed)" if inst.get("fixed") else ""))
         a.setEnabled(False)
         m.addSeparator()
-        m.addAction(tr("Delete"), lambda: self.delete_instances(ids))
+        m.addAction(QCoreApplication.translate("FreeShape", "Delete"), lambda: self.delete_instances(ids))
         m.exec(gpos)
 
     def mate_menu(self, mid, gpos):
@@ -1728,10 +1731,10 @@ class AssemblyController:
         mt = doc.mate(mid)
         if mt is None and self.w.mode == "idle" and (doc.relation(mid) or any(p_["id"] == mid for p_ in doc.patterns)):
             m = QMenu(self.w)
-            m.addAction(tr("Edit…"), lambda: self.edit_mate(mid))
-            m.addAction(tr("Rename…"), lambda: self.rename(mid))
+            m.addAction(QCoreApplication.translate("FreeShape", "Edit…"), lambda: self.edit_mate(mid))
+            m.addAction(QCoreApplication.translate("FreeShape", "Rename…"), lambda: self.rename(mid))
             m.addSeparator()
-            m.addAction(tr("Delete"), lambda: doc.delete_mates([mid]))
+            m.addAction(QCoreApplication.translate("FreeShape", "Delete"), lambda: doc.delete_mates([mid]))
             m.exec(gpos)
             return
         if mt is None or self.w.mode != "idle":
@@ -1740,14 +1743,14 @@ class AssemblyController:
         if mid not in ids:
             ids = [mid]
         m = QMenu(self.w)
-        m.addAction(tr("Edit…"), lambda: self.edit_mate(mid))
-        m.addAction(tr("Rename…"), lambda: self.rename(mid))
+        m.addAction(QCoreApplication.translate("FreeShape", "Edit…"), lambda: self.edit_mate(mid))
+        m.addAction(QCoreApplication.translate("FreeShape", "Rename…"), lambda: self.rename(mid))
         if mt.get("type") in A.TURNING + A.SLIDING:
             m.addAction(icon("relation", 16), "Gear / rack / screw relation…", lambda: self.relation_dialog())
         m.addAction("Unsuppress" if mt.get("suppressed") else "Suppress",
                     lambda: doc.set_suppressed(mid, not mt.get("suppressed")))
         m.addSeparator()
-        m.addAction(tr("Delete"), lambda: doc.delete_mates(ids))
+        m.addAction(QCoreApplication.translate("FreeShape", "Delete"), lambda: doc.delete_mates(ids))
         err = doc.errors.get(mid)
         if err:
             m.addSeparator()
@@ -1762,19 +1765,19 @@ class AssemblyController:
             self.instance_menu(pk.key[0], gpos)
             return
         m = QMenu(self.w)
-        m.addAction(tr("Insert parts…"), self.toggle_insert)
-        m.addAction(tr("Zoom to fit"), lambda: self.vp.fit())
-        vm = submenu(m, "Views")
-        for name in ("Front", "Back", "Left", "Right", "Top", "Bottom", "Isometric"):
+        m.addAction(QCoreApplication.translate("FreeShape", "Insert parts…"), self.toggle_insert)
+        m.addAction(QCoreApplication.translate("FreeShape", "Zoom to fit"), lambda: self.vp.fit())
+        vm = submenu(m, QT_TRANSLATE_NOOP("FreeShape", "Views"))
+        for name in (QT_TRANSLATE_NOOP("FreeShape", "Front"), QT_TRANSLATE_NOOP("FreeShape", "Back"), QT_TRANSLATE_NOOP("FreeShape", "Left"), QT_TRANSLATE_NOOP("FreeShape", "Right"), QT_TRANSLATE_NOOP("FreeShape", "Top"), QT_TRANSLATE_NOOP("FreeShape", "Bottom"), QT_TRANSLATE_NOOP("FreeShape", "Isometric")):
             vm.addAction(name, lambda _=False, n=name: self.vp.set_standard_view(n))
         if any(i.get("hidden") for i in self.doc.instances):
-            m.addAction(tr("Show all"), self.show_all)
+            m.addAction(QCoreApplication.translate("FreeShape", "Show all"), self.show_all)
         m.exec(gpos)
 
     def rename(self, obj_id):
         from PySide6.QtWidgets import QInputDialog
         o = self.doc.instance(obj_id) or self.doc.mate(obj_id)
-        name, ok = QInputDialog.getText(self.w, "Rename", "Name:", text=o["name"])
+        name, ok = QInputDialog.getText(self.w, QT_TRANSLATE_NOOP("FreeShape", "Rename"), "Name:", text=o["name"])
         if ok and name.strip():
             self.doc.rename(obj_id, name.strip())
 
@@ -1810,7 +1813,7 @@ class AssemblyController:
         names = ", ".join(self.doc.instance(i)["name"] for i in ids)
         nm = sum(1 for m in self.doc.mates if m["a"]["inst"] in ids or m["b"]["inst"] in ids)
         extra = f"\n\n{nm} mate(s) on them will be deleted too." if nm else ""
-        if QMessageBox.question(self.w, tr("Delete"), f"Delete {names}?{extra}") == QMessageBox.Yes:
+        if QMessageBox.question(self.w, QCoreApplication.translate("FreeShape", "Delete"), f"Delete {names}?{extra}") == QMessageBox.Yes:
             self.doc.delete_instances(ids)
 
     def delete_selected(self):
@@ -1832,7 +1835,7 @@ class AssemblyController:
             return
         studio = self.w.studio_by_uid(src.get("uid"), src.get("path"), load=True, show=True)
         if studio is None:
-            QMessageBox.information(self.w, tr("Open Part Studio"), "The Part Studio for this part isn't open and its "
+            QMessageBox.information(self.w, QCoreApplication.translate("FreeShape", "Open Part Studio"), "The Part Studio for this part isn't open and its "
                                     "file can't be found.")
 
     # ------------------------------------------------------------------ analysis
@@ -1865,7 +1868,7 @@ class AssemblyController:
             btn.setChecked(False)
             self.vp.ghosts = []
             self.vp.update()
-            QMessageBox.information(self.w, tr("Interference"), "No interference — no parts overlap.")
+            QMessageBox.information(self.w, QCoreApplication.translate("FreeShape", "Interference"), QT_TRANSLATE_NOOP("FreeShape", "No interference — no parts overlap."))
             return
         ghosts = []
         lines = []
@@ -1881,12 +1884,12 @@ class AssemblyController:
         self.vp.update()
         self.w.status.showMessage(f"{len(res)} interference(s) found — shown in red. Click the button again "
                                   "to clear.", 8000)
-        QMessageBox.information(self.w, tr("Interference"), f"{len(res)} pair(s) of parts overlap "
+        QMessageBox.information(self.w, QCoreApplication.translate("FreeShape", "Interference"), f"{len(res)} pair(s) of parts overlap "
                                 "(shown in red):\n\n" + "\n".join(lines[:30]))
 
     def show_bom(self):
         if not self.doc.instances:
-            QMessageBox.information(self.w, tr("Bill of materials"), "Insert some parts first.")
+            QMessageBox.information(self.w, QCoreApplication.translate("FreeShape", "Bill of materials"), QT_TRANSLATE_NOOP("FreeShape", "Insert some parts first."))
             return
         d = BomDialog(self.w, self.doc)
         self.w._adapt_tree(d)

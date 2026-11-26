@@ -23,6 +23,8 @@ step can't improve (redundant constraints), it takes Levenberg-Marquardt steps.
 Radii are solved in a form that keeps them positive (see _get_x)."""
 from __future__ import annotations
 
+from .i18n import QT_TRANSLATE_NOOP
+
 import copy
 import itertools
 import math
@@ -46,12 +48,12 @@ DIMENSIONS = {"distance", "hdistance", "vdistance", "radius", "diameter", "angle
 POINT_KEYS = ("p1", "p2", "c", "p", "a")       # entity keys that hold one point id (splines: "pts")
 
 CONSTRAINT_LABELS = {
-    "coincident": "Coincident", "point_on": "Coincident", "horizontal": "Horizontal",
-    "vertical": "Vertical", "parallel": "Parallel", "perpendicular": "Perpendicular",
-    "equal": "Equal", "tangent": "Tangent", "concentric": "Concentric", "midpoint": "Midpoint",
-    "fix": "Fix", "symmetric": "Symmetric", "distance": "Distance", "hdistance": "Horizontal distance",
-    "vdistance": "Vertical distance", "radius": "Radius", "diameter": "Diameter", "angle": "Angle",
-    "normal": "Normal",
+    "coincident": QT_TRANSLATE_NOOP("FreeShape", "Coincident"), "point_on": QT_TRANSLATE_NOOP("FreeShape", "Coincident"), "horizontal": QT_TRANSLATE_NOOP("FreeShape", "Horizontal"),
+    "vertical": QT_TRANSLATE_NOOP("FreeShape", "Vertical"), "parallel": QT_TRANSLATE_NOOP("FreeShape", "Parallel"), "perpendicular": QT_TRANSLATE_NOOP("FreeShape", "Perpendicular"),
+    "equal": QT_TRANSLATE_NOOP("FreeShape", "Equal"), "tangent": QT_TRANSLATE_NOOP("FreeShape", "Tangent"), "concentric": QT_TRANSLATE_NOOP("FreeShape", "Concentric"), "midpoint": QT_TRANSLATE_NOOP("FreeShape", "Midpoint"),
+    "fix": QT_TRANSLATE_NOOP("FreeShape", "Fix"), "symmetric": QT_TRANSLATE_NOOP("FreeShape", "Symmetric"), "distance": QT_TRANSLATE_NOOP("FreeShape", "Distance"), "hdistance": "Horizontal distance",
+    "vdistance": "Vertical distance", "radius": QT_TRANSLATE_NOOP("FreeShape", "Radius"), "diameter": "Diameter", "angle": QT_TRANSLATE_NOOP("FreeShape", "Angle"),
+    "normal": QT_TRANSLATE_NOOP("FreeShape", "Normal"),
 }
 
 

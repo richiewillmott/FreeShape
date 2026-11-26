@@ -8,6 +8,8 @@ in the common cases.
 """
 from __future__ import annotations
 
+from .i18n import QT_TRANSLATE_NOOP
+
 import base64
 import math
 import os
@@ -23,14 +25,14 @@ from .expr import parse_number, var_names
 DEFAULT_COLOR = (0.60, 0.74, 0.85)      # Onshape-style steel blue
 
 FEATURE_LABELS = {
-    "sketch": "Sketch", "extrude": "Extrude", "revolve": "Revolve", "fillet": "Fillet",
-    "chamfer": "Chamfer", "shell": "Shell", "plane": "Plane", "mirror": "Mirror",
-    "linear_pattern": "Linear pattern", "circular_pattern": "Circular pattern",
-    "curve_pattern": "Curve pattern", "point_pattern": "Point pattern", "mate_connector": "Mate connector",
-    "boolean": "Boolean", "import": "Import", "hole": "Hole", "variable": "Variable", "measure_value": "Variable", "derived": "Derived",
-    "sweep": "Sweep", "loft": "Loft", "draft": "Draft", "split": "Split", "move": "Transform", "thread": "Thread",
-    "sm_base": "Sheet metal", "sm_flange": "Flange", "sm_hem": "Hem", "sm_jog": "Jog", "sm_tab": "Tab",
-    "sm_convert": "Convert to sheet metal", "delete_face": "Delete face", "move_face": "Move face", "offset_surface": "Offset surface",
+    "sketch": "Sketch", "extrude": QT_TRANSLATE_NOOP("FreeShape", "Extrude"), "revolve": QT_TRANSLATE_NOOP("FreeShape", "Revolve"), "fillet": QT_TRANSLATE_NOOP("FreeShape", "Fillet"),
+    "chamfer": QT_TRANSLATE_NOOP("FreeShape", "Chamfer"), "shell": QT_TRANSLATE_NOOP("FreeShape", "Shell"), "plane": QT_TRANSLATE_NOOP("FreeShape", "Plane"), "mirror": QT_TRANSLATE_NOOP("FreeShape", "Mirror"),
+    "linear_pattern": QT_TRANSLATE_NOOP("FreeShape", "Linear pattern"), "circular_pattern": QT_TRANSLATE_NOOP("FreeShape", "Circular pattern"),
+    "curve_pattern": QT_TRANSLATE_NOOP("FreeShape", "Curve pattern"), "point_pattern": QT_TRANSLATE_NOOP("FreeShape", "Point pattern"), "mate_connector": QT_TRANSLATE_NOOP("FreeShape", "Mate connector"),
+    "boolean": QT_TRANSLATE_NOOP("FreeShape", "Boolean"), "import": QT_TRANSLATE_NOOP("FreeShape", "Import"), "hole": QT_TRANSLATE_NOOP("FreeShape", "Hole"), "variable": QT_TRANSLATE_NOOP("FreeShape", "Variable"), "measure_value": QT_TRANSLATE_NOOP("FreeShape", "Variable"), "derived": "Derived",
+    "sweep": QT_TRANSLATE_NOOP("FreeShape", "Sweep"), "loft": QT_TRANSLATE_NOOP("FreeShape", "Loft"), "draft": QT_TRANSLATE_NOOP("FreeShape", "Draft"), "split": QT_TRANSLATE_NOOP("FreeShape", "Split"), "move": QT_TRANSLATE_NOOP("FreeShape", "Transform"), "thread": QT_TRANSLATE_NOOP("FreeShape", "Thread"),
+    "sm_base": QT_TRANSLATE_NOOP("FreeShape", "Sheet metal"), "sm_flange": QT_TRANSLATE_NOOP("FreeShape", "Flange"), "sm_hem": QT_TRANSLATE_NOOP("FreeShape", "Hem"), "sm_jog": QT_TRANSLATE_NOOP("FreeShape", "Jog"), "sm_tab": "Tab",
+    "sm_convert": "Convert to sheet metal", "delete_face": QT_TRANSLATE_NOOP("FreeShape", "Delete face"), "move_face": QT_TRANSLATE_NOOP("FreeShape", "Move face"), "offset_surface": QT_TRANSLATE_NOOP("FreeShape", "Offset surface"),
 }
 
 # ISO metric screw data (coarse threads).  clearance: close / normal / loose (ISO 273)
@@ -984,8 +986,8 @@ def _profile_origin(state, p, profs):
 
 
 UP_TO = ("up_to_face", "up_to_vertex", "up_to_part", "up_to_next")
-UP_TO_LABELS = [("up_to_next", "Up to next"), ("up_to_face", "Up to face"), ("up_to_part", "Up to part"),
-                ("up_to_vertex", "Up to vertex")]
+UP_TO_LABELS = [("up_to_next", QT_TRANSLATE_NOOP("FreeShape", "Up to next")), ("up_to_face", QT_TRANSLATE_NOOP("FreeShape", "Up to face")), ("up_to_part", QT_TRANSLATE_NOOP("FreeShape", "Up to part")),
+                ("up_to_vertex", QT_TRANSLATE_NOOP("FreeShape", "Up to vertex"))]
 
 
 def _model_size(state, extra=()):
@@ -2128,9 +2130,9 @@ def run_mate_connector(state, f):
     state.connectors[f["id"]] = MC.build(state, f["params"])
 
 
-MOVE_TYPES = [("line", "Translate by line"), ("distance", "Translate by distance"), ("xyz", "Translate by XYZ"),
-              ("mates", "Transform by mate connectors"), ("rotate", "Rotate"), ("copy", "Copy in place"),
-              ("scale", "Scale"), ("points", "Translate from point to point")]
+MOVE_TYPES = [("line", QT_TRANSLATE_NOOP("FreeShape", "Translate by line")), ("distance", QT_TRANSLATE_NOOP("FreeShape", "Translate by distance")), ("xyz", QT_TRANSLATE_NOOP("FreeShape", "Translate by XYZ")),
+              ("mates", "Transform by mate connectors"), ("rotate", QT_TRANSLATE_NOOP("FreeShape", "Rotate")), ("copy", QT_TRANSLATE_NOOP("FreeShape", "Copy in place")),
+              ("scale", QT_TRANSLATE_NOOP("FreeShape", "Scale")), ("points", "Translate from point to point")]
 
 
 def _axis_segment(state, ref):

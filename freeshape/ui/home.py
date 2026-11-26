@@ -1,6 +1,9 @@
 """Home page: start something new, open a file, or pick up a recent project (cards with thumbnails)."""
 from __future__ import annotations
 
+from PySide6.QtCore import QCoreApplication
+from ..i18n import QT_TRANSLATE_NOOP
+
 import hashlib
 import os
 import time
@@ -16,8 +19,8 @@ from .icons import icon
 from ..i18n import tr
 
 CARD_W, THUMB_H = 236, 148
-KINDS = {".fshape": "Part Studio", ".fcad": "Part Studio", ".fasm": "Assembly", ".fdwg": "Drawing", ".step": "STEP file",
-         ".stp": "STEP file", ".brep": "BREP file", ".brp": "BREP file"}
+KINDS = {".fshape": QT_TRANSLATE_NOOP("FreeShape", "Part Studio"), ".fcad": QT_TRANSLATE_NOOP("FreeShape", "Part Studio"), ".fasm": QT_TRANSLATE_NOOP("FreeShape", "Assembly"), ".fdwg": "Drawing", ".step": QT_TRANSLATE_NOOP("FreeShape", "STEP file"),
+         ".stp": QT_TRANSLATE_NOOP("FreeShape", "STEP file"), ".brep": QT_TRANSLATE_NOOP("FreeShape", "BREP file"), ".brp": QT_TRANSLATE_NOOP("FreeShape", "BREP file")}
 
 
 def thumbs_dir():
@@ -41,7 +44,7 @@ def ago(t):
         if s >= n:
             k = int(s // n)
             return f"{k} {unit}{'s' if k != 1 else ''} ago"
-    return "just now"
+    return QT_TRANSLATE_NOOP("FreeShape", "just now")
 
 
 def size_text(n):
@@ -89,12 +92,12 @@ class Card(QFrame):
         folder.setObjectName("homeMuted")
         folder.setText(QFontMetrics(folder.font()).elidedText(os.path.dirname(path), Qt.ElideLeft, CARD_W - 20))
         lay.addWidget(folder)
-        meta = [tr(KINDS.get(ext, "File"))]
+        meta = [tr(KINDS.get(ext, QT_TRANSLATE_NOOP("FreeShape", "File")))]
         if exists:
             meta.append(ago(opened_at))
             meta.append(size_text(os.path.getsize(path)))
         else:
-            meta.append(tr("file not found"))
+            meta.append(QCoreApplication.translate("FreeShape", "file not found"))
         m = QLabel("  ·  ".join(x for x in meta if x))
         m.setObjectName("homeMuted" if exists else "homeMissing")
         lay.addWidget(m)
@@ -172,10 +175,10 @@ class HomePage(QWidget):
         v.setContentsMargins(24, 36, 24, 36)
         v.setSpacing(10)
 
-        t = QLabel(tr("Start a project"))
+        t = QLabel(QCoreApplication.translate("FreeShape", "Start a project"))
         t.setObjectName("homeTitle")
         v.addWidget(t)
-        sub = QLabel(tr("Make something new, open a FreeShape file, or bring in a STEP model. "
+        sub = QLabel(QCoreApplication.translate("FreeShape", "Make something new, open a FreeShape file, or bring in a STEP model. "
                         "You can also drag files anywhere into this window."))
         sub.setObjectName("homeSub")
         sub.setWordWrap(True)
@@ -192,16 +195,16 @@ class HomePage(QWidget):
         ic.setPixmap(icon("part", 40).pixmap(40, 40))
         ic.setAlignment(Qt.AlignCenter)
         dl.addWidget(ic)
-        dt = QLabel(tr("Drop a .fshape, .fasm, .fdwg or STEP file here"))
+        dt = QLabel(QCoreApplication.translate("FreeShape", "Drop a .fshape, .fasm, .fdwg or STEP file here"))
         dt.setAlignment(Qt.AlignCenter)
         dt.setStyleSheet("font-size: 14px;")
         dl.addWidget(dt)
         br = QHBoxLayout()
         br.addStretch(1)
-        for text, sig, primary, ic_name in (("New Part Studio", self.newStudio, True, "part"),
-                                            ("New Assembly", self.newAssembly, False, "assembly"),
-                                            ("Open…", self.openDialog, False, None),
-                                            ("Import STEP…", self.importStep, False, "import")):
+        for text, sig, primary, ic_name in ((QT_TRANSLATE_NOOP("FreeShape", "New Part Studio"), self.newStudio, True, "part"),
+                                            (QT_TRANSLATE_NOOP("FreeShape", "New Assembly"), self.newAssembly, False, "assembly"),
+                                            (QT_TRANSLATE_NOOP("FreeShape", "Open…"), self.openDialog, False, None),
+                                            (QT_TRANSLATE_NOOP("FreeShape", "Import STEP…"), self.importStep, False, "import")):
             b = QPushButton(tr(text))
             b.setObjectName("homePrimary" if primary else "homeButton")
             if ic_name and not primary:
@@ -225,19 +228,19 @@ class HomePage(QWidget):
         v.addSpacing(14)
 
         head = QHBoxLayout()
-        rt = QLabel(tr("Recent"))
+        rt = QLabel(QCoreApplication.translate("FreeShape", "Recent"))
         rt.setObjectName("homeSection")
         head.addWidget(rt)
         head.addStretch(1)
         self.search = QLineEdit()
         self.search.setObjectName("homeSearch")
-        self.search.setPlaceholderText(tr("Search recent"))
+        self.search.setPlaceholderText(QCoreApplication.translate("FreeShape", "Search recent"))
         self.search.setFixedWidth(200)
         self.search.textChanged.connect(lambda _t: self._fill())
         head.addWidget(self.search)
         clear = QToolButton()
         clear.setObjectName("homeLink")
-        clear.setText(tr("Clear list"))
+        clear.setText(QCoreApplication.translate("FreeShape", "Clear list"))
         clear.setCursor(Qt.PointingHandCursor)
         clear.clicked.connect(self.clearRecent.emit)
         head.addWidget(clear)
@@ -249,7 +252,7 @@ class HomePage(QWidget):
         self.grid.setVerticalSpacing(14)
         self.grid.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         v.addWidget(self.grid_host)
-        self.empty = QLabel(tr("Files you open, save or import will appear here."))
+        self.empty = QLabel(QCoreApplication.translate("FreeShape", "Files you open, save or import will appear here."))
         self.empty.setObjectName("homeSub")
         v.addWidget(self.empty)
         v.addStretch(1)
@@ -286,7 +289,7 @@ class HomePage(QWidget):
             c.menuRequested.connect(self._card_menu)
             self.grid.addWidget(c, i // cols, i % cols)
         self.empty.setVisible(not items)
-        self.empty.setText(tr("Files you open, save or import will appear here.") if not q else tr("No recent files match."))
+        self.empty.setText(QCoreApplication.translate("FreeShape", "Files you open, save or import will appear here.") if not q else QCoreApplication.translate("FreeShape", "No recent files match."))
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
@@ -301,9 +304,9 @@ class HomePage(QWidget):
     def _card_menu(self, path, gpos):
         m = QMenu(self)
         if os.path.exists(path):
-            m.addAction(tr("Open"), lambda: self.openPath.emit(path))
-            m.addAction(tr("Show in folder"), lambda: self._show_in_folder(path))
-        m.addAction(tr("Remove from list"), lambda: self.removeRecent.emit(path))
+            m.addAction(QCoreApplication.translate("FreeShape", "Open"), lambda: self.openPath.emit(path))
+            m.addAction(QCoreApplication.translate("FreeShape", "Show in folder"), lambda: self._show_in_folder(path))
+        m.addAction(QCoreApplication.translate("FreeShape", "Remove from list"), lambda: self.removeRecent.emit(path))
         m.exec(gpos)
 
     @staticmethod

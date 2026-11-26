@@ -5,6 +5,9 @@ that toolbar, its ▾ menus included (plugins too), in the order you choose. The
 settings, so they last between sessions."""
 from __future__ import annotations
 
+from PySide6.QtCore import QCoreApplication
+from ..i18n import QT_TRANSLATE_NOOP
+
 from ..i18n import tr
 
 import json
@@ -17,7 +20,7 @@ from PySide6.QtWidgets import (QFrame, QGridLayout, QVBoxLayout, QHBoxLayout, QT
                                QAbstractItemView)
 
 # (key, name shown, toolbar page)
-CONTEXTS = [("sketch", "Sketch", 1), ("studio", "Part Studio", 0), ("assembly", "Assembly", 2),
+CONTEXTS = [("sketch", "Sketch", 1), ("studio", QT_TRANSLATE_NOOP("FreeShape", "Part Studio"), 0), ("assembly", QT_TRANSLATE_NOOP("FreeShape", "Assembly"), 2),
             ("drawing", "Drawing", 3)]
 PAGE = {k: page for k, _n, page in CONTEXTS}
 NAMES = {k: n for k, n, _p in CONTEXTS}
@@ -65,18 +68,17 @@ def commands(win, ctx: str) -> list[dict]:
                 if a.isSeparator() or a.menu() is not None:
                     continue
                 cid = a.property("icon_name") or names.get(id(a))
-                add(cid, _label(a.text()), a.icon(), a.trigger, a.isEnabled, _key(a.toolTip() or a.text()))
+                add(cid, _label(a.text()), a.icon(), a.trigger, a.isEnabled, a.property("shortcut_hint") or "")
             continue
-        cid = b.property("icon_name")
+        cid = b.property("command_id") or b.property("icon_name")
         if cid == "__arrow":
             cid = "select"
         label = _label(b.toolTip()) or b.text().replace("✓", "").strip()
         ic = b.icon()
-        if not cid and b.text():                       # a text button, like "✓ Finish sketch"
-            cid = "_".join(b.text().replace("✓", "").lower().split())
+        if cid and ic.isNull():                        # an explicitly identified text-only button
             from .icons import icon
             ic = icon(cid)
-        add(cid, label, ic, b.click, b.isEnabled, _key(b.toolTip()))
+        add(cid, label, ic, b.click, b.isEnabled, b.property("shortcut_hint") or "")
     return out
 
 
@@ -138,7 +140,7 @@ class ShortcutPopup(QFrame):
         head.addWidget(title)
         head.addStretch(1)
         cust = QToolButton()
-        cust.setText(tr("Customize…"))
+        cust.setText(QCoreApplication.translate("FreeShape", "Customize…"))
         cust.setAutoRaise(True)
         cust.clicked.connect(self._customize)
         head.addWidget(cust)
@@ -147,7 +149,7 @@ class ShortcutPopup(QFrame):
         self.items = [cmds[i] for i in chosen(win, ctx, list(cmds.values()))]
         self.buttons = []
         if not self.items:
-            lay.addWidget(QLabel(tr("Nothing here yet: click Customize… to choose your tools.")))
+            lay.addWidget(QLabel(QCoreApplication.translate("FreeShape", "Nothing here yet: click Customize… to choose your tools.")))
         grid = QGridLayout()
         grid.setSpacing(2)
         for k, c in enumerate(self.items):
@@ -208,12 +210,12 @@ class CustomizeDialog(QDialog):
     def __init__(self, win, ctx="sketch"):
         super().__init__(win)
         self.win = win
-        self.setWindowTitle(tr("Customize the S menu"))
+        self.setWindowTitle(QCoreApplication.translate("FreeShape", "Customize the S menu"))
         self.resize(640, 460)
         self.pending = {}                                # ctx -> ids (edited, not saved yet)
         lay = QVBoxLayout(self)
         top = QHBoxLayout()
-        top.addWidget(QLabel(tr("Menu for:")))
+        top.addWidget(QLabel(QCoreApplication.translate("FreeShape", "Menu for:")))
         self.ctx_box = QComboBox()
         for k, n, _p in CONTEXTS:
             self.ctx_box.addItem(n, k)
@@ -226,27 +228,27 @@ class CustomizeDialog(QDialog):
         lay.addWidget(hint)
         mid = QHBoxLayout()
         left = QVBoxLayout()
-        left.addWidget(QLabel(tr("Tools")))
+        left.addWidget(QLabel(QCoreApplication.translate("FreeShape", "Tools")))
         self.avail = QListWidget()
         left.addWidget(self.avail)
         mid.addLayout(left, 1)
         btns = QVBoxLayout()
         btns.addStretch(1)
-        self.b_add, self.b_rem = QPushButton(tr("Add →")), QPushButton(tr("← Remove"))
-        self.b_up, self.b_down = QPushButton(tr("Up")), QPushButton(tr("Down"))
+        self.b_add, self.b_rem = QPushButton(QCoreApplication.translate("FreeShape", "Add →")), QPushButton(QCoreApplication.translate("FreeShape", "← Remove"))
+        self.b_up, self.b_down = QPushButton(QCoreApplication.translate("FreeShape", "Up")), QPushButton(QCoreApplication.translate("FreeShape", "Down"))
         for b in (self.b_add, self.b_rem, self.b_up, self.b_down):
             btns.addWidget(b)
         btns.addStretch(1)
         mid.addLayout(btns)
         right = QVBoxLayout()
-        right.addWidget(QLabel(tr("In the S menu")))
+        right.addWidget(QLabel(QCoreApplication.translate("FreeShape", "In the S menu")))
         self.mine = QListWidget()
         self.mine.setDragDropMode(QAbstractItemView.InternalMove)
         right.addWidget(self.mine)
         mid.addLayout(right, 1)
         lay.addLayout(mid, 1)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel | QDialogButtonBox.Reset)
-        bb.button(QDialogButtonBox.Reset).setText(tr("Reset to default"))
+        bb.button(QDialogButtonBox.Reset).setText(QCoreApplication.translate("FreeShape", "Reset to default"))
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         bb.button(QDialogButtonBox.Reset).clicked.connect(self.reset_current)
