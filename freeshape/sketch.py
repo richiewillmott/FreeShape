@@ -596,6 +596,18 @@ class Sketch:
         if t == "midpoint":
             p, l = R
             a, b = ents[l]["p1"], ents[l]["p2"]
+            if typ(1) == "arc":
+                c = ents[l]["c"]
+
+                def f(g):
+                    center = pt(g, c)
+                    u, w = pt(g, a) - center, pt(g, b) - center
+                    start = math.atan2(u[1], u[0])
+                    sweep = (math.atan2(w[1], w[0]) - start) % (2 * math.pi)
+                    t0 = start + sweep / 2
+                    q = center + np.linalg.norm(u) * np.array([math.cos(t0), math.sin(t0)])
+                    return list(pt(g, p) - q)
+                return f, pkeys(p, a, b, c)
             return (lambda g: list(pt(g, p) - (pt(g, a) + pt(g, b)) / 2)), pkeys(p, a, b)
         if t == "tangent":
             a, b = R
