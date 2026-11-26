@@ -43,7 +43,7 @@ def test_finite_intersections_and_arc_midpoint():
     s.set_tool("point")
     target=np.array([40,40])+10/np.sqrt(2)
     _click(s,*_at(s,target,1,1))
-    matches=[r[0] for t,r in _cons(s) if t=="midpoint" and r[1]==arc]
+    matches=[r[0] for t,r in _cons(s) if t=="arc_midpoint" and r[1]==arc]
     assert len(matches)==1
     assert np.allclose(sk.P(matches[0]),target,atol=1e-5)
 
@@ -167,3 +167,52 @@ def test_helper_diagonal_arc_intersection_rejects_extended_arc():
     crossings=SS.crossings(sk,diag,aid)
     assert len(crossings)==1
     assert np.allclose(crossings[0],np.array([30.,30.])+10/np.sqrt(2))
+
+
+def test_affine_prefilter_matches_original_and_avoids_distant_crossings(monkeypatch):
+    sk = Sketch()
+    for i in range(400):
+        # All bounding boxes contain the origin, but almost all segments
+        # miss it by much more than the pixel tolerance.
+        a = sk.add_point(-100, 100 + i)
+        b = sk.add_point(100 + i, -100)
+        sk.add_line(a, b)
+    a, b = sk.add_point(-10, 0), sk.add_point(10, 0)
+    c, d = sk.add_point(0, -10), sk.add_point(0, 10)
+    l1, l2 = sk.add_line(a, b), sk.add_line(c, d)
+    screen = lambda q: np.asarray(q) * 10
+    original = SS.crossings
+    count = [0]
+    def counted(*args):
+        count[0] += 1
+        return original(*args)
+    monkeypatch.setattr(SS, "crossings", counted)
+    q, ref = SS.direct_targets(sk, screen, [0, 0], rectangles=[], affine=True)
+    assert np.allclose(q, [0, 0])
+    assert ref[0] == "intersection"
+    assert count[0] < 100
+
+
+def test_arc_midpoint_has_distinct_serialized_constraint():
+    sk = Sketch()
+    c, a, b = [sk.add_point(*q) for q in [(0,0),(10,0),(0,10)]]
+    arc = sk.add_arc(c,a,b)
+    m = sk.add_point(5,5)
+    for p in (c,a,b):
+        sk.add_constraint("fix", p, value=list(sk.P(p)))
+    sk.add_constraint("midpoint",m,arc)
+    assert sk.solve()
+    assert np.allclose(sk.P(m),[5,5])
+    sk.constraints[-1]["type"] = "arc_midpoint"
+    restored = Sketch.from_dict(sk.to_dict())
+    assert restored.solve()
+    assert np.allclose(restored.P(m),[10/np.sqrt(2)]*2,atol=1e-5)
+
+
+def test_explicit_inferences_survive_coordinate_copy():
+    sk = Sketch()
+    src = sk.add_point(12, 20)
+    s = _sketcher(sk)
+    uv = np.array([30., 20.])
+    pid = s._point_at(uv.copy(), None, (("horizontal", src),))
+    assert any(t == "horizontal" and set(r) == {pid, src} for t,r in _cons(s))

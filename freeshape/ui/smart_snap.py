@@ -103,9 +103,30 @@ def rectangle_centres(sk):
                         yield (p[0]+p[2])/2, (a,c), ids
 
 
-def direct_targets(sk, screen, xy, exclude=(), tol=CAPTURE_PX, rectangles=None):
+def direct_targets(sk, screen, xy, exclude=(), tol=CAPTURE_PX, rectangles=None, *, affine=False):
     xy = np.asarray(xy, float)
     out, nearby = [], []
+    # For an orthographic view, a pixel tolerance maps conservatively to
+    # a disk in sketch coordinates. Reject distant curves before projection
+    # or pairwise intersection testing. Fall back for degenerate views.
+    local = None
+    if affine:
+        origin = screen(np.zeros(2))
+        basis = np.column_stack((screen(np.array([1., 0.])) - origin,
+                                 screen(np.array([0., 1.])) - origin))
+        sigma = np.linalg.svd(basis, compute_uv=False)[-1]
+        if sigma > 1e-9:
+            mx, my = np.linalg.solve(basis, xy - origin)
+            local = (mx, my, tol / sigma + 1e-9)
+
+    def near_segment(a, b):
+        mx, my, radius = local
+        dx, dy = b - a
+        ax, ay = a
+        ll = dx*dx + dy*dy
+        t = max(0., min(1., ((mx-ax)*dx + (my-ay)*dy)/ll)) if ll else 0.
+        return math.hypot(mx-ax-t*dx, my-ay-t*dy) <= radius
+
     def offer(q, ref, rank):
         d = float(np.linalg.norm(screen(q)-xy))
         if d <= tol:
@@ -118,12 +139,19 @@ def direct_targets(sk, screen, xy, exclude=(), tol=CAPTURE_PX, rectangles=None):
         t = e["type"]
         if t == "line":
             a,b = sk.P(e["p1"]),sk.P(e["p2"])
+            if local is not None and not near_segment(a, b):
+                continue
             if not e.get("helper"):
                 offer((a+b)/2, ("mid", eid), 1)
+            if local is not None:
+                nearby.append(eid)
+                continue
             box = np.asarray([screen(a),screen(b)])
         elif t in ("circle","arc"):
             c,r = sk.P(e["c"]),sk.radius(eid)
             if r < 1e-9:
+                continue
+            if local is not None and abs(math.hypot(local[0]-c[0], local[1]-c[1])-r) > local[2]:
                 continue
             if t == "arc":
                 offer(arc_midpoint(c,sk.P(e["p1"]),sk.P(e["p2"])), ("mid",eid), 1)
@@ -132,6 +160,9 @@ def direct_targets(sk, screen, xy, exclude=(), tol=CAPTURE_PX, rectangles=None):
                 q = c+r*np.asarray(d)
                 if contains(sk,eid,q):
                     offer(q,("quadrant",eid,axis,tuple(d)),2)
+            if local is not None:
+                nearby.append(eid)
+                continue
             center = screen(c)
             ext = np.hypot(screen(c+np.array([r,0]))-center,
                            screen(c+np.array([0,r]))-center)

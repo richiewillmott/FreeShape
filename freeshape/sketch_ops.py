@@ -725,7 +725,7 @@ def _copy(sk: Sketch, ents, transform, keep=frozenset(), orient_flip=False, copy
     return pmap, emap
 
 
-SHAPE_CONS_ROT = ("coincident", "point_on", "parallel", "perpendicular", "equal", "tangent", "concentric", "midpoint")
+SHAPE_CONS_ROT = ("coincident", "point_on", "parallel", "perpendicular", "equal", "tangent", "concentric", "midpoint", "arc_midpoint")
 SHAPE_CONS_LIN = SHAPE_CONS_ROT + ("horizontal", "vertical")
 
 
