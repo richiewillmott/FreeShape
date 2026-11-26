@@ -146,6 +146,7 @@ class MainWindow(QMainWindow):
             _plugins.load_all()
         self._shortcut_router = ShortcutRouter(self)
         self._build_ui()
+        self._shortcut_router.attach_viewport(self.viewport)
         self._bind_shortcuts()
         self.set_theme(str(self.settings.value("theme", "light")), save=False)
         self.set_orbit_mode(str(self.settings.value("orbit", "cursor")), save=False)

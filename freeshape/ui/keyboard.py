@@ -1,16 +1,16 @@
 """Layout-independent CAD shortcuts, separate from translated UI strings.
 
-Qt's portable shortcut notation is used for programmatic bindings. Linux XKB
-scan codes use the standard PC key positions (US/QWERTY names). On other
-platforms or synthetic events with no native code, fall back to the logical
-key with Russian ЙЦУКЕН aliases. Text input is left to Qt.
+Qt's logical Latin letters take precedence (including QWERTZ, AZERTY,
+Dvorak and Colemak). For non-Latin keys, Linux XKB scan codes use standard
+PC key positions; Russian ЙЦУКЕН aliases cover platforms without native
+scan codes. Text input is left to Qt.
 """
 from __future__ import annotations
 
 from PySide6.QtCore import QObject, QEvent, Qt
 from PySide6.QtGui import QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
-    QApplication, QWidget, QLineEdit, QTextEdit, QPlainTextEdit,
+    QApplication, QLineEdit, QTextEdit, QPlainTextEdit,
     QAbstractSpinBox, QComboBox,
 )
 
@@ -32,12 +32,15 @@ def portable_sequence(text):
 
 def normalized_key(event, platform=None):
     """Return the shortcut key, never alter the actual text in the Qt event."""
+    key = int(event.key())
+    if ord("A") <= key <= ord("Z"):
+        return key
     if platform is None:
         platform = QGuiApplication.platformName() if QGuiApplication.instance() else ""
     scan = event.nativeScanCode() if hasattr(event, "nativeScanCode") else 0
     if (platform == "xcb" or platform.startswith("wayland")) and scan in _XKB_LETTERS:
         return _XKB_LETTERS[scan]
-    return _RUSSIAN.get(int(event.key()), int(event.key()))
+    return _RUSSIAN.get(key, key)
 
 
 def _signature(key, modifiers):
@@ -66,7 +69,11 @@ class ShortcutRouter(QObject):
         super().__init__(window)
         self.window = window
         self.bindings = {}
-        QApplication.instance().installEventFilter(self)
+        window.installEventFilter(self)
+
+    def attach_viewport(self, viewport):
+        """Also catch keys handled directly by the graphics viewport."""
+        viewport.installEventFilter(self)
 
     def bind(self, text, callback):
         seq = portable_sequence(text)
@@ -98,7 +105,7 @@ class ShortcutRouter(QObject):
     def eventFilter(self, watched, event):
         if event.type() not in (QEvent.ShortcutOverride, QEvent.KeyPress):
             return False
-        if not isinstance(watched, QWidget) or watched.window() is not self.window:
+        if watched is not self.window and watched is not getattr(self.window, "viewport", None):
             return False
         focus = QApplication.focusWidget()
         if _is_text_input(watched) or (focus is not None and _is_text_input(focus)):

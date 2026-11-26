@@ -22,9 +22,15 @@ class Key:
 
 
 @pytest.mark.parametrize("platform", ["xcb", "wayland", "wayland-egl"])
-@pytest.mark.parametrize("logical", ["Z", "Я", "Y", "Ζ"])
+@pytest.mark.parametrize("logical", ["Z", "Я", "Ζ"])
 def test_physical_z_is_z_on_linux(platform, logical):
     assert normalized_key(Key(ord(logical),52),platform)==ord("Z")
+
+
+@pytest.mark.parametrize("platform", ["xcb", "wayland", "wayland-egl"])
+@pytest.mark.parametrize("logical,scan", [("Z",29), ("A",24), ("Y",52), ("Q",38), ("W",52)])
+def test_latin_layout_preserves_logical_letter(platform, logical, scan):
+    assert normalized_key(Key(ord(logical),scan),platform)==ord(logical)
 
 
 @pytest.mark.parametrize("ru,en", [("Я","Z"),("Н","Y"),("С","C"),("М","V"),("Д","L"),("Ф","A")])
@@ -68,5 +74,60 @@ def test_router_dispatches_once_and_leaves_text_input():
         assert not router.eventFilter(edit,ev(QEvent.KeyPress,"Я"))
         assert len(called)==4
     finally:
-        app.removeEventFilter(router)
+        window.close()
+
+
+def test_router_scoped_to_window_and_viewport():
+    app=QApplication.instance() or QApplication([])
+    first, second=QWidget(), QWidget()
+    first.viewport=QWidget(first)
+    second.viewport=QWidget(second)
+    a,b=ShortcutRouter(first),ShortcutRouter(second)
+    a.attach_viewport(first.viewport)
+    b.attach_viewport(second.viewport)
+    called=[]
+    a.bind("Ctrl+Z",lambda:called.append("first"))
+    b.bind("Ctrl+Z",lambda:called.append("second"))
+    def ev(kind):
+        return QKeyEvent(kind,ord("Я"),Qt.ControlModifier)
+    try:
+        for widget in (first.viewport, second.viewport, first):
+            app.sendEvent(widget,ev(QEvent.ShortcutOverride))
+            app.sendEvent(widget,ev(QEvent.KeyPress))
+        assert called==["first","second","first"]
+        assert not a.eventFilter(second.viewport,ev(QEvent.KeyPress))
+    finally:
+        first.close()
+        second.close()
+
+
+def test_actual_qshortcut_and_text_focus():
+    from PySide6.QtGui import QShortcut
+    from PySide6.QtTest import QTest
+
+    app=QApplication.instance() or QApplication([])
+    window=QWidget()
+    window.viewport=QWidget(window)
+    window.viewport.setFocusPolicy(Qt.StrongFocus)
+    edit=QLineEdit(window)
+    router=ShortcutRouter(window)
+    router.attach_viewport(window.viewport)
+    called=[]
+    sequence=router.bind("Ctrl+Z",lambda:called.append("undo"))
+    shortcut=QShortcut(sequence,window)
+    shortcut.activated.connect(lambda:called.append("qt-undo"))
+    try:
+        window.show()
+        window.activateWindow()
+        window.viewport.setFocus()
+        app.processEvents()
+        QTest.keyClick(window.viewport,Qt.Key_Z,Qt.ControlModifier)
+        assert called==["undo"]
+        edit.setFocus()
+        app.processEvents()
+        QTest.keyClicks(edit,"abc")
+        QTest.keyClick(edit,Qt.Key_Z,Qt.ControlModifier)
+        assert edit.text()==""
+        assert called==["undo"]
+    finally:
         window.close()
