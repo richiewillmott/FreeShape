@@ -5,9 +5,7 @@ on:
   pull_request:
     paths:
       - "packaging/**"
-      - "freeshape/**"
       - "requirements.txt"
-      - "pyproject.toml"
       - ".github/workflows/deb-compatibility.yml"
 
 permissions:
