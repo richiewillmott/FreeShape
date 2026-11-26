@@ -2,11 +2,14 @@
 Type=Application
 Name=FreeShape
 GenericName=Parametric CAD
+GenericName[ru]=Параметрическая САПР
 Comment=Free, offline, Onshape-style parametric CAD
+Comment[ru]=Свободная автономная система параметрического 3D-моделирования
 Exec=FreeShape %F
 Icon=freeshape
 Terminal=false
 Categories=Graphics;Engineering;3DGraphics;
 MimeType=application/x-freeshape-part;application/x-freeshape-assembly;application/x-freeshape-drawing;model/step;
 Keywords=CAD;3D;STEP;DXF;sheet metal;drawing;
+Keywords[ru]=САПР;3D;STEP;DXF;чертёж;листовой металл;
 StartupWMClass=FreeShape

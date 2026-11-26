@@ -3,6 +3,8 @@ value, kind and what uses it. Change a value or a name right in the table; a ren
 Stays open while you work and follows the model."""
 from __future__ import annotations
 
+from ..i18n import tr
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem, QHeaderView,
                                QPushButton, QLabel, QAbstractItemView, QInputDialog, QMessageBox)
@@ -62,15 +64,15 @@ class VariablesTable(QDialog):
         self.table.itemChanged.connect(self._edited)
         lay.addWidget(self.table, 1)
         row = QHBoxLayout()
-        self.b_new = QPushButton("+ New variable")
+        self.b_new = QPushButton(tr("+ New variable"))
         self.b_new.clicked.connect(self.new_variable)
-        self.b_show = QPushButton("Edit…")
+        self.b_show = QPushButton(tr("Edit…"))
         self.b_show.setToolTip("Open the selected variable's feature (to change its type or what it measures)")
         self.b_show.clicked.connect(self.show_feature)
         row.addWidget(self.b_new)
         row.addWidget(self.b_show)
         row.addStretch(1)
-        close = QPushButton("Close")
+        close = QPushButton(tr("Close"))
         close.clicked.connect(self.close)
         row.addWidget(close)
         lay.addLayout(row)

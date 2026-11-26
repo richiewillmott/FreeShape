@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
 )
 
 from .icons import icon
+from ..i18n import tr
 
 CARD_W, THUMB_H = 236, 148
 KINDS = {".fshape": "Part Studio", ".fcad": "Part Studio", ".fasm": "Assembly", ".fdwg": "Drawing", ".step": "STEP file",
@@ -88,12 +89,12 @@ class Card(QFrame):
         folder.setObjectName("homeMuted")
         folder.setText(QFontMetrics(folder.font()).elidedText(os.path.dirname(path), Qt.ElideLeft, CARD_W - 20))
         lay.addWidget(folder)
-        meta = [KINDS.get(ext, "File")]
+        meta = [tr(KINDS.get(ext, "File"))]
         if exists:
             meta.append(ago(opened_at))
             meta.append(size_text(os.path.getsize(path)))
         else:
-            meta.append("file not found")
+            meta.append(tr("file not found"))
         m = QLabel("  ·  ".join(x for x in meta if x))
         m.setObjectName("homeMuted" if exists else "homeMissing")
         lay.addWidget(m)
@@ -171,11 +172,11 @@ class HomePage(QWidget):
         v.setContentsMargins(24, 36, 24, 36)
         v.setSpacing(10)
 
-        t = QLabel("Start a project")
+        t = QLabel(tr("Start a project"))
         t.setObjectName("homeTitle")
         v.addWidget(t)
-        sub = QLabel("Make something new, open a FreeShape file, or bring in a STEP model. "
-                     "You can also drag files anywhere into this window.")
+        sub = QLabel(tr("Make something new, open a FreeShape file, or bring in a STEP model. "
+                        "You can also drag files anywhere into this window."))
         sub.setObjectName("homeSub")
         sub.setWordWrap(True)
         v.addWidget(sub)
@@ -191,7 +192,7 @@ class HomePage(QWidget):
         ic.setPixmap(icon("part", 40).pixmap(40, 40))
         ic.setAlignment(Qt.AlignCenter)
         dl.addWidget(ic)
-        dt = QLabel("Drop a .fshape, .fasm, .fdwg or STEP file here")
+        dt = QLabel(tr("Drop a .fshape, .fasm, .fdwg or STEP file here"))
         dt.setAlignment(Qt.AlignCenter)
         dt.setStyleSheet("font-size: 14px;")
         dl.addWidget(dt)
@@ -201,7 +202,7 @@ class HomePage(QWidget):
                                             ("New Assembly", self.newAssembly, False, "assembly"),
                                             ("Open…", self.openDialog, False, None),
                                             ("Import STEP…", self.importStep, False, "import")):
-            b = QPushButton(text)
+            b = QPushButton(tr(text))
             b.setObjectName("homePrimary" if primary else "homeButton")
             if ic_name and not primary:
                 b.setIcon(icon(ic_name, 18))
@@ -224,19 +225,19 @@ class HomePage(QWidget):
         v.addSpacing(14)
 
         head = QHBoxLayout()
-        rt = QLabel("Recent")
+        rt = QLabel(tr("Recent"))
         rt.setObjectName("homeSection")
         head.addWidget(rt)
         head.addStretch(1)
         self.search = QLineEdit()
         self.search.setObjectName("homeSearch")
-        self.search.setPlaceholderText("Search recent")
+        self.search.setPlaceholderText(tr("Search recent"))
         self.search.setFixedWidth(200)
         self.search.textChanged.connect(lambda _t: self._fill())
         head.addWidget(self.search)
         clear = QToolButton()
         clear.setObjectName("homeLink")
-        clear.setText("Clear list")
+        clear.setText(tr("Clear list"))
         clear.setCursor(Qt.PointingHandCursor)
         clear.clicked.connect(self.clearRecent.emit)
         head.addWidget(clear)
@@ -248,7 +249,7 @@ class HomePage(QWidget):
         self.grid.setVerticalSpacing(14)
         self.grid.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         v.addWidget(self.grid_host)
-        self.empty = QLabel("Files you open, save or import will appear here.")
+        self.empty = QLabel(tr("Files you open, save or import will appear here."))
         self.empty.setObjectName("homeSub")
         v.addWidget(self.empty)
         v.addStretch(1)
@@ -285,7 +286,7 @@ class HomePage(QWidget):
             c.menuRequested.connect(self._card_menu)
             self.grid.addWidget(c, i // cols, i % cols)
         self.empty.setVisible(not items)
-        self.empty.setText("Files you open, save or import will appear here." if not q else "No recent files match.")
+        self.empty.setText(tr("Files you open, save or import will appear here.") if not q else tr("No recent files match."))
 
     def resizeEvent(self, e):
         super().resizeEvent(e)
@@ -300,9 +301,9 @@ class HomePage(QWidget):
     def _card_menu(self, path, gpos):
         m = QMenu(self)
         if os.path.exists(path):
-            m.addAction("Open", lambda: self.openPath.emit(path))
-            m.addAction("Show in folder", lambda: self._show_in_folder(path))
-        m.addAction("Remove from list", lambda: self.removeRecent.emit(path))
+            m.addAction(tr("Open"), lambda: self.openPath.emit(path))
+            m.addAction(tr("Show in folder"), lambda: self._show_in_folder(path))
+        m.addAction(tr("Remove from list"), lambda: self.removeRecent.emit(path))
         m.exec(gpos)
 
     @staticmethod

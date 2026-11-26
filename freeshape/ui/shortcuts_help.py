@@ -2,6 +2,8 @@
 with a box to search it."""
 from __future__ import annotations
 
+from ..i18n import tr
+
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QColor, QBrush
 from PySide6.QtWidgets import (QDialog, QVBoxLayout, QLineEdit, QTableWidget, QTableWidgetItem, QHeaderView,
@@ -82,15 +84,15 @@ SHORTCUTS = [
 class ShortcutsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Keyboard shortcuts")
+        self.setWindowTitle(tr("Keyboard shortcuts"))
         self.resize(620, 720)
         lay = QVBoxLayout(self)
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Search keys or actions — e.g. trim, Shift+X, planes")
+        self.search.setPlaceholderText(tr("Search keys or actions — e.g. trim, Shift+X, planes"))
         self.search.setClearButtonEnabled(True)
         lay.addWidget(self.search)
         self.table = QTableWidget(0, 2)
-        self.table.setHorizontalHeaderLabels(["Keys", "What it does"])
+        self.table.setHorizontalHeaderLabels([tr("Keys"), tr("What it does")])
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setSelectionMode(QAbstractItemView.NoSelection)
@@ -105,7 +107,7 @@ class ShortcutsDialog(QDialog):
         for section, items in SHORTCUTS:
             r = self.table.rowCount()
             self.table.insertRow(r)
-            head = QTableWidgetItem(section)
+            head = QTableWidgetItem(tr(section))
             head.setFont(bold)
             head.setBackground(QBrush(QColor(31, 111, 209, 28)))        # a light band marks each section
             head.setForeground(QBrush(QColor(31, 111, 209)))
@@ -118,11 +120,11 @@ class ShortcutsDialog(QDialog):
                 k = QTableWidgetItem(keys)
                 k.setFont(bold)
                 self.table.setItem(r, 0, k)
-                self.table.setItem(r, 1, QTableWidgetItem(action))
-                self.rows.append((r, sec_row, f"{section} {keys} {action}".lower()))
+                self.table.setItem(r, 1, QTableWidgetItem(tr(action)))
+                self.rows.append((r, sec_row, f"{section} {tr(section)} {keys} {action} {tr(action)}".lower()))
         self.table.resizeRowsToContents()
         lay.addWidget(self.table, 1)
-        self.none = QLabel("No shortcut matches that.")
+        self.none = QLabel(tr("No shortcut matches that."))
         self.none.setStyleSheet("color:#8a94a3;")
         self.none.hide()
         lay.addWidget(self.none)

@@ -1,6 +1,8 @@
 """The floating Section view panel."""
 from __future__ import annotations
 
+from ..i18n import tr
+
 import numpy as np
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor
@@ -32,18 +34,18 @@ class SectionPanel(QFrame):
         ic = QLabel()
         ic.setPixmap(icon("section").pixmap(18, 18))
         top.addWidget(ic)
-        t = QLabel("Section view")
+        t = QLabel(tr("Section view"))
         t.setObjectName("dialogTitle")
         top.addWidget(t)
         top.addStretch(1)
         self.plane = QComboBox()
         for name in ("Front", "Top", "Right"):
             self.plane.addItem(f"{name} plane", name)
-        self.plane.addItem("Selected plane / face", "selected")
+        self.plane.addItem(tr("Selected plane / face"), "selected")
         top.addWidget(self.plane)
         x = QToolButton()
         x.setText("✕")
-        x.setToolTip("Close section view")
+        x.setToolTip(tr("Close section view"))
         x.clicked.connect(self.closed.emit)
         top.addWidget(x)
         lay.addLayout(top)
@@ -55,10 +57,10 @@ class SectionPanel(QFrame):
         self.offset = QLineEdit("0")
         self.offset.setFixedWidth(70)
         self.offset.setAlignment(Qt.AlignRight)
-        self.offset.setToolTip("Offset from the plane, in mm")
+        self.offset.setToolTip(tr("Offset from the plane, in mm"))
         row.addWidget(self.offset)
         row.addWidget(QLabel("mm"))
-        self.flip = QCheckBox("Flip")
+        self.flip = QCheckBox(tr("Flip"))
         row.addWidget(self.flip)
         lay.addLayout(row)
         self.plane.currentIndexChanged.connect(self._plane_changed)

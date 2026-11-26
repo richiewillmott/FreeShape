@@ -5,6 +5,8 @@ that toolbar, its ▾ menus included (plugins too), in the order you choose. The
 settings, so they last between sessions."""
 from __future__ import annotations
 
+from ..i18n import tr
+
 import json
 import re
 
@@ -132,11 +134,11 @@ class ShortcutPopup(QFrame):
         lay.setContentsMargins(8, 6, 8, 6)
         lay.setSpacing(4)
         head = QHBoxLayout()
-        title = QLabel(f"<b>{NAMES[ctx]}</b>")
+        title = QLabel(f"<b>{tr(NAMES[ctx])}</b>")
         head.addWidget(title)
         head.addStretch(1)
         cust = QToolButton()
-        cust.setText("Customize…")
+        cust.setText(tr("Customize…"))
         cust.setAutoRaise(True)
         cust.clicked.connect(self._customize)
         head.addWidget(cust)
@@ -145,7 +147,7 @@ class ShortcutPopup(QFrame):
         self.items = [cmds[i] for i in chosen(win, ctx, list(cmds.values()))]
         self.buttons = []
         if not self.items:
-            lay.addWidget(QLabel("Nothing here yet: click Customize… to choose your tools."))
+            lay.addWidget(QLabel(tr("Nothing here yet: click Customize… to choose your tools.")))
         grid = QGridLayout()
         grid.setSpacing(2)
         for k, c in enumerate(self.items):
@@ -153,10 +155,10 @@ class ShortcutPopup(QFrame):
             b.setIcon(c["icon"])
             b.setIconSize(QSize(26, 26))
             b.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
-            text = c["label"]
+            text = tr(c["label"])
             b.setText(text if len(text) <= 14 else text[:13] + "…")
             keys = [x for x in (str(k + 1) if k < 9 else "", c.get("key", "")) if x]
-            b.setToolTip(c["label"] + (f"  ({', '.join(keys)})" if keys else ""))
+            b.setToolTip(tr(c["label"]) + (f"  ({', '.join(keys)})" if keys else ""))
             b.setFixedSize(92, 62)
             b.setAutoRaise(True)
             b.setEnabled(bool(c["enabled"]()))
@@ -206,12 +208,12 @@ class CustomizeDialog(QDialog):
     def __init__(self, win, ctx="sketch"):
         super().__init__(win)
         self.win = win
-        self.setWindowTitle("Customize the S menu")
+        self.setWindowTitle(tr("Customize the S menu"))
         self.resize(640, 460)
         self.pending = {}                                # ctx -> ids (edited, not saved yet)
         lay = QVBoxLayout(self)
         top = QHBoxLayout()
-        top.addWidget(QLabel("Menu for:"))
+        top.addWidget(QLabel(tr("Menu for:")))
         self.ctx_box = QComboBox()
         for k, n, _p in CONTEXTS:
             self.ctx_box.addItem(n, k)
@@ -224,27 +226,27 @@ class CustomizeDialog(QDialog):
         lay.addWidget(hint)
         mid = QHBoxLayout()
         left = QVBoxLayout()
-        left.addWidget(QLabel("Tools"))
+        left.addWidget(QLabel(tr("Tools")))
         self.avail = QListWidget()
         left.addWidget(self.avail)
         mid.addLayout(left, 1)
         btns = QVBoxLayout()
         btns.addStretch(1)
-        self.b_add, self.b_rem = QPushButton("Add →"), QPushButton("← Remove")
-        self.b_up, self.b_down = QPushButton("Up"), QPushButton("Down")
+        self.b_add, self.b_rem = QPushButton(tr("Add →")), QPushButton(tr("← Remove"))
+        self.b_up, self.b_down = QPushButton(tr("Up")), QPushButton(tr("Down"))
         for b in (self.b_add, self.b_rem, self.b_up, self.b_down):
             btns.addWidget(b)
         btns.addStretch(1)
         mid.addLayout(btns)
         right = QVBoxLayout()
-        right.addWidget(QLabel("In the S menu"))
+        right.addWidget(QLabel(tr("In the S menu")))
         self.mine = QListWidget()
         self.mine.setDragDropMode(QAbstractItemView.InternalMove)
         right.addWidget(self.mine)
         mid.addLayout(right, 1)
         lay.addLayout(mid, 1)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel | QDialogButtonBox.Reset)
-        bb.button(QDialogButtonBox.Reset).setText("Reset to default")
+        bb.button(QDialogButtonBox.Reset).setText(tr("Reset to default"))
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         bb.button(QDialogButtonBox.Reset).clicked.connect(self.reset_current)
@@ -262,7 +264,7 @@ class CustomizeDialog(QDialog):
 
     # ---- lists
     def _item(self, c):
-        it = QListWidgetItem(c["icon"], c["label"])
+        it = QListWidgetItem(c["icon"], tr(c["label"]))
         it.setData(Qt.UserRole, c["id"])
         return it
 

@@ -22,6 +22,10 @@ def _self_test(out_path):
         from freeshape import drawing, dxf, hlr_worker, sheetmetal  # noqa: F401
         assets = os.path.join(os.path.dirname(os.path.abspath(K.__file__)), "assets", "freeshape.ico")
         ok = abs(K.volume(box) - 6000) < 1e-6 and len(m.tris) > 0 and os.path.exists(assets)
+        # Verify localization data in the frozen package, not just the source tree.
+        from freeshape.i18n import _catalog
+        if _catalog("ru").get("Save") != "Сохранить":
+            raise RuntimeError("Missing or invalid Russian UI catalog")
         msg = "OK" if ok else "FAILED: wrong result"
     except Exception as e:
         import traceback
@@ -109,12 +113,14 @@ def main():
         os.environ["QT_QPA_PLATFORM"] = "xcb"
     from PySide6.QtWidgets import QApplication
     from PySide6.QtGui import QSurfaceFormat
+    from .i18n import initialize, tr
     fmt = QSurfaceFormat()
     fmt.setSamples(4)
     fmt.setDepthBufferSize(24)
     QSurfaceFormat.setDefaultFormat(fmt)
     app = QApplication(sys.argv)
     app.setApplicationName("FreeShape")
+    initialize(app)
     if sys.platform.startswith("linux"):
         # PyOpenGL must talk to the same OpenGL as Qt: GLX under X11, EGL under Wayland. Left to itself it picks EGL
         # whenever the desktop session is Wayland — even when Qt runs on X11 — and then every drawing call fails
@@ -138,9 +144,9 @@ def main():
     def step(text, frac):
         if splash is not None:
             splash.step(text, frac)
-    step("Loading the geometry kernel…", 0.15)
+    step(tr("Loading the geometry kernel…"), 0.15)
     from . import kernel  # noqa: F401  (the slow import: OpenCascade)
-    step("Loading the interface…", 0.6)
+    step(tr("Loading the interface…"), 0.6)
     from .ui.mainwindow import app_icon
     app.setWindowIcon(app_icon())
     from .ui.mainwindow import MainWindow
@@ -148,7 +154,7 @@ def main():
     app.processEvents()             # collect a Finder "open this file" event that arrived during start-up
     if path is None and opener.pending:
         path = opener.pending.pop(0)
-    step(f"Opening {os.path.basename(path)}…" if path else "Getting the workspace ready…", 0.8)
+    step(f"Opening {os.path.basename(path)}…" if path else tr("Getting the workspace ready…"), 0.8)
     w = MainWindow(path)
     w.show()
     opener.attach(w)

@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import kernel as K
+from ..i18n import tr
 from .. import units as U
 from .. import features as F
 from ..document import Document
@@ -220,23 +221,23 @@ class MainWindow(QMainWindow):
         tl.setSpacing(0)
         plus = QToolButton()
         plus.setText("+")
-        plus.setToolTip("Create a Part Studio, an Assembly or a Drawing")
+        plus.setToolTip(tr("Create a Part Studio, an Assembly or a Drawing"))
         plus.setFixedSize(40, 32)
         plus.setStyleSheet("QToolButton { font-size: 20px; color: #3b4250; border: none; border-right: 1px solid #d5d9de;"
                            " border-radius: 0; background: #eef0f3; }"
                            "QToolButton:hover { background: #e3e8ef; }")
         plus.setPopupMode(QToolButton.InstantPopup)
         pm = QMenu(plus)
-        pm.addAction(icon("part", 16), "Create Part Studio", self.new_doc)
-        pm.addAction(icon("assembly", 16), "Create Assembly", self.new_assembly)
-        pm.addAction(icon("drawing", 16), "Create Drawing…", lambda: self.new_drawing())
+        pm.addAction(icon("part", 16), tr("Create Part Studio"), self.new_doc)
+        pm.addAction(icon("assembly", 16), tr("Create Assembly"), self.new_assembly)
+        pm.addAction(icon("drawing", 16), tr("Create Drawing…"), lambda: self.new_drawing())
         plus.setMenu(pm)
         tl.addWidget(plus)
         tl.addWidget(self.tabs, 1)
         tl.addStretch(0)
         self.units_label = QToolButton()               # Units: millimetre ▾ — this document's length unit
         self.units_label.setObjectName("unitsButton")
-        self.units_label.setText("Units: millimetre ▾")
+        self.units_label.setText(tr("Units: millimetre ▾"))
         self.units_label.setToolTip("The unit lengths are shown and typed in, for this document. A bare number you "
                                     "type is in this unit; '25 mm' or '1 in' always work.")
         self.units_label.setPopupMode(QToolButton.InstantPopup)
@@ -270,7 +271,7 @@ class MainWindow(QMainWindow):
         self.measure = _MeasurePanel(self.viewport, lambda: self.start_feature("measure_value"))
         self.measure.hide()
         self.status = self.statusBar()
-        self.status.showMessage("Ready")
+        self.status.showMessage(tr("Ready"))
 
         lp = self.left
         lp.features.editRequested.connect(self.edit_feature)
@@ -313,14 +314,14 @@ class MainWindow(QMainWindow):
         h.addSpacing(10)
         home_btn = QToolButton()
         home_btn.setObjectName("menuButton")
-        home_btn.setText("⌂  Home")
-        home_btn.setToolTip("Home — new projects and recent files")
+        home_btn.setText(tr("⌂  Home"))
+        home_btn.setToolTip(tr("Home — new projects and recent files"))
         home_btn.clicked.connect(lambda: self.show_home() if self.main_stack.currentIndex() == 0 else self.show_workspace())
         self.home_btn = home_btn
         h.addWidget(home_btn)
         menu_btn = QToolButton()
         menu_btn.setObjectName("menuButton")
-        menu_btn.setText("☰  Document")
+        menu_btn.setText(tr("☰  Document"))
         menu_btn.setPopupMode(QToolButton.InstantPopup)
         m = QMenu(menu_btn)
         self._add_action(m, "New Part Studio", self.new_doc, "Ctrl+N")
@@ -357,7 +358,7 @@ class MainWindow(QMainWindow):
         h.addWidget(menu_btn)
         view_btn = QToolButton()
         view_btn.setObjectName("menuButton")
-        view_btn.setText("View")
+        view_btn.setText(tr("View"))
         view_btn.setPopupMode(QToolButton.InstantPopup)
         vm = QMenu(view_btn)
         for i, name in enumerate(("Front", "Back", "Left", "Right", "Top", "Bottom", "Isometric"), 1):
@@ -387,7 +388,7 @@ class MainWindow(QMainWindow):
         self.orbit_actions = {}
         for mode, label in (("cursor", "The point under the mouse (model centre over empty space)"),
                             ("centre", "The centre of the model"), ("origin", "The origin")):
-            a = QAction(label, self)
+            a = QAction(tr(label), self)
             a.setCheckable(True)
             a.triggered.connect(lambda _=False, md=mode: self.set_orbit_mode(md))
             rgrp.addAction(a)
@@ -398,7 +399,7 @@ class MainWindow(QMainWindow):
         mgrp = _AG(self)
         self.nav_actions = {}
         for key, st in NS.STYLES.items():
-            a = QAction(st["label"], self)
+            a = QAction(tr(st["label"]), self)
             a.setCheckable(True)
             a.triggered.connect(lambda _=False, k=key: self.set_nav_style(k))
             mgrp.addAction(a)
@@ -408,7 +409,7 @@ class MainWindow(QMainWindow):
         zgrp = _AG(self)
         self.zoom_actions = {}
         for key, label, _v in NS.ZOOM_SPEEDS:
-            a = QAction(label, self)
+            a = QAction(tr(label), self)
             a.setCheckable(True)
             a.triggered.connect(lambda _=False, k=key: self.set_zoom_speed(k))
             zgrp.addAction(a)
@@ -420,25 +421,36 @@ class MainWindow(QMainWindow):
         grp = QActionGroup(self)
         self.theme_actions = {}
         for mode, label in (("light", "Light"), ("dark", "Dark")):
-            a = QAction(label, self)
+            a = QAction(tr(label), self)
             a.setCheckable(True)
             a.triggered.connect(lambda _=False, md=mode: self.set_theme(md))
             grp.addAction(a)
             tm.addAction(a)
             self.theme_actions[mode] = a
         vm.addSeparator()
+        lang_menu = submenu(vm, "Language")
+        lang_group = QActionGroup(self)
+        selected_language = str(self.settings.value("language", "system"))
+        for code, label in (("system", tr("System language")), ("en", "English"), ("ru", "Русский")):
+            action = QAction(label, self)
+            action.setCheckable(True)
+            action.setChecked(code == selected_language)
+            action.triggered.connect(lambda _=False, lang=code: self._set_language_preference(lang))
+            lang_group.addAction(action)
+            lang_menu.addAction(action)
+        vm.addSeparator()
         self._add_action(vm, "Customize the S menu…", self.customize_s_menu)
         im = submenu(vm, "Icons")
-        im.addAction("Open my icons folder…", self.open_icons_folder)
-        im.addAction("Save the built-in icons there (to start from)", self.export_icons)
-        im.addAction("Reload icons", self.reload_icons)
+        im.addAction(tr("Open my icons folder…"), self.open_icons_folder)
+        im.addAction(tr("Save the built-in icons there (to start from)"), self.export_icons)
+        im.addAction(tr("Reload icons"), self.reload_icons)
         view_btn.setMenu(vm)
         h.addWidget(view_btn)
         # ---- what a click / box selection may pick: vertices, edges, faces, solids, sketches, planes
         self.sel_btn = QToolButton()
         self.sel_btn.setObjectName("menuButton")
-        self.sel_btn.setText("Select")
-        self.sel_btn.setToolTip("Choose which kinds of things can be selected (vertices, edges, faces …)")
+        self.sel_btn.setText(tr("Select"))
+        self.sel_btn.setToolTip(tr("Choose which kinds of things can be selected (vertices, edges, faces …)"))
         self.sel_btn.setPopupMode(QToolButton.InstantPopup)
         selm = QMenu(self.sel_btn)
         self.sel_actions = {}
@@ -446,7 +458,7 @@ class MainWindow(QMainWindow):
                 ("vertex", "Vertices", ("vertex", "sketch_point"), True), ("edge", "Edges", ("edge",), True),
                 ("face", "Faces", ("face",), True), ("part", "Solids (whole parts)", ("part",), False),
                 ("sketch", "Sketches", ("sketch_line", "region"), True), ("plane", "Planes", ("plane",), True)):
-            a = QAction(label, self)
+            a = QAction(tr(label), self)
             a.setCheckable(True)
             a.setChecked(on)
             a.setData(kinds)
@@ -454,16 +466,16 @@ class MainWindow(QMainWindow):
             selm.addAction(a)
             self.sel_actions[key] = a
         selm.addSeparator()
-        ra = QAction("Reset to default", self)
+        ra = QAction(tr("Reset to default"), self)
         ra.triggered.connect(self._reset_selection_filter)
         selm.addAction(ra)
         self.sel_btn.setMenu(selm)
         h.addWidget(self.sel_btn)
         search_btn = QToolButton()
         search_btn.setObjectName("menuButton")
-        search_btn.setText("Search tools…")
+        search_btn.setText(tr("Search tools…"))
         search_btn.setIcon(icon("search"))
-        search_btn.setToolTip("Find a tool by name (Alt+C or Ctrl+Space)")
+        search_btn.setToolTip(tr("Find a tool by name (Alt+C or Ctrl+Space)"))
         search_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         search_btn.clicked.connect(self.open_command_search)
         h.addWidget(search_btn)
@@ -472,7 +484,7 @@ class MainWindow(QMainWindow):
         self.doc_label.setObjectName("docname")
         h.addWidget(self.doc_label)
         h.addStretch(1)
-        hint = QLabel("Right-drag: rotate · Middle-drag: pan · Wheel: zoom")
+        hint = QLabel(tr("Right-drag: rotate · Middle-drag: pan · Wheel: zoom"))
         hint.setObjectName("muted")
         h.addWidget(hint)
         return bar
@@ -635,7 +647,7 @@ class MainWindow(QMainWindow):
         vp = self.viewport
         is_default = all(a.isChecked() == self.SELECT_DEFAULTS[k] for k, a in self.sel_actions.items())
         vp.user_filter = None if is_default else kinds
-        self.sel_btn.setText("Select" if is_default else "Select •")
+        self.sel_btn.setText(tr("Select") if is_default else "Select •")
         # drop anything already selected that can no longer be selected
         managed = {k for a in self.sel_actions.values() for k in a.data()}
         keep = [pk for pk in vp.selection if pk.kind not in managed or vp._allowed(pk.kind)]
@@ -651,8 +663,16 @@ class MainWindow(QMainWindow):
             a.blockSignals(False)
         self._selection_filter_changed()
 
+    def _set_language_preference(self, language):
+        self.settings.setValue("language", language)
+        self.settings.sync()
+        message = ("FREESHAPE_LANG overrides the saved language preference."
+                   if os.environ.get("FREESHAPE_LANG") else
+                   "Restart FreeShape to apply the selected language.")
+        QMessageBox.information(self, tr("Language"), tr(message))
+
     def _add_action(self, menu, text, slot, shortcut=None):
-        a = QAction(text, self)
+        a = QAction(tr(text), self)
         if shortcut:
             a.setShortcut(QKeySequence(shortcut))
             a.setShortcutContext(Qt.WindowShortcut)
@@ -666,7 +686,7 @@ class MainWindow(QMainWindow):
         b.setIcon(icon(name))
         b.setProperty("icon_name", name)
         b.setIconSize(QSize(26, 26))
-        b.setToolTip(tip)
+        b.setToolTip(tr(tip))
         b.setCheckable(checkable)
         b.setAutoRaise(True)
         b.clicked.connect(slot)
@@ -681,9 +701,9 @@ class MainWindow(QMainWindow):
         b.setPopupMode(QToolButton.MenuButtonPopup)
         m = QMenu(b)
         for name, tip, slot in items:
-            label = tip.split(" — ")[0]
+            label = tr(tip).split(" — ")[0]
             a = m.addAction(icon(name, 20), label)
-            a.setToolTip(tip)
+            a.setToolTip(tr(tip))
             a.setProperty("icon_name", name)
             a.triggered.connect(lambda _=False, sl=slot: sl())
             self._menu_actions.append((a, name))
@@ -706,7 +726,7 @@ class MainWindow(QMainWindow):
         h.addWidget(_sep())
         sk = self._tb(h, "sketch", "Sketch (Shift+S) — select a plane or flat face first, or pick one after",
                       lambda: self.start_sketch())
-        sk.setText("Sketch")
+        sk.setText(tr("Sketch"))
         sk.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         sk.setObjectName("sketchButton")
         h.addWidget(_sep())
@@ -795,7 +815,7 @@ class MainWindow(QMainWindow):
         pm.aboutToShow.connect(lambda m=pm: plugin_ui.fill_menu(m, self))
         self.plugin_btn.setMenu(pm)
         self.config_box = QComboBox()
-        self.config_box.setToolTip("The configuration shown")
+        self.config_box.setToolTip(tr("The configuration shown"))
         self.config_box.setMinimumWidth(110)
         self.config_box.activated.connect(lambda i: self.doc.set_active_config(i) if self.doc is not None and
                                           hasattr(self.doc, "set_active_config") else None)
@@ -893,7 +913,7 @@ class MainWindow(QMainWindow):
     def _asm_toggle_fix(self):
         ids = self.asm.selected_instance_ids()
         if not ids:
-            self.status.showMessage("Select a part first (in the list or the graphics area)", 4000)
+            self.status.showMessage(tr("Select a part first (in the list or the graphics area)"), 4000)
             return
         fix = not all(self.doc.instance(i).get("fixed") for i in ids)
         self.doc.checkpoint()
@@ -949,7 +969,7 @@ class MainWindow(QMainWindow):
             keys = {"coincident": " (I)", "horizontal": " (H)", "vertical": " (V)", "equal": " (E)", "tangent": " (T)",
                     "parallel": " (B)", "perpendicular": " (Shift+L)", "concentric": " (Shift+O)",
                     "midpoint": " (Shift+M)", "symmetric": " (Shift+Q)", "fix": " (Shift+J)"}
-            b = self._tb(h, name, label + keys.get(name, "") + " — " + CONSTRAINT_TOOLS[name],
+            b = self._tb(h, name, tr(label) + keys.get(name, "") + " — " + tr(CONSTRAINT_TOOLS[name]),
                          lambda _=False, n=name: self._sk_tool(n), checkable=True)
             self._sketch_buttons[name] = b
         h.addWidget(_sep())
@@ -980,7 +1000,7 @@ class MainWindow(QMainWindow):
             ("extrude", "Extrude this sketch (Shift+E)"), ("revolve", "Revolve this sketch (Shift+W)"),
             ("sweep", "Sweep this sketch — then pick the path"))])
         done = QToolButton()
-        done.setText("✓  Finish sketch")
+        done.setText(tr("✓  Finish sketch"))
         done.setStyleSheet("QToolButton { background:%s; color:white; font-weight:600; padding:5px 12px; border-radius:4px; }"
                            "QToolButton:hover { background:%s; }" % (theme.ACCENT, theme.ACCENT_DARK))
         done.clicked.connect(self.finish_sketch)
@@ -1029,8 +1049,8 @@ class MainWindow(QMainWindow):
         b.setPopupMode(QToolButton.MenuButtonPopup)
         m = QMenu(b)
         for name, tip in items:
-            a = m.addAction(icon(icon_of.get(name, name), 20), tip.split(" — ")[0])
-            a.setToolTip(tip)
+            a = m.addAction(icon(icon_of.get(name, name), 20), tr(tip).split(" — ")[0])
+            a.setToolTip(tr(tip))
             a.triggered.connect(lambda _=False, n=name: self._sk_tool(n))
             self._menu_actions.append((a, icon_of.get(name, name)))
             self._sketch_buttons[name] = b
@@ -1231,7 +1251,7 @@ class MainWindow(QMainWindow):
         if not items:
             return None
         m = QMenu(parent or self)
-        m.setTitle("Select other…")
+        m.setTitle(tr("Select other…"))
         acts = {}
         for pk in items:
             a = m.addAction(self._pick_label(pk))
@@ -1282,14 +1302,14 @@ class MainWindow(QMainWindow):
                     sel.append(q)
             vp.set_selection(sel)
         if pk.kind == "face":
-            m.addAction("Select tangent-connected faces", lambda: add("face", ST.tangent_faces(shape, i)))
-            m.addAction("Select adjacent faces", lambda: add("face", ST.connected_faces(shape, i)))
-            m.addAction("Select faces of the same size", lambda: add("face", ST.same_faces(shape, i)))
-            m.addAction("Select edges of this face", lambda: add("edge", ST.face_edges(shape, i)))
+            m.addAction(tr("Select tangent-connected faces"), lambda: add("face", ST.tangent_faces(shape, i)))
+            m.addAction(tr("Select adjacent faces"), lambda: add("face", ST.connected_faces(shape, i)))
+            m.addAction(tr("Select faces of the same size"), lambda: add("face", ST.same_faces(shape, i)))
+            m.addAction(tr("Select edges of this face"), lambda: add("edge", ST.face_edges(shape, i)))
         elif pk.kind == "edge":
-            m.addAction("Select tangent-connected edges", lambda: add("edge", ST.tangent_edges(shape, i)))
-            m.addAction("Select loop", lambda: add("edge", ST.edge_loop(shape, i)))
-            m.addAction("Select edges of the same size", lambda: add("edge", ST.same_edges(shape, i)))
+            m.addAction(tr("Select tangent-connected edges"), lambda: add("edge", ST.tangent_edges(shape, i)))
+            m.addAction(tr("Select loop"), lambda: add("edge", ST.edge_loop(shape, i)))
+            m.addAction(tr("Select edges of the same size"), lambda: add("edge", ST.same_edges(shape, i)))
 
     # ================================================================== doc → view
     def _on_doc_changed(self):
@@ -1701,7 +1721,7 @@ class MainWindow(QMainWindow):
                     b.setProperty("current", name)
                     b.setProperty("icon_name", name)
                     b.setIcon(icon(name))
-                    b.setToolTip(tips[name])
+                    b.setToolTip(tr(tips[name]))
         for b, checked in on.values():
             b.setChecked(checked)
         if self.sketcher:
@@ -1925,14 +1945,14 @@ class MainWindow(QMainWindow):
         for name in ("Isometric", "Dimetric", "Trimetric"):
             m.addAction(name, lambda _=False, n=name: vp.set_standard_view(n))
         m.addSeparator()
-        m.addAction("Graphics preferences…", self.graphics_preferences)
+        m.addAction(tr("Graphics preferences…"), self.graphics_preferences)
         m.addSeparator()
-        m.addAction("Named views…", self.named_views_dialog)
-        a = m.addAction("Previous view", lambda: vp.previous_view())
+        m.addAction(tr("Named views…"), self.named_views_dialog)
+        a = m.addAction(tr("Previous view"), lambda: vp.previous_view())
         a.setEnabled(vp.has_previous_view())
         m.addSeparator()
-        m.addAction("Zoom to fit", lambda: vp.fit())
-        m.addAction("Zoom to window", lambda: vp.start_zoom_window())
+        m.addAction(tr("Zoom to fit"), lambda: vp.fit())
+        m.addAction(tr("Zoom to window"), lambda: vp.start_zoom_window())
         m.addSeparator()
         self._fill_display_menu(m, clear=False)
         if not self.is_asm and not self.is_dwg:
@@ -1982,7 +2002,7 @@ class MainWindow(QMainWindow):
             doc.named_views = {}
         vp = self.viewport
         dlg = QDialog(self)
-        dlg.setWindowTitle("Named views")
+        dlg.setWindowTitle(tr("Named views"))
         lay = QVBoxLayout(dlg)
         from PySide6.QtWidgets import QListWidget
         lst = QListWidget()
@@ -2024,10 +2044,10 @@ class MainWindow(QMainWindow):
         lst.itemDoubleClicked.connect(go)
         row = QHBoxLayout()
         for text, fn in (("Save current view…", add), ("Go to", go), ("Delete", delete)):
-            b = QPushButton(text)
+            b = QPushButton(tr(text))
             b.clicked.connect(lambda _=False, f=fn: f())
             row.addWidget(b)
-        close = QPushButton("Close")
+        close = QPushButton(tr("Close"))
         close.clicked.connect(dlg.accept)
         row.addWidget(close)
         lay.addLayout(row)
@@ -2038,38 +2058,38 @@ class MainWindow(QMainWindow):
         """Display settings in one place: render mode, edges, translucency, quality, projection, shine."""
         vp = self.viewport
         dlg = QDialog(self)
-        dlg.setWindowTitle("Graphics preferences")
+        dlg.setWindowTitle(tr("Graphics preferences"))
         from PySide6.QtWidgets import QCheckBox, QFormLayout, QSlider
         form = QFormLayout(dlg)
 
         def combo(options, current, key):
             cb = QComboBox()
             for k, label in options:
-                cb.addItem(label, k)
+                cb.addItem(tr(label), k)
             cb.setCurrentIndex(max(0, cb.findData(current)))
             cb.currentIndexChanged.connect(lambda _i: self.set_display(key, cb.currentData()))
             return cb
-        form.addRow("Render mode", combo(RENDER_MODES, vp.render_mode, "render_mode"))
-        form.addRow("Hidden edges", combo(HIDDEN_EDGES, vp.hidden_edges, "hidden_edges"))
-        form.addRow("Tangent edges", combo(TANGENT_EDGES, vp.tangent_edges, "tangent_edges"))
+        form.addRow(tr("Render mode"), combo(RENDER_MODES, vp.render_mode, "render_mode"))
+        form.addRow(tr("Hidden edges"), combo(HIDDEN_EDGES, vp.hidden_edges, "hidden_edges"))
+        form.addRow(tr("Tangent edges"), combo(TANGENT_EDGES, vp.tangent_edges, "tangent_edges"))
         sl = QSlider(Qt.Horizontal)
         sl.setRange(5, 95)
         sl.setValue(int(round(vp.translucency * 100)))
         sl.valueChanged.connect(lambda v: self.set_display("translucency", v / 100.0))
-        form.addRow("Translucent opacity", sl)
+        form.addRow(tr("Translucent opacity"), sl)
         for label, key, cur in (("View in high quality", "high_quality", vp.high_quality),
                                 ("Highlight boundary edges", "highlight_boundary", vp.highlight_boundary),
                                 ("Perspective view", "perspective", vp.cam.perspective),
                                 ("Orient normal to sketch on edit", "orient_on_sketch", self.orient_on_sketch)):
-            c = QCheckBox(label)
+            c = QCheckBox(tr(label))
             c.setChecked(bool(cur))
             c.toggled.connect(lambda on, k=key: self.set_display(k, bool(on)))
             form.addRow("", c)
-        sh = QCheckBox("Shiny surfaces")
+        sh = QCheckBox(tr("Shiny surfaces"))
         sh.setChecked(vp.shiny)
         sh.toggled.connect(lambda on: self.set_shiny(on))
         form.addRow("", sh)
-        close = QPushButton("Close")
+        close = QPushButton(tr("Close"))
         close.clicked.connect(dlg.accept)
         form.addRow("", close)
         dlg.exec()
@@ -2153,7 +2173,7 @@ class MainWindow(QMainWindow):
         from . import icons as ICONS
         ICONS.icon.cache_clear()
         self.set_theme(theme.MODE, save=False)
-        self.status.showMessage("Icons reloaded", 4000)
+        self.status.showMessage(tr("Icons reloaded"), 4000)
 
     # ================================================================== theme
     def set_theme(self, mode, save=True):
@@ -2250,7 +2270,7 @@ class MainWindow(QMainWindow):
             self._update_thumbnail()
         self._refresh_home()
         self.main_stack.setCurrentIndex(1)
-        self.doc_label.setText("Home")
+        self.doc_label.setText(tr("Home"))
         self.setWindowTitle(APP_NAME)
 
     def show_workspace(self):
@@ -2319,14 +2339,14 @@ class MainWindow(QMainWindow):
         m.clear()
         lst = [x for x in self._recent() if os.path.exists(x)]
         if not lst:
-            a = m.addAction("No recent documents")
+            a = m.addAction(tr("No recent documents"))
             a.setEnabled(False)
             return
         for path in lst:
             a = m.addAction(os.path.basename(path), lambda p=path: self.open_any(p))
             a.setToolTip(path)
         m.addSeparator()
-        m.addAction("Clear list", self._clear_recent)
+        m.addAction(tr("Clear list"), self._clear_recent)
 
     # ================================================================== autosave & recovery
     @staticmethod
@@ -2534,7 +2554,7 @@ class MainWindow(QMainWindow):
         if self.mode == "idle":
             self._show_state(self.doc.state)
         if self._flat_view and not getattr(self.doc.state, "sheet", None):
-            self.status.showMessage("No sheet metal parts here yet — make one with Sheet metal first", 5000)
+            self.status.showMessage(tr("No sheet metal parts here yet — make one with Sheet metal first"), 5000)
         else:
             self.status.showMessage("Showing sheet metal parts flat" if self._flat_view else
                                     "Showing parts folded", 3000)
@@ -2710,12 +2730,12 @@ class MainWindow(QMainWindow):
         members = self.doc.folder_members(fo)
         m = QMenu(self)
         m.addAction("Collapse" if info.get("open", True) else "Expand", lambda: self._toggle_folder(fo))
-        m.addAction("Rename…", lambda: self._rename_folder(fo))
+        m.addAction(tr("Rename…"), lambda: self._rename_folder(fo))
         m.addSeparator()
         all_sup = all((self.doc.feature(i) or {}).get("suppressed") for i in members)
         m.addAction("Unsuppress all" if all_sup else "Suppress all",
                     lambda: self.doc.set_folder_suppressed(fo, not all_sup))
-        m.addAction("Ungroup (keep the features)", lambda: self.doc.ungroup_folder(fo))
+        m.addAction(tr("Ungroup (keep the features)"), lambda: self.doc.ungroup_folder(fo))
         m.addSeparator()
         m.addAction(f"Delete folder and its {len(members)} feature(s)", lambda: self._delete_features(members))
         m.exec(gpos)
@@ -2899,7 +2919,7 @@ class MainWindow(QMainWindow):
             return True
         idx = self.doc.feature_index(fid)
         if idx is None or idx >= d.index:
-            self.status.showMessage("Pick a feature from above this one in the list.", 6000)
+            self.status.showMessage(tr("Pick a feature from above this one in the list."), 6000)
             return True
         fld.toggle(("feature", fid))
         return True
@@ -2939,25 +2959,25 @@ class MainWindow(QMainWindow):
             return
         m = QMenu(self)
         if kind == "std_plane":
-            m.addAction("New sketch", lambda: (self.viewport.set_selection([Pick("plane", ("std", fid))]),
+            m.addAction(tr("New sketch"), lambda: (self.viewport.set_selection([Pick("plane", ("std", fid))]),
                                                self.start_sketch()))
-            m.addAction("Normal to", lambda: self.viewport.normal_to(K.std_plane(fid)))
-            m.addAction("Show" if fid in self.doc.hidden_features else "Hide",
+            m.addAction(tr("Normal to"), lambda: self.viewport.normal_to(K.std_plane(fid)))
+            m.addAction(tr("Show") if fid in self.doc.hidden_features else "Hide",
                         lambda: self.doc.toggle_feature_hidden(fid))
             m.exec(gpos)
             return
         f = self.doc.feature(fid)
         if f is None or self.mode != "idle":
             return
-        m.addAction("Edit…", lambda: self.edit_feature(fid))
-        m.addAction("Rename…", lambda: self._rename_feature(fid))
+        m.addAction(tr("Edit…"), lambda: self.edit_feature(fid))
+        m.addAction(tr("Rename…"), lambda: self._rename_feature(fid))
         sel_ids = self.left.features.selected_feature_ids()
         copy_ids = sel_ids if fid in sel_ids else [fid]
         m.addAction(f"Copy{' ' + str(len(copy_ids)) + ' features' if len(copy_ids) > 1 else ''}\tCtrl+C",
                     lambda: self.copy_features(copy_ids))
         if self._clipboard_features() is not None:
             idx_after = self.doc.feature_index(fid) + 1
-            m.addAction("Paste after this\tCtrl+V", lambda: self.paste_features(index=idx_after))
+            m.addAction(tr("Paste after this\tCtrl+V"), lambda: self.paste_features(index=idx_after))
         if f["type"] in ("sketch", "plane"):
             sel = [i for i in self.left.features.selected_feature_ids()
                    if (self.doc.feature(i) or {}).get("type") in ("sketch", "plane")]
@@ -2966,15 +2986,15 @@ class MainWindow(QMainWindow):
             n = f" {len(vis)} items" if len(vis) > 1 else ""
             m.addAction(("Hide" if hide else "Show") + n, lambda: self.doc.set_features_hidden(vis, hide))
         if f["type"] == "plane":
-            m.addAction("New sketch on plane", lambda: (self.viewport.set_selection([Pick("plane", ("plane", fid))]),
+            m.addAction(tr("New sketch on plane"), lambda: (self.viewport.set_selection([Pick("plane", ("plane", fid))]),
                                                         self.start_sketch()))
         m.addSeparator()
         m.addAction("Unsuppress" if f.get("suppressed") else "Suppress",
                     lambda: self.doc.set_suppressed(fid, not f.get("suppressed")))
         idx = self.doc.feature_index(fid)
-        m.addAction("Roll to here", lambda: (self.doc.checkpoint(), self.doc.set_rollback(idx + 1)))
+        m.addAction(tr("Roll to here"), lambda: (self.doc.checkpoint(), self.doc.set_rollback(idx + 1)))
         if self.doc.rollback is not None:
-            m.addAction("Roll to end", lambda: (self.doc.checkpoint(), self.doc.set_rollback(None)))
+            m.addAction(tr("Roll to end"), lambda: (self.doc.checkpoint(), self.doc.set_rollback(None)))
         m.addSeparator()
         ids = self.left.features.selected_feature_ids() or [fid]
         if fid not in ids:
@@ -2984,7 +3004,7 @@ class MainWindow(QMainWindow):
         if any((self.doc.feature(i) or {}).get("folder") for i in ids):
             m.addAction(f"Remove{n} from folder", lambda: self._remove_from_folder(ids))
         m.addSeparator()
-        m.addAction("Delete", lambda: self._delete_features(ids))
+        m.addAction(tr("Delete"), lambda: self._delete_features(ids))
         err = self.doc.errors.get(fid)
         if err:
             m.addSeparator()
@@ -3024,20 +3044,20 @@ class MainWindow(QMainWindow):
             self._add_hide_actions(m, ids)
             m.addAction(f"Isolate {len(ids)} parts", lambda: self._isolate(ids))
             m.addAction(f"Auto colour {len(ids)} parts", lambda: self._auto_color(ids))
-            m.addAction("Check interference", lambda: self.check_interference(ids))
+            m.addAction(tr("Check interference"), lambda: self.check_interference(ids))
             m.addSeparator()
             m.addAction(f"Export {len(ids)} parts as STEP…", lambda: self.export(ids, "step"))
             m.addAction(f"Export {len(ids)} parts as STL…", lambda: self.export(ids, "stl"))
             m.addAction(f"Export {len(ids)} parts as BREP…", lambda: self.export(ids, "brep"))
             m.exec(gpos)
             return
-        m.addAction("Rename…", lambda: self._rename_part(pid))
-        m.addAction("Change colour…", lambda: self._recolor_part(pid))
-        m.addAction("Show" if pid in self.doc.hidden_parts else "Hide", lambda: self.doc.toggle_part_hidden(pid))
-        m.addAction("Isolate", lambda: self._isolate(pid))
+        m.addAction(tr("Rename…"), lambda: self._rename_part(pid))
+        m.addAction(tr("Change colour…"), lambda: self._recolor_part(pid))
+        m.addAction(tr("Show") if pid in self.doc.hidden_parts else "Hide", lambda: self.doc.toggle_part_hidden(pid))
+        m.addAction(tr("Isolate"), lambda: self._isolate(pid))
         m.addSeparator()
-        m.addAction("Mass properties", lambda: self._mass_props(pid))
-        m.addAction("Shape info…", lambda: self._shape_info(pid))
+        m.addAction(tr("Mass properties"), lambda: self._mass_props(pid))
+        m.addAction(tr("Shape info…"), lambda: self._shape_info(pid))
         if F.is_compound_part(self.doc.state.parts.get(pid)):
             m.addAction(icon("explode_part", 16), "Explode into solids", lambda: self._explode_part(pid))
         m.addAction(icon("drawing", 16), "Create drawing…", lambda: self.new_drawing(
@@ -3047,9 +3067,9 @@ class MainWindow(QMainWindow):
             m.addAction(icon("nest", 16), "Nest for cutting…", self.nest_for_cutting)
             m.addAction(icon("drawing", 16), "Create drawing of the flat pattern…", lambda: self.new_drawing(
                 {"kind": "studio", "uid": self.doc.uid, "part": pid, "flat": True}))
-        m.addAction("Export STEP…", lambda: self.export([pid], "step"))
-        m.addAction("Export STL…", lambda: self.export([pid], "stl"))
-        m.addAction("Export BREP…", lambda: self.export([pid], "brep"))
+        m.addAction(tr("Export STEP…"), lambda: self.export([pid], "step"))
+        m.addAction(tr("Export STL…"), lambda: self.export([pid], "stl"))
+        m.addAction(tr("Export BREP…"), lambda: self.export([pid], "brep"))
         m.exec(gpos)
 
     def _rename_part(self, pid):
@@ -3137,11 +3157,11 @@ class MainWindow(QMainWindow):
         n = len(pids)
         if not res:
             self.status.showMessage(f"No interference between the {n} parts.", 6000)
-            QMessageBox.information(self, "Check interference", f"No interference — none of the {n} parts overlap.")
+            QMessageBox.information(self, tr("Check interference"), f"No interference — none of the {n} parts overlap.")
             return res
         lines = [f"• {parts[a].name}  ×  {parts[b].name}:  {fmt(v, 2)} mm³" for a, b, v, _ov in res]
         self.status.showMessage(f"{len(res)} interference(s) found — shown in red until the model changes.", 8000)
-        QMessageBox.information(self, "Check interference", f"{len(res)} pair(s) of parts overlap (shown in red):\n\n"
+        QMessageBox.information(self, tr("Check interference"), f"{len(res)} pair(s) of parts overlap (shown in red):\n\n"
                                 + "\n".join(lines[:30]))
         return res
 
@@ -3185,7 +3205,7 @@ class MainWindow(QMainWindow):
         kind = "Compound of solids" if n["SOLID"] > 1 else "Solid" if n["SOLID"] else \
             "Surface" if n["FACE"] else "Curve"
         rows = "".join(f"<tr><td>{k}</td><td align=right>&nbsp;&nbsp;<b>{v}</b></td></tr>" for k, v in n.items())
-        QMessageBox.information(self, "Shape info", f"<b>{p.name}</b> — {kind}<br><br><table>{rows}</table>")
+        QMessageBox.information(self, tr("Shape info"), f"<b>{p.name}</b> — {kind}<br><br><table>{rows}</table>")
 
     def _mass_props(self, pid):
         p = self.doc.state.parts[pid]
@@ -3196,7 +3216,7 @@ class MainWindow(QMainWindow):
         lo, hi = K.bbox(shape)
         c = mp["centroid"]
         QMessageBox.information(
-            self, "Mass properties",
+            self, tr("Mass properties"),
             f"<b>{name}</b><br><br>Volume: {U.volume(mp['volume'], 3)}<br>"
             f"Surface area: {U.area(mp['area'], 3)}<br>"
             f"Mass (PLA, 1.24 g/cm³): {fmt(mp['volume'] * 1.24e-3, 2)} g<br>"
@@ -3225,9 +3245,9 @@ class MainWindow(QMainWindow):
             return
         m = QMenu(self)
         if self.mode == "sketch":
-            m.addAction("Normal to sketch", self._normal_to_sketch)
-            m.addAction("Finish sketch", self.finish_sketch)
-            m.addAction("Cancel sketch", self.cancel_sketch)
+            m.addAction(tr("Normal to sketch"), self._normal_to_sketch)
+            m.addAction(tr("Finish sketch"), self.finish_sketch)
+            m.addAction(tr("Cancel sketch"), self.cancel_sketch)
             m.exec(gpos)
             return
         if self.mode != "idle":
@@ -3243,16 +3263,16 @@ class MainWindow(QMainWindow):
             if pk.kind in ("plane", "face"):
                 item = pick_to_item(self.viewport, pk, {"plane"})
                 if item:
-                    m.addAction("New sketch", lambda: (self.viewport.set_selection([pk]), self.start_sketch()))
+                    m.addAction(tr("New sketch"), lambda: (self.viewport.set_selection([pk]), self.start_sketch()))
 
                     def nt(item=item):
                         try:
                             self.viewport.normal_to(F.resolve_plane(self.doc.state, item[1]))
                         except K.KernelError:
                             pass
-                    m.addAction("Normal to", nt)
+                    m.addAction(tr("Normal to"), nt)
                 if pk.kind == "plane" and self.doc.plane_sizes.get(self.doc.plane_key(pk.key)):
-                    m.addAction("Reset plane size", lambda: self.doc.set_plane_rect(pk.key, None))
+                    m.addAction(tr("Reset plane size"), lambda: self.doc.set_plane_rect(pk.key, None))
             if pk.kind in ("face", "edge", "part", "vertex"):
                 pid = pk.key[0]
                 ids = self._menu_parts(pid)
@@ -3260,15 +3280,15 @@ class MainWindow(QMainWindow):
                 if len(ids) > 1:
                     m.addAction(f"Isolate {len(ids)} parts", lambda: self._isolate(ids))
                     m.addAction(f"Auto colour {len(ids)} parts", lambda: self._auto_color(ids))
-                    m.addAction("Check interference", lambda: self.check_interference(ids))
+                    m.addAction(tr("Check interference"), lambda: self.check_interference(ids))
                 else:
-                    m.addAction("Isolate part", lambda: self._isolate(pid))
-                    m.addAction("Select part", lambda: self.viewport.set_selection([Pick("part", (pid,))]))
-                    m.addAction("Mass properties", lambda: self._mass_props(pid))
-                    m.addAction("Shape info…", lambda: self._shape_info(pid))
+                    m.addAction(tr("Isolate part"), lambda: self._isolate(pid))
+                    m.addAction(tr("Select part"), lambda: self.viewport.set_selection([Pick("part", (pid,))]))
+                    m.addAction(tr("Mass properties"), lambda: self._mass_props(pid))
+                    m.addAction(tr("Shape info…"), lambda: self._shape_info(pid))
             if pk.kind in ("region", "sketch_line"):
                 fid = pk.key[0]
-                m.addAction("Edit sketch", lambda: self.edit_feature(fid))
+                m.addAction(tr("Edit sketch"), lambda: self.edit_feature(fid))
                 fids = self._menu_features(fid, ("region", "sketch_line"))
                 m.addAction(f"Hide {len(fids)} sketches" if len(fids) > 1 else "Hide sketch",
                             lambda: self.doc.set_features_hidden(fids, True))
@@ -3278,14 +3298,14 @@ class MainWindow(QMainWindow):
                 m.addAction(f"Hide {len(fids)} planes" if len(fids) > 1 else "Hide plane",
                             lambda: self.doc.set_features_hidden(fids, True))
             m.addSeparator()
-        m.addAction("Zoom to fit", lambda: self.viewport.fit())
+        m.addAction(tr("Zoom to fit"), lambda: self.viewport.fit())
         vm = submenu(m, "Views")
         for name in ("Front", "Back", "Left", "Right", "Top", "Bottom", "Isometric"):
             vm.addAction(name, lambda _=False, n=name: self.viewport.set_standard_view(n))
         if self.doc.hidden_parts:
-            m.addAction("Show all parts", self._show_all_parts)
+            m.addAction(tr("Show all parts"), self._show_all_parts)
         if len(self.doc.state.parts) > 1:
-            m.addAction("Auto colour all parts", lambda: self._auto_color(list(self.doc.state.parts)))
+            m.addAction(tr("Auto colour all parts"), lambda: self._auto_color(list(self.doc.state.parts)))
         m.exec(gpos)
 
     def _selection_changed(self):
@@ -3453,26 +3473,26 @@ class MainWindow(QMainWindow):
         from .. import units as U
         u = getattr(self.doc, "units", "mm") if self.doc is not None and self.doc.kind != "drawing" else "mm"
         U.set_unit(u)
-        self.units_label.setText(f"Units: {U.NAMES[U.unit()]} ▾")
+        self.units_label.setText(tr("Units: {unit} ▾").format(unit=tr(U.NAMES[U.unit()])))
         self.units_label.setEnabled(self.doc is not None and self.doc.kind != "drawing")
 
     def _fill_units_menu(self, m):
         from PySide6.QtGui import QActionGroup
         from .. import units as U
         m.clear()
-        m.addSection("This document")
+        m.addSection(tr("This document"))
         grp = QActionGroup(m)
         cur = getattr(self.doc, "units", "mm")
         for u in U.ORDER:
-            a = m.addAction(f"{U.NAMES[u].capitalize()} ({u})")
+            a = m.addAction(f"{tr(U.NAMES[u]).capitalize()} ({u})")
             a.setCheckable(True)
             a.setChecked(u == cur)
             grp.addAction(a)
             a.triggered.connect(lambda _=False, uu=u: self.set_doc_units(uu))
-        m.addSection("New documents")
-        dm = submenu(m, f"Default: {U.NAMES[self.default_units()]}")
+        m.addSection(tr("New documents"))
+        dm = submenu(m, tr("Default: {unit}").format(unit=tr(U.NAMES[self.default_units()])))
         for u in U.ORDER:
-            a = dm.addAction(U.NAMES[u].capitalize())
+            a = dm.addAction(tr(U.NAMES[u]).capitalize())
             a.setCheckable(True)
             a.setChecked(u == self.default_units())
             a.triggered.connect(lambda _=False, uu=u: self.settings.setValue("default_units", uu))
@@ -3612,7 +3632,7 @@ class MainWindow(QMainWindow):
                                     "from another Part Studio tab or file.")
             return
         dlg = QDialog(self)
-        dlg.setWindowTitle("Derived parts")
+        dlg.setWindowTitle(tr("Derived parts"))
         form = QFormLayout(dlg)
         studio = QComboBox()
         for d in others:
@@ -3620,10 +3640,10 @@ class MainWindow(QMainWindow):
         cfg = QComboBox()
         parts = QListWidget()
         parts.setSelectionMode(QListWidget.ExtendedSelection)
-        form.addRow("From:", studio)
-        cfg_label = QLabel("Configuration:")
+        form.addRow(tr("From:"), studio)
+        cfg_label = QLabel(tr("Configuration:"))
         form.addRow(cfg_label, cfg)
-        form.addRow("Parts (none picked = all):", parts)
+        form.addRow(tr("Parts (none picked = all):"), parts)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(dlg.accept)
         bb.rejected.connect(dlg.reject)
@@ -3784,10 +3804,10 @@ class MainWindow(QMainWindow):
         if i < 0:
             return
         m = QMenu(self)
-        m.addAction("Rename…", lambda: self._rename_tab(i))
-        m.addAction("Duplicate", lambda: self._duplicate_tab(i))
+        m.addAction(tr("Rename…"), lambda: self._rename_tab(i))
+        m.addAction(tr("Duplicate"), lambda: self._duplicate_tab(i))
         m.addSeparator()
-        m.addAction("Close", lambda: self.close_tab(i))
+        m.addAction(tr("Close"), lambda: self.close_tab(i))
         m.exec(self.tabs.mapToGlobal(pos))
 
     def _duplicate_tab(self, i):
@@ -4150,7 +4170,7 @@ class MainWindow(QMainWindow):
         prog = ImportProgress(self, f"Opening {os.path.basename(path)}")
         try:
             if not path.lower().endswith((".fasm", ".fdwg")) and not self._prefetch_imports(path, prog):
-                self.status.showMessage("Opening cancelled", 5000)
+                self.status.showMessage(tr("Opening cancelled"), 5000)
                 return
             prog.stage("Rebuilding the model…")
             self.viewport.progress_cb = prog.step
@@ -4248,7 +4268,7 @@ class MainWindow(QMainWindow):
         prog = ImportProgress(self, f"Importing {fname}")
         try:
             if not F.is_brep_name(fname) and not read_step_in_background(raw, prog, self):
-                self.status.showMessage("Import cancelled", 5000)
+                self.status.showMessage(tr("Import cancelled"), 5000)
                 return
             params = {"data": base64.b64encode(raw).decode(), "filename": fname}
             if not F.is_brep_name(fname):
@@ -4344,13 +4364,13 @@ class MainWindow(QMainWindow):
             return None
         from PySide6.QtWidgets import QComboBox, QDialogButtonBox, QDoubleSpinBox, QFormLayout
         dlg = QDialog(self)
-        dlg.setWindowTitle("STL resolution")
+        dlg.setWindowTitle(tr("STL resolution"))
         form = QFormLayout(dlg)
         combo = QComboBox()
         for key, label in (("coarse", "Coarse — small files, visible facets"),
                            ("medium", "Medium — fine for most 3D printing"),
                            ("fine", "Fine — smooth curves, bigger files"), ("custom", "Custom")):
-            combo.addItem(label, key)
+            combo.addItem(tr(label), key)
         dev, ang = QDoubleSpinBox(), QDoubleSpinBox()
         dev.setDecimals(3)
         dev.setRange(0.001, 10.0)
@@ -4359,9 +4379,9 @@ class MainWindow(QMainWindow):
         ang.setDecimals(1)
         ang.setRange(0.5, 90.0)
         ang.setSuffix(" °")
-        form.addRow("Resolution", combo)
-        form.addRow("Deviation (distance from the true surface)", dev)
-        form.addRow("Angle (between neighbouring facets)", ang)
+        form.addRow(tr("Resolution"), combo)
+        form.addRow(tr("Deviation (distance from the true surface)"), dev)
+        form.addRow(tr("Angle (between neighbouring facets)"), ang)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(dlg.accept)
         bb.rejected.connect(dlg.reject)
@@ -4465,7 +4485,7 @@ class MainWindow(QMainWindow):
             return
         fids = list(fids) if fids else self.left.features.selected_feature_ids()
         if not fids:
-            self.status.showMessage("Select features in the feature list to copy them", 4000)
+            self.status.showMessage(tr("Select features in the feature list to copy them"), 4000)
             return
         payload = FC.copy_features(self.doc, fids)
         self._feature_clip = payload
@@ -4727,7 +4747,7 @@ class _MeasurePanel(QFrame):
         row.setSpacing(6)
         self.value = QLabel()
         self.value.setCursor(Qt.PointingHandCursor)
-        self.value.setToolTip("Click to show all the measurements of the selection")
+        self.value.setToolTip(tr("Click to show all the measurements of the selection"))
         self.value.mousePressEvent = lambda _e: self._toggle()
         row.addWidget(self.value)
         self.create = QToolButton()

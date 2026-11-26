@@ -1,6 +1,8 @@
 """Floating, Onshape-style feature dialogs (green check / red X), built from small schemas."""
 from __future__ import annotations
 
+from ..i18n import tr
+
 import copy
 import json
 import math
@@ -375,13 +377,13 @@ class SelectionField(QFrame):
         lay.setContentsMargins(6, 4, 6, 4)
         lay.setSpacing(2)
         top = QHBoxLayout()
-        self.title = QLabel(label)
+        self.title = QLabel(tr(label))
         self.title.setWordWrap(True)
         self.title.setStyleSheet("color:#4b5563;")
         top.addWidget(self.title, 1)
         self.clear_btn = QToolButton()
         self.clear_btn.setText("✕")
-        self.clear_btn.setToolTip("Clear selections")
+        self.clear_btn.setToolTip(tr("Clear selections"))
         self.clear_btn.clicked.connect(self.clear)
         top.addWidget(self.clear_btn)
         lay.addLayout(top)
@@ -406,7 +408,7 @@ class SelectionField(QFrame):
     def refresh(self, doc, missing=()):
         self.list.clear()
         if not self.items:
-            it = QListWidgetItem("Click to select" if self.property("active") == "true" else "—")
+            it = QListWidgetItem(tr("Click to select") if self.property("active") == "true" else "—")
             it.setForeground(QColor("#8a94a3"))
             self.list.addItem(it)
         for i, item in enumerate(self.items):
@@ -1520,10 +1522,10 @@ class FeatureDialog(_ResizableFrame):
                                  "QLineEdit:focus { border: 1px solid #1f6fd1; background: white; }")
         head.addWidget(self.title, 1)
         ok = dialog_button(QToolButton(), "ok")
-        ok.setToolTip("Accept (Enter)")
+        ok.setToolTip(tr("Accept (Enter)"))
         ok.clicked.connect(self.accept)
         cancel = dialog_button(QToolButton(), "cancel")
-        cancel.setToolTip("Cancel (Esc)")
+        cancel.setToolTip(tr("Cancel (Esc)"))
         cancel.clicked.connect(self.reject)
         head.addWidget(ok)
         head.addWidget(cancel)
@@ -1576,7 +1578,7 @@ class FeatureDialog(_ResizableFrame):
             for val, lab in spec["options"]:
                 b = QToolButton()
                 b.setObjectName("segment")
-                b.setText(lab)
+                b.setText(tr(lab))
                 b.setProperty("value", val)
                 b.setCheckable(True)
                 b.setChecked(cur == val)
@@ -1599,7 +1601,7 @@ class FeatureDialog(_ResizableFrame):
             row = QWidget()
             h = QHBoxLayout(row)
             h.setContentsMargins(0, 0, 0, 0)
-            b = QPushButton(spec["label"])
+            b = QPushButton(tr(spec["label"]))
             b.clicked.connect(lambda _=False, fn=spec["on"]: getattr(self, fn)())
             h.addWidget(b)
             h.addStretch(1)
@@ -1613,7 +1615,7 @@ class FeatureDialog(_ResizableFrame):
             self._info_rows.append((spec, lab))
             return lab
         if t == "sel":
-            f = SelectionField(spec["key"], spec["label"], spec["want"], spec["multi"])
+            f = SelectionField(spec["key"], tr(spec["label"]), spec["want"], spec["multi"])
             f.activated.connect(self.activate)
             f.changed.connect(self._fields_changed)
             self.fields[spec["key"]] = f
@@ -1622,19 +1624,19 @@ class FeatureDialog(_ResizableFrame):
         h = QHBoxLayout(row)
         h.setContentsMargins(0, 0, 0, 0)
         if t == "flip":                                   # an arrow button on a row of its own
-            lab = QLabel(spec["label"])
+            lab = QLabel(tr(spec["label"]))
             lab.setStyleSheet("color:#4b5563;")
             h.addWidget(lab, 1)
             h.addWidget(self._flip_button(spec, p))
             return row
         if t == "check":
-            cb = QCheckBox(spec["label"])
+            cb = QCheckBox(tr(spec["label"]))
             cb.setChecked(bool(p.get(spec["key"])))
             cb.toggled.connect(lambda v, k=spec["key"]: self._set(k, v))
             h.addWidget(cb)
             self.widgets[spec["key"]] = cb
             return row
-        lab = QLabel(spec["label"])
+        lab = QLabel(tr(spec["label"]))
         lab.setStyleSheet("color:#4b5563;")
         h.addWidget(lab, 1)
         if t == "num":
@@ -1696,7 +1698,7 @@ class FeatureDialog(_ResizableFrame):
             return row
         if t == "text":
             ed = QLineEdit(str(p.get(spec["key"], "")))
-            ed.setPlaceholderText(spec.get("placeholder", ""))
+            ed.setPlaceholderText(tr(spec.get("placeholder", "")))
             ed.setFixedWidth(150)
             self.widgets[spec["key"]] = ed
             if spec.get("expr"):
@@ -1719,7 +1721,7 @@ class FeatureDialog(_ResizableFrame):
             cb = QComboBox()
             opts = spec["options"](self) if callable(spec["options"]) else spec["options"]
             for val, lab2 in opts:
-                cb.addItem(lab2, val)
+                cb.addItem(tr(lab2), val)
             idx = max(0, cb.findData(p.get(spec["key"], opts[0][0])))
             cb.setCurrentIndex(idx)
             cb.currentIndexChanged.connect(lambda i, cb=cb, k=spec["key"]: self._set(k, cb.itemData(i)))
@@ -1728,7 +1730,7 @@ class FeatureDialog(_ResizableFrame):
             return row
         if t == "sketch_choice":
             cb = QComboBox()
-            cb.addItem("— select —", None)
+            cb.addItem(tr("— select —"), None)
             for fid, sr in self.base_state.sketches.items():
                 f = self.doc.feature(fid)
                 if f and any(e["type"] in ("point", "circle") for e in sr.sketch.entities.values()):
@@ -1752,7 +1754,7 @@ class FeatureDialog(_ResizableFrame):
         b.setAutoRaise(True)
         b.setIconSize(QSize(20, 20))
         b.setChecked(bool(p.get(spec["key"])))
-        b.setProperty("flip_label", spec["label"])
+        b.setProperty("flip_label", tr(spec["label"]))
         _flip_look(b)
         b.toggled.connect(lambda v, b=b, k=spec["key"]: (_flip_look(b), self._set(k, v)))
         self.widgets[spec["key"]] = b
@@ -1781,13 +1783,13 @@ class FeatureDialog(_ResizableFrame):
             name = QLabel(f"{i + 1}. {item_label(self.doc, (t['kind'], t['ref']))}")
             name.setStyleSheet("color:#4b5563;")
             h.addWidget(name, 1)
-            cb = QCheckBox("Keep both sides")
+            cb = QCheckBox(tr("Keep both sides"))
             cb.setChecked(bool(t.get("both", True)))
             cb.toggled.connect(lambda on, i=i: self._split_set(i, "both", on))
             h.addWidget(cb)
             fl = QToolButton()
-            fl.setText("⇅ Flip")
-            fl.setToolTip("Keep the other side (or drag the arrow across)")
+            fl.setText(tr("⇅ Flip"))
+            fl.setToolTip(tr("Keep the other side (or drag the arrow across)"))
             fl.setVisible(not t.get("both", True))
             fl.clicked.connect(lambda _=False, i=i: self._split_set(i, "flip", None))
             h.addWidget(fl)
@@ -1812,7 +1814,7 @@ class FeatureDialog(_ResizableFrame):
             self._split_rows()
         for spec, lab in self._info_rows:
             txt = spec["text"](p, self) if spec.get("dialog") else spec["text"](p)
-            lab.setText(txt)
+            lab.setText(tr(txt))
             w_ = max(min(lab.width() if lab.width() > 50 else 10 ** 6, self.width() - 24), 200)
             lab.setMinimumHeight(lab.heightForWidth(w_) if txt else 0)     # wrapped text gets all its lines
             if spec["key"] == "_info":           # warnings in red, hints in green
@@ -2795,10 +2797,10 @@ class SketchDialog(_ResizableFrame):
                                  "QLineEdit:focus { border: 1px solid #1f6fd1; background: white; }")
         head.addWidget(self.title, 1)
         ok = dialog_button(QToolButton(), "ok")
-        ok.setToolTip("Finish sketch")
+        ok.setToolTip(tr("Finish sketch"))
         ok.clicked.connect(self.accepted.emit)
         cancel = dialog_button(QToolButton(), "cancel")
-        cancel.setToolTip("Cancel sketch")
+        cancel.setToolTip(tr("Cancel sketch"))
         cancel.clicked.connect(self.rejected.emit)
         head.addWidget(ok)
         head.addWidget(cancel)
@@ -2806,9 +2808,9 @@ class SketchDialog(_ResizableFrame):
         self.plane_field = SelectionField("plane", "Sketch plane", {"plane"}, multi=False)
         self.plane_field.activated.connect(self._activate)
         lay.addWidget(self.plane_field)
-        self.show_cons = QCheckBox("Show constraints")
+        self.show_cons = QCheckBox(tr("Show constraints"))
         self.show_cons.setChecked(True)
-        self.show_regions = QCheckBox("Show sketch regions")
+        self.show_regions = QCheckBox(tr("Show sketch regions"))
         self.show_regions.setChecked(True)
         lay.addWidget(self.show_cons)
         lay.addWidget(self.show_regions)

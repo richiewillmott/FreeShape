@@ -2,6 +2,8 @@
 the studio's variables, plus any features you add a column for (ticked = suppressed in that configuration)."""
 from __future__ import annotations
 
+from ..i18n import tr
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem, QPushButton, QLabel, QComboBox,
@@ -23,7 +25,7 @@ class ConfigDialog(QDialog):
     def __init__(self, parent, doc):
         super().__init__(parent)
         self.doc = doc
-        self.setWindowTitle("Configurations")
+        self.setWindowTitle(tr("Configurations"))
         self.resize(720, 380)
         lay = QVBoxLayout(self)
         hint = QLabel("Each row is a configuration of this Part Studio: it sets the variables (type a value or an "
@@ -48,11 +50,11 @@ class ConfigDialog(QDialog):
         btns = QHBoxLayout()
         for text, fn in (("Add configuration", lambda: self._add_row(None)), ("Remove", self._remove_row),
                          ("Add feature column…", self._add_feature_col)):
-            b = QPushButton(text)
+            b = QPushButton(tr(text))
             b.clicked.connect(fn)
             btns.addWidget(b)
         btns.addStretch(1)
-        btns.addWidget(QLabel("Active:"))
+        btns.addWidget(QLabel(tr("Active:")))
         self.active = QComboBox()
         btns.addWidget(self.active)
         lay.addLayout(btns)
@@ -69,7 +71,7 @@ class ConfigDialog(QDialog):
                          "them in dimensions (#name), or add feature columns to switch features on and off.")
 
     def _build_columns(self):
-        heads = ["Name"] + [f"#{v}" for v in self.vars] + [
+        heads = [tr("Name")] + [f"#{v}" for v in self.vars] + [
             "Suppress " + (self.doc.feature(f) or {}).get("name", f) for f in self.feat_cols]
         self.table.setColumnCount(len(heads))
         self.table.setHorizontalHeaderLabels(heads)
@@ -152,7 +154,7 @@ class ConfigDialog(QDialog):
         rows = self.rows()
         names = [r["name"] for r in rows]
         if any(not n for n in names) or len(set(names)) != len(names):
-            QMessageBox.information(self, "Configurations", "Give every configuration its own name.")
+            QMessageBox.information(self, tr("Configurations"), "Give every configuration its own name.")
             return
         self.doc.set_configs(rows, max(self.active.currentIndex(), 0))
         self.accept()

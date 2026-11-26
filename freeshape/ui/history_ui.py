@@ -2,6 +2,8 @@
 in words and in 3D (added material green, removed red), and restoring or opening an old version."""
 from __future__ import annotations
 
+from ..i18n import tr
+
 import copy
 
 from PySide6.QtCore import Qt, QTimer
@@ -25,11 +27,11 @@ def version_dialog(parent, title="Create version", name="", note=""):
     d = QDialog(parent)
     d.setWindowTitle(title)
     lay = QVBoxLayout(d)
-    lay.addWidget(QLabel("Name"))
+    lay.addWidget(QLabel(tr("Name")))
     ne = QLineEdit(name)
-    ne.setPlaceholderText("e.g. Sent for quote")
+    ne.setPlaceholderText(tr("e.g. Sent for quote"))
     lay.addWidget(ne)
-    lay.addWidget(QLabel("Description (optional)"))
+    lay.addWidget(QLabel(tr("Description (optional)")))
     te = QPlainTextEdit(note)
     te.setFixedHeight(70)
     lay.addWidget(te)
@@ -58,8 +60,8 @@ class HistoryPanel(QFrame):
         lay.addLayout(head)
         lay.addWidget(_hline())
         row = QHBoxLayout()
-        mk = QPushButton("Create version…")
-        mk.setToolTip("Keep the model as it is now as a named version (saved in the file)")
+        mk = QPushButton(tr("Create version…"))
+        mk.setToolTip(tr("Keep the model as it is now as a named version (saved in the file)"))
         mk.clicked.connect(self.create_version)
         row.addWidget(mk)
         row.addStretch(1)
@@ -72,22 +74,22 @@ class HistoryPanel(QFrame):
         self.list.itemDoubleClicked.connect(lambda it: self.rename(it.data(Qt.UserRole)))
         self.list.setMinimumHeight(150)
         lay.addWidget(self.list, 2)
-        self.hint = QLabel("Click a version to see what has changed since. Ctrl+click two to compare them.")
+        self.hint = QLabel(tr("Click a version to see what has changed since. Ctrl+click two to compare them."))
         self.hint.setWordWrap(True)
         self.hint.setObjectName("muted")
         lay.addWidget(self.hint)
         self.text = QTextBrowser()
         self.text.setMinimumHeight(170)
         lay.addWidget(self.text, 3)
-        self.show3d = QCheckBox("Show in 3D  (added material green, removed red)")
+        self.show3d = QCheckBox(tr("Show in 3D  (added material green, removed red)"))
         self.show3d.setChecked(True)
         self.show3d.toggled.connect(lambda _v: self._ghosts())
         lay.addWidget(self.show3d)
         row = QHBoxLayout()
-        self.btn_restore = QPushButton("Restore")
-        self.btn_restore.setToolTip("Go back to this version (you can undo it)")
+        self.btn_restore = QPushButton(tr("Restore"))
+        self.btn_restore.setToolTip(tr("Go back to this version (you can undo it)"))
         self.btn_restore.clicked.connect(self.restore)
-        self.btn_open = QPushButton("Open in a new tab")
+        self.btn_open = QPushButton(tr("Open in a new tab"))
         self.btn_open.clicked.connect(self.open_copy)
         row.addWidget(self.btn_restore)
         row.addWidget(self.btn_open)
@@ -286,8 +288,8 @@ class HistoryPanel(QFrame):
         if not vid or vid == NOW:
             return
         m = QMenu(self)
-        m.addAction("Rename / describe…").triggered.connect(lambda: self.rename(vid))
-        m.addAction("Delete version").triggered.connect(lambda: self.delete(vid))
+        m.addAction(tr("Rename / describe…")).triggered.connect(lambda: self.rename(vid))
+        m.addAction(tr("Delete version")).triggered.connect(lambda: self.delete(vid))
         m.exec(self.list.mapToGlobal(pos))
 
     def keyPressEvent(self, e):

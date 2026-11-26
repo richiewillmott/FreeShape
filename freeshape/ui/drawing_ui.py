@@ -2,6 +2,8 @@
 inserting base / projected / isometric views, dimensions, notes, sheet setup, and DXF / PDF export."""
 from __future__ import annotations
 
+from ..i18n import tr
+
 import math
 import os
 
@@ -446,7 +448,7 @@ class DrawingPanel(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
-        h = QLabel("Drawing")
+        h = QLabel(tr("Drawing"))
         h.setObjectName("sectionHeader")
         lay.addWidget(h)
         self.source = QLabel("")
@@ -538,7 +540,7 @@ class DrawingPanel(QWidget):
 def _combo(items, current=None):
     c = QComboBox()
     for label, data in items:
-        c.addItem(label, data)
+        c.addItem(tr(label), data)
     if current is not None:
         i = c.findData(current)
         if i >= 0:
@@ -556,10 +558,10 @@ class NewDrawingDialog(QDialog):
 
     def __init__(self, parent, sources, preselect=None, settings=None):
         super().__init__(parent)
-        self.setWindowTitle("New drawing")
+        self.setWindowTitle(tr("New drawing"))
         self.setMinimumWidth(460)
         lay = QVBoxLayout(self)
-        lay.addWidget(QLabel("<b>What should the drawing show?</b>"))
+        lay.addWidget(QLabel(tr("<b>What should the drawing show?</b>")))
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
         self.tree.setMinimumHeight(220)
@@ -588,20 +590,20 @@ class NewDrawingDialog(QDialog):
         self.orient = _combo([("Landscape", False), ("Portrait", True)])
         self.proj = _combo([("First angle (ISO / BS 8888 — UK & Europe)", "first"),
                             ("Third angle (ANSI — USA)", "third")], (s.value("dwg_proj", "first") if s else "first"))
-        self.views = QCheckBox("Add the standard views (front, plan, side and isometric) at a scale that fits")
+        self.views = QCheckBox(tr("Add the standard views (front, plan, side and isometric) at a scale that fits"))
         self.views.setChecked(True)
         self.drawn = QLineEdit(s.value("dwg_drawn", "") if s else "")
-        self.drawn.setPlaceholderText("Your name or initials")
+        self.drawn.setPlaceholderText(tr("Your name or initials"))
         self.company = QLineEdit(s.value("dwg_company", "") if s else "")
-        f.addRow("Sheet", self.size)
+        f.addRow(tr("Sheet"), self.size)
         f.addRow("", self.orient)
-        f.addRow("Projection", self.proj)
-        f.addRow("Drawn by", self.drawn)
-        f.addRow("Company", self.company)
+        f.addRow(tr("Projection"), self.proj)
+        f.addRow(tr("Drawn by"), self.drawn)
+        f.addRow(tr("Company"), self.company)
         lay.addLayout(f)
         lay.addWidget(self.views)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        bb.button(QDialogButtonBox.Ok).setText("Create drawing")
+        bb.button(QDialogButtonBox.Ok).setText(tr("Create drawing"))
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
@@ -626,7 +628,7 @@ def _same_source(a, b):
 class SheetDialog(QDialog):
     def __init__(self, parent, doc):
         super().__init__(parent)
-        self.setWindowTitle("Sheet and title block")
+        self.setWindowTitle(tr("Sheet and title block"))
         lay = QVBoxLayout(self)
         g = QGridLayout()
         self.size = _combo([(k, k) for k in SHEETS], doc.sheet.get("size"))
@@ -634,15 +636,15 @@ class SheetDialog(QDialog):
         self.scale = _combo(_scale_items(), float(doc.sheet.get("scale", 1.0)))
         self.proj = _combo([("First angle (ISO)", "first"), ("Third angle (ANSI)", "third")],
                            doc.sheet.get("projection", "first"))
-        g.addWidget(QLabel("Size"), 0, 0)
+        g.addWidget(QLabel(tr("Size")), 0, 0)
         g.addWidget(self.size, 0, 1)
         g.addWidget(self.orient, 0, 2)
-        g.addWidget(QLabel("Scale"), 1, 0)
+        g.addWidget(QLabel(tr("Scale")), 1, 0)
         g.addWidget(self.scale, 1, 1)
-        g.addWidget(QLabel("Projection"), 2, 0)
+        g.addWidget(QLabel(tr("Projection")), 2, 0)
         g.addWidget(self.proj, 2, 1, 1, 2)
         lay.addLayout(g)
-        lay.addWidget(QLabel("<b>Title block</b>"))
+        lay.addWidget(QLabel(tr("<b>Title block</b>")))
         f = QFormLayout()
         self.fields = {}
         for key, label in TITLE_FIELDS:
@@ -666,7 +668,7 @@ class SheetDialog(QDialog):
 class ViewDialog(QDialog):
     def __init__(self, parent, doc, v, new=False):
         super().__init__(parent)
-        self.setWindowTitle("Insert a view" if new else "View properties")
+        self.setWindowTitle(tr("Insert a view" if new else "View properties"))
         lay = QVBoxLayout(self)
         f = QFormLayout()
         cur = None
@@ -679,23 +681,23 @@ class ViewDialog(QDialog):
             self.dir.insertItem(0, "(as projected)", None)
             self.dir.setCurrentIndex(0)
         self.scale = _combo(_scale_items(True), v.get("scale") if v else None)
-        self.hidden = QCheckBox("Show hidden edges (dashed)")
+        self.hidden = QCheckBox(tr("Show hidden edges (dashed)"))
         self.hidden.setChecked(bool(v.get("hidden", True)) if v else True)
-        self.tangent = QCheckBox("Show tangent edges (where rounded faces meet)")
+        self.tangent = QCheckBox(tr("Show tangent edges (where rounded faces meet)"))
         self.tangent.setChecked(bool(v.get("tangent", False)) if v else False)
-        self.marks = QCheckBox("Centre marks on holes and round edges")
+        self.marks = QCheckBox(tr("Centre marks on holes and round edges"))
         self.marks.setChecked(bool(v.get("centre_marks", True)) if v else True)
         self.label = QLineEdit(v.get("label", "") if v else "")
-        self.label.setPlaceholderText("e.g. VIEW A  (optional)")
-        f.addRow("Looking from", self.dir)
-        f.addRow("Scale", self.scale)
-        f.addRow("Label", self.label)
+        self.label.setPlaceholderText(tr("e.g. VIEW A  (optional)"))
+        f.addRow(tr("Looking from"), self.dir)
+        f.addRow(tr("Scale"), self.scale)
+        f.addRow(tr("Label"), self.label)
         lay.addLayout(f)
         for w in (self.hidden, self.tangent, self.marks):
             lay.addWidget(w)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         if new:
-            bb.button(QDialogButtonBox.Ok).setText("Place on the sheet")
+            bb.button(QDialogButtonBox.Ok).setText(tr("Place on the sheet"))
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
@@ -704,7 +706,7 @@ class ViewDialog(QDialog):
 class DimDialog(QDialog):
     def __init__(self, parent, doc, a):
         super().__init__(parent)
-        self.setWindowTitle("Dimension")
+        self.setWindowTitle(tr("Dimension"))
         g = doc.dim_geometry(a)
         lay = QVBoxLayout(self)
         lay.addWidget(QLabel(f"Measured: <b>{DW.fmt_value(g[2], 4) if g else '?'}</b> mm"))
@@ -715,15 +717,15 @@ class DimDialog(QDialog):
         self.suffix = QLineEdit(a.get("suffix", ""))
         self.suffix.setPlaceholderText("e.g.  ±0.1  or  THRU")
         self.text = QLineEdit(a.get("text", ""))
-        self.text.setPlaceholderText("Leave empty to show the measured value")
-        f.addRow("Decimal places", self.dp)
-        f.addRow("Before the value", self.prefix)
-        f.addRow("After the value", self.suffix)
-        f.addRow("Replace the text", self.text)
+        self.text.setPlaceholderText(tr("Leave empty to show the measured value"))
+        f.addRow(tr("Decimal places"), self.dp)
+        f.addRow(tr("Before the value"), self.prefix)
+        f.addRow(tr("After the value"), self.suffix)
+        f.addRow(tr("Replace the text"), self.text)
         if a["type"] == "lin":
             self.orient = _combo([("Aligned with the points", "a"), ("Horizontal", "h"), ("Vertical", "v")],
                                  a.get("orient", "a"))
-            f.addRow("Direction", self.orient)
+            f.addRow(tr("Direction"), self.orient)
         lay.addLayout(f)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(self.accept)
@@ -1314,26 +1316,26 @@ class DrawingController:
         m = QMenu(self.w)
         v, a = doc.view(oid), doc.annot(oid)
         if v is not None:
-            m.addAction("View properties…", lambda: self.edit(oid))
-            m.addAction("Projected view from this…", lambda: (setattr(self, "selection", [oid]),
+            m.addAction(tr("View properties…"), lambda: self.edit(oid))
+            m.addAction(tr("Projected view from this…"), lambda: (setattr(self, "selection", [oid]),
                                                                 self.set_tool("projected")))
             m.addAction(icon("section_view", 16), "Section view…", lambda: self.set_tool("section"))
             m.addAction(icon("detail_view", 16), "Detail view…", lambda: self.set_tool("detail"))
             if doc.bom:
                 m.addAction(icon("balloon", 16), "Auto balloon this view", lambda: self.auto_balloon(oid))
-            act = m.addAction("Hidden edges")
+            act = m.addAction(tr("Hidden edges"))
             act.setCheckable(True)
             act.setChecked(bool(v.get("hidden")))
             act.triggered.connect(lambda on: self._set_view(v, "hidden", on))
-            act = m.addAction("Centre marks")
+            act = m.addAction(tr("Centre marks"))
             act.setCheckable(True)
             act.setChecked(bool(v.get("centre_marks", True)))
             act.triggered.connect(lambda on: self._set_view(v, "centre_marks", on))
             m.addSeparator()
-            m.addAction("Delete view", lambda: doc.delete([oid]))
+            m.addAction(tr("Delete view"), lambda: doc.delete([oid]))
         elif a is not None:
-            m.addAction("Edit…", lambda: self.edit(oid))
-            m.addAction("Delete", lambda: doc.delete([oid]))
+            m.addAction(tr("Edit…"), lambda: self.edit(oid))
+            m.addAction(tr("Delete"), lambda: doc.delete([oid]))
         else:
             m.addAction(icon("base_view", 16), "Insert view…", self.insert_view)
             m.addAction(icon("dim", 16), "Dimension (D)", lambda: self.set_tool("dim"))
@@ -1341,7 +1343,7 @@ class DrawingController:
                 m.addAction(icon("note", 16), "Note here…", lambda: self.add_note(at))
             m.addSeparator()
             m.addAction(icon("sheet", 16), "Sheet and title block…", self.sheet_setup)
-            m.addAction("Zoom to fit (F)", self.canvas.fit)
+            m.addAction(tr("Zoom to fit (F)"), self.canvas.fit)
         m.exec(gpos)
 
     def _set_view(self, v, key, value):
@@ -1831,9 +1833,9 @@ class DrawingController:
                 QMessageBox.critical(self.w, "FreeShape", f"Export failed:\n{e}")
             return
         dlg = QDialog(self.w)
-        dlg.setWindowTitle("Export DXF")
+        dlg.setWindowTitle(tr("Export DXF"))
         lay = QVBoxLayout(dlg)
-        lay.addWidget(QLabel("How should the drawing be sized in the DXF?"))
+        lay.addWidget(QLabel(tr("How should the drawing be sized in the DXF?")))
         c1 = QCheckBox(f"Views at true size (1:1) — everything scaled by {DW.fmt_value(1 / doc.sheet.get('scale', 1))}×")
         c1.setToolTip("Best for working on the geometry in AutoCAD: a 50 mm edge measures 50 mm.\n"
                       "Leave it off to get the sheet exactly as it prints (paper millimetres).")

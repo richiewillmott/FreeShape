@@ -2,6 +2,8 @@
 laid out on sheets as you change things; export one DXF for the laser / plasma / waterjet."""
 from __future__ import annotations
 
+from ..i18n import tr
+
 import math
 import os
 
@@ -81,7 +83,7 @@ class NestDialog(QDialog):
     def __init__(self, main, doc):
         super().__init__(main)
         self.main, self.doc = main, doc
-        self.setWindowTitle("Nest for cutting")
+        self.setWindowTitle(tr("Nest for cutting"))
         self.resize(1080, 640)
         self.parts = []                 # (pid, name, thickness, flat pattern)
         state = doc.state
@@ -104,10 +106,10 @@ class NestDialog(QDialog):
         self.thick = QComboBox()
         for t in sorted({t for _p, _n, t, _f in self.parts}):
             self.thick.addItem(f"{t:g} mm", t)
-        form.addRow("Thickness:", self.thick)
+        form.addRow(tr("Thickness:"), self.thick)
         left.addLayout(form)
         self.table = QTableWidget(0, 2)
-        self.table.setHorizontalHeaderLabels(["Part", "Quantity"])
+        self.table.setHorizontalHeaderLabels([tr("Part"), tr("Quantity")])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
         self.table.verticalHeader().setVisible(False)
         left.addWidget(self.table, 1)
@@ -116,35 +118,35 @@ class NestDialog(QDialog):
         self.preset = QComboBox()
         for name, w, h in N.SHEET_PRESETS:
             self.preset.addItem(name, (w, h))
-        self.preset.addItem("Custom", None)
-        form.addRow("Sheet:", self.preset)
+        self.preset.addItem(tr("Custom"), None)
+        form.addRow(tr("Sheet:"), self.preset)
         self.sw, self.sh = self._mm(3000, 1, 100000), self._mm(1500, 1, 100000)
         row = QHBoxLayout()
         row.addWidget(self.sw)
         row.addWidget(QLabel("×"))
         row.addWidget(self.sh)
-        form.addRow("Size:", row)
+        form.addRow(tr("Size:"), row)
         self.gap = self._mm(5, 0, 1000)
-        form.addRow("Gap between parts:", self.gap)
+        form.addRow(tr("Gap between parts:"), self.gap)
         self.margin = self._mm(10, 0, 1000)
-        form.addRow("Margin from edge:", self.margin)
+        form.addRow(tr("Margin from edge:"), self.margin)
         self.kerf = self._mm(0.0, 0, 20, dp=2)
         self.kerf.setToolTip("Grows each outline by half this (holes shrink), so the cut lands on the line. "
                              "Leave at 0 if your cutting software already compensates.")
-        form.addRow("Kerf compensation:", self.kerf)
-        self.turn = QCheckBox("Allow turning parts 90°")
+        form.addRow(tr("Kerf compensation:"), self.kerf)
+        self.turn = QCheckBox(tr("Allow turning parts 90°"))
         self.turn.setChecked(True)
         form.addRow("", self.turn)
         self.mat = QComboBox()
         for name, rho in N.MATERIALS:
             self.mat.addItem(f"{name} ({rho:g} g/cm³)", rho)
-        form.addRow("Material:", self.mat)
+        form.addRow(tr("Material:"), self.mat)
         self.price = QDoubleSpinBox()
         self.price.setRange(0, 10000)
         self.price.setDecimals(2)
         self.price.setSpecialValueText("—")
         self.price.setSuffix(" /kg")
-        form.addRow("Sheet price:", self.price)
+        form.addRow(tr("Sheet price:"), self.price)
         left.addLayout(form)
 
         right = QVBoxLayout()
@@ -162,10 +164,10 @@ class NestDialog(QDialog):
             right.addWidget(warn)
         btns = QHBoxLayout()
         btns.addStretch(1)
-        self.export_btn = QPushButton("Export DXF…")
+        self.export_btn = QPushButton(tr("Export DXF…"))
         self.export_btn.setDefault(True)
         self.export_btn.clicked.connect(self.export)
-        close = QPushButton("Close")
+        close = QPushButton(tr("Close"))
         close.clicked.connect(self.reject)
         btns.addWidget(self.export_btn)
         btns.addWidget(close)
@@ -266,7 +268,7 @@ class NestDialog(QDialog):
         try:
             N.export_dxf(self.res, path)
         except Exception as e:
-            QMessageBox.critical(self, "Nest for cutting", f"Couldn't export:\n{e}")
+            QMessageBox.critical(self, tr("Nest for cutting"), f"Couldn't export:\n{e}")
             return
         try:
             self.main.status.showMessage(f"Exported {self.res.count} parts on {len(self.res.sheets)} sheet(s): "

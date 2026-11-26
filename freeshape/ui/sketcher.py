@@ -1,6 +1,8 @@
 """Interactive sketch editing: drawing tools, snapping, inference, dimensions, constraints, dragging."""
 from __future__ import annotations
 
+from ..i18n import tr
+
 import math
 
 import numpy as np
@@ -180,12 +182,12 @@ class Sketcher:
         if getattr(self, "_prompt_label", None):
             return self._prompt_label
         if self.tool in CONSTRAINT_TOOLS:
-            return CONSTRAINT_TOOLS[self.tool]
+            return tr(CONSTRAINT_TOOLS[self.tool])
         if self.tool == "dimension" and getattr(self, "dim_first", None) is not None:
             if self.dim_second is not None:
                 return "Click where the dimension should go."
             return "Click a second item (or a part edge) to measure to — or click empty space to place the dimension."
-        return TOOL_HINTS.get(self.tool, "")
+        return tr(TOOL_HINTS.get(self.tool, ""))
 
     def push_undo(self):
         self.undo_stack.append(self.sk.to_dict())
@@ -1632,11 +1634,11 @@ class Sketcher:
         from PySide6.QtGui import QFont as _QF
         e = e or {}
         dlg = QDialog(vp.window() if hasattr(vp, "window") else None)
-        dlg.setWindowTitle("Edit text" if e else "Text")
+        dlg.setWindowTitle(tr("Edit text") if e else "Text")
         form = QFormLayout(dlg)
         txt = QLineEdit(e.get("expr") or e.get("text", ""))
-        txt.setPlaceholderText("Type the text")
-        form.addRow("Text:", txt)
+        txt.setPlaceholderText(tr("Type the text"))
+        form.addRow(tr("Text:"), txt)
         from PySide6.QtWidgets import QLabel
         use_expr = QCheckBox('From variables — e.g. #rev, or "PN-" + #part (text in quotes)')
         use_expr.setChecked(bool(e.get("expr")))
@@ -1664,26 +1666,26 @@ class Sketcher:
         check()
         font = QFontComboBox()
         font.setCurrentFont(_QF(e.get("font", "Arial")))
-        form.addRow("Font:", font)
+        form.addRow(tr("Font:"), font)
         size = QDoubleSpinBox()
         size.setRange(0.1, 10000)
         size.setDecimals(2)
         size.setSuffix(" mm")                       # (text size: always mm, like a font size)
         size.setValue(float(e.get("size", getattr(self, "_last_text_size", 10.0))))
-        form.addRow("Size:", size)
+        form.addRow(tr("Size:"), size)
         style = QHBoxLayout()
-        bold, italic = QCheckBox("Bold"), QCheckBox("Italic")
+        bold, italic = QCheckBox(tr("Bold")), QCheckBox(tr("Italic"))
         bold.setChecked(bool(e.get("bold")))
         italic.setChecked(bool(e.get("italic")))
         style.addWidget(bold)
         style.addWidget(italic)
         style.addStretch(1)
-        form.addRow("Style:", style)
+        form.addRow(tr("Style:"), style)
         ang = QDoubleSpinBox()
         ang.setRange(-360, 360)
         ang.setSuffix("°")
         ang.setValue(float(e.get("angle", 0.0)))
-        form.addRow("Angle:", ang)
+        form.addRow(tr("Angle:"), ang)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(dlg.accept)
         bb.rejected.connect(dlg.reject)
@@ -2111,7 +2113,7 @@ class Sketcher:
         rest = offers[1:]
         s = self.scr(vp, pos)
         ed = self._make_editor(vp, s[0], s[1], U.num(value))
-        ed.setToolTip("Type a value and press Enter to dimension it — or just keep drawing")
+        ed.setToolTip(tr("Type a value and press Enter to dimension it — or just keep drawing"))
 
         def commit():
             if self._editor is not ed:

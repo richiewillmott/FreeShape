@@ -2,6 +2,8 @@
 Same arguments as QFileDialog's, so call sites read the same."""
 from __future__ import annotations
 
+from ..i18n import tr
+
 import os
 
 from PySide6.QtCore import QSettings
@@ -34,12 +36,12 @@ def remember(path):
 
 
 def getOpenFileName(parent, caption="", path="", filt="", selected=""):
-    res = QFileDialog.getOpenFileName(parent, caption, start_path(path), filt, selected)
+    res = QFileDialog.getOpenFileName(parent, tr(caption), start_path(path), filt, selected)
     remember(res[0])
     return res
 
 
 def getSaveFileName(parent, caption="", path="", filt="", selected=""):
-    res = QFileDialog.getSaveFileName(parent, caption, start_path(path), filt, selected)
+    res = QFileDialog.getSaveFileName(parent, tr(caption), start_path(path), filt, selected)
     remember(res[0])
     return res
