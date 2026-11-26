@@ -24,6 +24,7 @@ from ..drawing import DrawingDoc
 from ..sketch import Sketch
 from . import theme
 from . import filedlg
+from .keyboard import ShortcutRouter
 from .icons import icon
 from .menus import submenu
 from .viewport import Viewport, Pick, plane_corners
@@ -143,6 +144,7 @@ class MainWindow(QMainWindow):
         if not os.environ.get("FREESHAPE_NO_PLUGINS"):
             from .. import plugins as _plugins
             _plugins.load_all()
+        self._shortcut_router = ShortcutRouter(self)
         self._build_ui()
         self._bind_shortcuts()
         self.set_theme(str(self.settings.value("theme", "light")), save=False)
@@ -654,7 +656,7 @@ class MainWindow(QMainWindow):
     def _add_action(self, menu, text, slot, shortcut=None):
         a = QAction(text, self)
         if shortcut:
-            a.setShortcut(QKeySequence(shortcut))
+            a.setShortcut(self._shortcut_router.bind(shortcut, a.trigger))
             a.setShortcutContext(Qt.WindowShortcut)
             self.addAction(a)
         a.triggered.connect(slot)
@@ -1057,7 +1059,7 @@ class MainWindow(QMainWindow):
 
     def _bind_shortcuts(self):
         def sc(key, fn):
-            s = QShortcut(QKeySequence(key), self)
+            s = QShortcut(self._shortcut_router.bind(key, fn), self)
             s.setContext(Qt.WindowShortcut)
             s.activated.connect(fn)
             return s
