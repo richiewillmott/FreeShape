@@ -1,0 +1,65 @@
+name: Debian package compatibility
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "packaging/**"
+      - "requirements.txt"
+      - ".github/workflows/deb-compatibility.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install runtime and build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libopengl0 libxkbcommon0 libxkbcommon-x11-0 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-randr0 libxcb-render-util0 \
+            libxcb-shape0 libxcb-xinerama0 libfontconfig1 libdbus-1-3 file dpkg-dev
+          python -m pip install -r requirements.txt pyinstaller
+      - name: Build and inspect package
+        run: |
+          bash -n packaging/linux/build_deb.sh
+          bash -n packaging/linux/test_deb.sh
+          PYTHON=python bash packaging/linux/build_deb.sh
+          bash packaging/linux/test_deb.sh dist/freeshape_*_amd64.deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: freeshape-deb-compatibility
+          path: dist/freeshape_*_amd64.deb
+          if-no-files-found: error
+  compatibility:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: ["debian:12", "debian:13", "ubuntu:24.04", "ubuntu:26.04"]
+    container:
+      image: ${{ matrix.distro }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: freeshape-deb-compatibility
+          path: /tmp/freeshape-deb
+      - name: Install, self-test, and uninstall
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y /tmp/freeshape-deb/freeshape_*_amd64.deb
+          QT_QPA_PLATFORM=offscreen freeshape --self-test /tmp/freeshape-selftest.txt
+          grep -qx OK /tmp/freeshape-selftest.txt
+          dpkg-query -W freeshape
+          test -f /usr/share/applications/freeshape.desktop
+          apt-get remove -y freeshape
+          test ! -e /usr/bin/freeshape

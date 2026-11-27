@@ -53,6 +53,10 @@ icons, and `.fshape` / `.fasm` / `.fdwg` files set to open with it. Install it w
 just packed.) Releases get a .deb automatically; for a release made before that, run **Actions → Debian package →
 Run workflow** with its tag (e.g. `v2.6.0`), and the .deb is attached to that release.
 
+The **Debian package compatibility** workflow builds on Ubuntu 22.04, inspects the package layout, then
+installs, runs the headless self-test and removes the same package in Debian 12/13 and Ubuntu 24.04/26.04.
+It does not publish releases or replace interactive desktop/OpenGL testing.
+
 ## Where things are in the code
 
 ```
