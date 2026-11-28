@@ -4,6 +4,14 @@ Other modules read colours as attributes of this module at draw time (theme.ACCE
 so apply("dark") / apply("light") switches everything in place.
 """
 
+# Load Qt's SVG library before anything asks Qt for an SVG (the checkbox tick, your own .svg icons). Qt's SVG
+# plugins need Qt6Svg.dll, and with the Microsoft Store Python Windows doesn't look for it next to the plugins,
+# so without this SVGs quietly fail to load there.
+try:
+    from PySide6 import QtSvg  # noqa: F401
+except ImportError:
+    pass
+
 LIGHT = {
     "ACCENT": "#1f6fd1", "ACCENT_DARK": "#155bb0", "ACCENT_LIGHT": "#e3eefb", "ACCENT_SOFT": "#d3e4f8",
     "ACCENT_BORDER": "#c4d9f3", "TEXT": "#1f2328", "TEXT_MUTED": "#6a737d", "BORDER": "#d5d9de",
