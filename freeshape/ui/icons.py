@@ -1093,7 +1093,7 @@ def draw(name: str, p: QPainter):
 
 CONSTRAINT_GLYPHS = {
     "coincident": "●", "horizontal": "H", "vertical": "V", "parallel": "∥", "perpendicular": "⊥",
-    "tangent": "◡", "equal": "=", "midpoint": "M", "concentric": "◎", "fix": "⚓", "point_on": "●",
+    "tangent": "◡", "equal": "=", "midpoint": "M", "arc_midpoint": "M", "concentric": "◎", "fix": "⚓", "point_on": "●",
     "symmetric": "⋈", "normal": "⊾",
 }
 

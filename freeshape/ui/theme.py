@@ -22,6 +22,7 @@ LIGHT = {
     "PLANE": (0.55, 0.70, 0.90), "SKETCH_FREE": (0.12, 0.42, 0.85), "SKETCH_DEFINED": (0.08, 0.08, 0.10),
     "SKETCH_CONSTRUCTION": (0.45, 0.50, 0.58), "REGION": (0.40, 0.62, 0.95), "OVERLAY_TEXT": "#3c424c",
     "PLANE_LABEL": "#28508f", "ICON_INK": "#3b4250", "SKETCH_REMOTE": (0.15, 0.35, 0.75),
+    "SNAP_MARKER": "#b87913", "SNAP_LABEL_BG": "#fff5db", "SNAP_LABEL_TEXT": "#513800",
 }
 
 DARK = {
@@ -34,6 +35,7 @@ DARK = {
     "PLANE": (0.45, 0.62, 0.90), "SKETCH_FREE": (0.42, 0.68, 1.0), "SKETCH_DEFINED": (0.93, 0.94, 0.96),
     "SKETCH_CONSTRUCTION": (0.62, 0.67, 0.74), "REGION": (0.40, 0.62, 0.95), "OVERLAY_TEXT": "#d6dae0",
     "PLANE_LABEL": "#9cc2f5", "ICON_INK": "#d3d8df", "SKETCH_REMOTE": (0.50, 0.72, 1.0),
+    "SNAP_MARKER": "#ffcc65", "SNAP_LABEL_BG": "#4d3d1d", "SNAP_LABEL_TEXT": "#ffe7b0",
 }
 
 # colours used in inline widget styles: light value -> dark value

@@ -1,0 +1,325 @@
+"""Smart snapping: preview, parametric commit, and bypass."""
+import numpy as np
+from PySide6.QtCore import Qt
+from freeshape.sketch import Sketch
+from freeshape.ui import smart_snap as SS
+from test_sketch_inference import VP, _Ev, _sketcher, _click, _cons
+
+
+def _at(s, q, dx=0, dy=0):
+    x,y = s.scr(VP,q)
+    return float(x+dx),float(y+dy)
+
+
+def test_intersection_commit_and_undo():
+    sk=Sketch()
+    a,b,c,d=[sk.add_point(*q) for q in [(10,10),(30,30),(10,30),(30,10)]]
+    l1,l2=sk.add_line(a,b),sk.add_line(c,d)
+    s=_sketcher(sk)
+    s.set_tool("point")
+    x,y=_at(s,[20,20],2,2)
+    before=sk.to_dict()
+    s.mouse_move(VP,x,y,_Ev())
+    assert s.snap_info[0]=="intersection"
+    assert sk.to_dict()==before
+    s.mouse_press(VP,x,y,_Ev())
+    pts=[p for p in sk.points if p not in before["points"]]
+    assert len(pts)==1
+    assert {r[1] for t,r in _cons(s) if t=="point_on" and r[0]==pts[0]}=={l1,l2}
+    assert np.allclose(sk.P(pts[0]),[20,20])
+    s.undo()
+    assert s.sk.to_dict()==before
+
+
+def test_finite_intersections_and_arc_midpoint():
+    sk=Sketch()
+    a,b,c,d=[sk.add_point(*q) for q in [(10,10),(20,10),(30,0),(30,20)]]
+    l1,l2=sk.add_line(a,b),sk.add_line(c,d)
+    assert SS.crossings(sk,l1,l2)==[]
+    center=sk.add_point(40,40)
+    p1,p2=sk.add_point(50,40),sk.add_point(40,50)
+    arc=sk.add_arc(center,p1,p2)
+    s=_sketcher(sk)
+    s.set_tool("point")
+    target=np.array([40,40])+10/np.sqrt(2)
+    _click(s,*_at(s,target,1,1))
+    matches=[r[0] for t,r in _cons(s) if t=="arc_midpoint" and r[1]==arc]
+    assert len(matches)==1
+    assert np.allclose(sk.P(matches[0]),target,atol=1e-5)
+
+
+def test_rectangle_center_is_parametric():
+    sk=Sketch()
+    ids=[sk.add_point(*q) for q in [(10,10),(30,10),(30,26),(10,26)]]
+    for a,b in zip(ids,ids[1:]+ids[:1]):
+        sk.add_line(a,b)
+    s=_sketcher(sk)
+    s.set_tool("point")
+    before=sk.to_dict()
+    x,y=_at(s,[20,18],1,2)
+    s.mouse_move(VP,x,y,_Ev())
+    assert s.snap_info[0]=="rect_center"
+    assert sk.to_dict()==before
+    s.mouse_press(VP,x,y,_Ev())
+    mid=[c for c in sk.constraints if c["type"]=="midpoint"][0]
+    pid,diag=mid["refs"]
+    assert sk.entities[diag]["helper"]
+    assert np.allclose(sk.P(pid),[20,18])
+    # Constrain the corners to resized positions; the centre must follow.
+    for p,q in zip(ids,[(10,10),(50,10),(50,26),(10,26)]):
+        sk.add_constraint("fix",p,value=q)
+    assert sk.solve()
+    assert np.allclose(sk.P(pid),[30,18],atol=1e-5)
+    restored=Sketch.from_dict(sk.to_dict())
+    assert restored.solve()
+    assert np.allclose(restored.P(pid),[30,18],atol=1e-5)
+
+
+def test_quadrant_and_shift_bypass():
+    sk=Sketch()
+    c=sk.add_point(20,20)
+    cid=sk.add_circle(c,10)
+    s=_sketcher(sk)
+    s.set_tool("point")
+    x,y=_at(s,[30,20],1,1)
+    s.mouse_move(VP,x,y,_Ev())
+    assert s.snap_info[0]=="quadrant"
+
+    class Shift:
+        def modifiers(self):
+            return Qt.ShiftModifier
+    s.mouse_move(VP,x,y,Shift())
+    assert s.snap_info is None
+    assert not s.infer_hits
+    s.mouse_press(VP,x,y,Shift())
+    assert not sk.constraints
+    # Move away from the unconstrained point and test the opposite quadrant.
+    _click(s,*_at(s,[10,20],1,1))
+    assert any(t=="point_on" and r[1]==cid for t,r in _cons(s))
+    assert any(t=="horizontal" and r[0]==c for t,r in _cons(s))
+
+
+def test_screen_pixel_tolerance():
+    src=np.array([0.,0.])
+    screen=lambda q:np.asarray(q)*10
+    assert SS.axis_distance(screen,src,[100,5],"H")==5
+    assert SS.axis_distance(screen,src,[1000,5],"H")==5
+
+
+def test_helper_diagonal_circle_intersection_line_start():
+    sk=Sketch()
+    a,b=sk.add_point(10,10),sk.add_point(50,50)
+    diag=sk.add_line(a,b,True)
+    sk.entities[diag]["helper"]=True
+    c=sk.add_point(30,30)
+    sk.add_constraint("midpoint",c,diag)
+    cid=sk.add_circle(c,10)
+    sk.add_constraint("fix",a,value=[10,10])
+    sk.add_constraint("fix",b,value=[50,50])
+    radius=sk.add_constraint("radius",cid,value=10)
+    s=_sketcher(sk)
+    s.set_tool("line")
+    q=np.array([30.,30.])+10/np.sqrt(2)
+    before=sk.to_dict()
+    x,y=_at(s,q,2,-1)
+    s.mouse_move(VP,x,y,_Ev())
+    assert s.snap_info[0]=="intersection"
+    assert set(s.snap_info[1])=={diag,cid}
+    assert set(s._snap_sources)=={diag,cid}
+    assert sk.to_dict()==before
+    s.mouse_press(VP,x,y,_Ev())
+    p=s.chain_anchor
+    assert p is not None
+    assert {r[1] for t,r in _cons(s) if t=="point_on" and r[0]==p}=={diag,cid}
+    assert np.allclose(sk.P(p),q)
+    _click(s,*_at(s,[50,65]))
+    radius["value"]=15
+    assert sk.solve()
+    expected=np.array([30.,30.])+15/np.sqrt(2)
+    assert np.allclose(sk.P(p),expected,atol=1e-5)
+    assert Sketch.from_dict(sk.to_dict()).solve()
+
+
+def test_helper_diagonal_arc_intersection_rejects_extended_arc():
+    sk=Sketch()
+    a,b=sk.add_point(10,10),sk.add_point(50,50)
+    diag=sk.add_line(a,b,True)
+    sk.entities[diag]["helper"]=True
+    c=sk.add_point(30,30)
+    p1,p2=sk.add_point(40,30),sk.add_point(30,40)
+    aid=sk.add_arc(c,p1,p2)
+    crossings=SS.crossings(sk,diag,aid)
+    assert len(crossings)==1
+    assert np.allclose(crossings[0],np.array([30.,30.])+10/np.sqrt(2))
+
+
+def test_affine_prefilter_matches_original_and_avoids_distant_crossings(monkeypatch):
+    sk = Sketch()
+    for i in range(400):
+        # All bounding boxes contain the origin, but almost all segments
+        # miss it by much more than the pixel tolerance.
+        a = sk.add_point(-100, 100 + i)
+        b = sk.add_point(100 + i, -100)
+        sk.add_line(a, b)
+    a, b = sk.add_point(-10, 0), sk.add_point(10, 0)
+    c, d = sk.add_point(0, -10), sk.add_point(0, 10)
+    l1, l2 = sk.add_line(a, b), sk.add_line(c, d)
+    screen = lambda q: np.asarray(q) * 10
+    original = SS.crossings
+    count = [0]
+    def counted(*args):
+        count[0] += 1
+        return original(*args)
+    monkeypatch.setattr(SS, "crossings", counted)
+    q, ref = SS.direct_targets(sk, screen, [0, 0], rectangles=[], affine=True)
+    assert np.allclose(q, [0, 0])
+    assert ref[0] == "intersection"
+    assert count[0] < 100
+
+
+def test_arc_midpoint_has_distinct_serialized_constraint():
+    sk = Sketch()
+    c, a, b = [sk.add_point(*q) for q in [(0,0),(10,0),(0,10)]]
+    arc = sk.add_arc(c,a,b)
+    m = sk.add_point(5,5)
+    for p in (c,a,b):
+        sk.add_constraint("fix", p, value=list(sk.P(p)))
+    sk.add_constraint("midpoint",m,arc)
+    assert sk.solve()
+    assert np.allclose(sk.P(m),[5,5])
+    sk.constraints[-1]["type"] = "arc_midpoint"
+    restored = Sketch.from_dict(sk.to_dict())
+    assert restored.solve()
+    assert np.allclose(restored.P(m),[10/np.sqrt(2)]*2,atol=1e-5)
+
+
+def test_explicit_inferences_survive_coordinate_copy():
+    sk = Sketch()
+    src = sk.add_point(12, 20)
+    s = _sketcher(sk)
+    uv = np.array([30., 20.])
+    pid = s._point_at(uv.copy(), None, (("horizontal", src),))
+    assert any(t == "horizontal" and set(r) == {pid, src} for t,r in _cons(s))
+
+
+def test_projected_arc_endpoint_only_reuses_matching_point():
+    for target_y, reuse in ((20, True), (25, False)):
+        sk = Sketch()
+        c, a, b = [sk.add_point(*q) for q in [(10,10),(20,10),(10,target_y)]]
+        for pid in (c,a,b):
+            sk.add_constraint("fix", pid, value=list(sk.P(pid)))
+        s = _sketcher(sk)
+        s._offer_arc = lambda *args: None
+        s.set_tool("arc_center")
+        for pid in (c,a,b):
+            _click(s, *_at(s, sk.P(pid)))
+        arc = next(e for e in sk.entities.values() if e["type"] == "arc")
+        ends = {arc["p1"], arc["p2"]}
+        assert (b in ends) == reuse
+        assert a in ends
+        end = next(iter(ends - {a}))
+        assert np.allclose(sk.P(end), [10,20])
+
+
+def test_affine_prefilter_preserves_candidates_with_skewed_projection():
+    sk = Sketch()
+    a,b,c,d = [sk.add_point(*q) for q in [(-10,-10),(10,10),(-10,10),(10,-10)]]
+    sk.add_line(a,b)
+    sk.add_line(c,d)
+    center=sk.add_point(16,7)
+    sk.add_circle(center,4)
+    sk.add_arc(center,sk.add_point(20,7),sk.add_point(16,11))
+    screen=lambda q: np.array([[8.,3.],[-2.,5.]]) @ q + [50.,120.]
+    for pos in [(0,0),(16,11),(20,7),(16,3),(12,7),(18.8,9.8),(30,30)]:
+        xy=screen(np.array(pos))
+        expected=SS.direct_targets(sk,screen,xy,rectangles=[],affine=False)
+        actual=SS.direct_targets(sk,screen,xy,rectangles=[],affine=True)
+        if expected is None:
+            assert actual is None
+        else:
+            assert actual is not None
+            assert actual[1] == expected[1]
+            assert np.allclose(actual[0],expected[0])
+
+
+def test_split_arc_preserves_original_midpoint_and_parametric_span():
+    from freeshape import sketch_ops as OPS
+
+    # Split away from the midpoint, including a major arc across the angle seam.
+    for sweep in (90, 270):
+        sk = Sketch()
+        def on_arc(angle, radius=10):
+            t = np.deg2rad(angle)
+            return radius * np.array([np.cos(t), np.sin(t)])
+
+        c = sk.add_point(0, 0)
+        a = sk.add_point(*on_arc(0))
+        b = sk.add_point(*on_arc(sweep))
+        arc = sk.add_arc(c, a, b)
+        m = sk.add_point(*on_arc(sweep / 2))
+        for pid in (c, a, b):
+            sk.add_constraint("fix", pid, value=list(sk.P(pid)))
+        mid = sk.add_constraint("arc_midpoint", m, arc)
+        assert sk.solve()
+        first, second = OPS.split(sk, arc, on_arc(sweep / 3))
+        helper = mid["refs"][1]
+        assert helper not in (first, second)
+        assert sk.entities[helper] == {
+            "type": "arc", "c": c, "p1": a, "p2": b,
+            "construction": True, "helper": True,
+        }
+        assert sk.entities[first]["p2"] == sk.entities[second]["p1"]
+        assert np.allclose(sk.P(m), on_arc(sweep / 2), atol=1e-6)
+        # The saved sketch retains a live constraint to the original span.
+        restored = Sketch.from_dict(sk.to_dict())
+        for con in restored.constraints:
+            if con["type"] == "fix" and con["refs"] == [b]:
+                con["value"] = on_arc(sweep - 20).tolist()
+        assert restored.solve()
+        assert np.allclose(restored.P(m), on_arc((sweep - 20) / 2), atol=1e-5)
+
+
+def _cached_rectangle():
+    sk = Sketch()
+    ids = [sk.add_point(*q) for q in [(10,10),(30,10),(30,26),(10,26)]]
+    lines = [sk.add_line(a,b) for a,b in zip(ids,ids[1:]+ids[:1])]
+    for i, line in enumerate(lines):
+        sk.add_constraint("horizontal" if i % 2 == 0 else "vertical", line)
+    s = _sketcher(sk)
+    s.set_tool("point")
+    s.mouse_move(VP, *_at(s, [20,18]), _Ev())
+    assert s.snap_info[0] == "rect_center"
+    assert s._rectangle_snap_cache is not None
+    return s, ids, lines
+
+
+def test_rectangle_snap_cache_invalidated_during_drag_and_undo():
+    s, ids, _ = _cached_rectangle()
+    s.set_tool("select")
+    s.mouse_press(VP, *_at(s, s.sk.P(ids[2])), _Ev())
+    s.mouse_drag(VP, *_at(s, [40,36]), _Ev())
+    assert s._rectangle_snap_cache is None
+    s.mouse_release(VP, *_at(s, [40,36]), _Ev(), True)
+    centres = list(SS.rectangle_centres(s.sk))
+    assert len(centres) == 1
+    new = centres[0][0]
+    assert not np.allclose(new, [20,18])
+    s.set_tool("point")
+    s.mouse_move(VP, *_at(s, new), _Ev())
+    assert s.snap_info[0] == "rect_center"
+    assert np.allclose(s.cursor_uv, new)
+    s.undo()
+    assert s._rectangle_snap_cache is None
+    s.mouse_move(VP, *_at(s, [20,18]), _Ev())
+    assert s.snap_info[0] == "rect_center"
+
+
+def test_rectangle_snap_cache_invalidated_by_dimension(monkeypatch):
+    s, _, lines = _cached_rectangle()
+    monkeypatch.setattr(s, "_dim_spec", lambda *args: ("distance", [lines[0]], 30.0))
+    assert s._create_dimension(None, None, None) is not None
+    assert s._rectangle_snap_cache is None
+    centre = list(SS.rectangle_centres(s.sk))[0][0]
+    s.mouse_move(VP, *_at(s, centre), _Ev())
+    assert s.snap_info[0] == "rect_center"
+    assert np.allclose(s.cursor_uv, centre)

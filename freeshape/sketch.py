@@ -48,7 +48,7 @@ POINT_KEYS = ("p1", "p2", "c", "p", "a")       # entity keys that hold one point
 CONSTRAINT_LABELS = {
     "coincident": "Coincident", "point_on": "Coincident", "horizontal": "Horizontal",
     "vertical": "Vertical", "parallel": "Parallel", "perpendicular": "Perpendicular",
-    "equal": "Equal", "tangent": "Tangent", "concentric": "Concentric", "midpoint": "Midpoint",
+    "equal": "Equal", "tangent": "Tangent", "concentric": "Concentric", "midpoint": "Midpoint", "arc_midpoint": "Arc midpoint",
     "fix": "Fix", "symmetric": "Symmetric", "distance": "Distance", "hdistance": "Horizontal distance",
     "vdistance": "Vertical distance", "radius": "Radius", "diameter": "Diameter", "angle": "Angle",
     "normal": "Normal",
@@ -597,6 +597,19 @@ class Sketch:
             p, l = R
             a, b = ents[l]["p1"], ents[l]["p2"]
             return (lambda g: list(pt(g, p) - (pt(g, a) + pt(g, b)) / 2)), pkeys(p, a, b)
+        if t == "arc_midpoint" and typ(1) == "arc":
+            p, l = R
+            a, b, c = (ents[l][k] for k in ("p1", "p2", "c"))
+
+            def f(g):
+                center = pt(g, c)
+                u, w = pt(g, a) - center, pt(g, b) - center
+                start = math.atan2(u[1], u[0])
+                sweep = (math.atan2(w[1], w[0]) - start) % (2 * math.pi)
+                t0 = start + sweep / 2
+                q = center + np.linalg.norm(u) * np.array([math.cos(t0), math.sin(t0)])
+                return list(pt(g, p) - q)
+            return f, pkeys(p, a, b, c)
         if t == "tangent":
             a, b = R
             if typ(0) != "line" and typ(1) == "line":

@@ -257,6 +257,15 @@ def split(sk: Sketch, eid: str, at) -> list:
         if not (1e-3 < ang < span - 1e-3):
             raise ValueError("Click part-way along the arc, not at an end")
         q = sk.add_point(*(C + r * np.array([math.cos(a1 + ang), math.sin(a1 + ang)])))
+        # A snapped midpoint belongs to the original span, not either half.
+        # Keep its centre and original endpoints shared with the visible arcs.
+        whole = None
+        for c in sk.constraints:
+            if c["type"] == "arc_midpoint" and c["refs"][1] == eid:
+                if whole is None:
+                    whole = sk.add_arc(e["c"], e["p1"], p2, True)
+                    sk.entities[whole]["helper"] = True
+                c["refs"][1] = whole
         e["p2"] = q
         second = sk.add_arc(e["c"], q, p2, cons)
     sk.solve()
@@ -725,7 +734,7 @@ def _copy(sk: Sketch, ents, transform, keep=frozenset(), orient_flip=False, copy
     return pmap, emap
 
 
-SHAPE_CONS_ROT = ("coincident", "point_on", "parallel", "perpendicular", "equal", "tangent", "concentric", "midpoint")
+SHAPE_CONS_ROT = ("coincident", "point_on", "parallel", "perpendicular", "equal", "tangent", "concentric", "midpoint", "arc_midpoint")
 SHAPE_CONS_LIN = SHAPE_CONS_ROT + ("horizontal", "vertical")
 
 

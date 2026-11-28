@@ -15,6 +15,7 @@ from ..expr import with_unit
 from ..sketch import Sketch, ORIGIN, DIMENSIONS, CONSTRAINT_LABELS
 from . import theme
 from . import boxsel
+from . import smart_snap as SS
 from .icons import CONSTRAINT_GLYPHS
 from .numparse import parse_number, fmt, has_vars
 from .. import sketch_ops as OPS
@@ -120,6 +121,11 @@ class Sketcher:
         self.on_change = on_change
         self.on_tool_changed = on_tool_changed
         self.tool = "select"
+        self.snap_enabled = True
+        self.snap_points = True
+        self.snap_guides = True
+        self.snap_relations = True
+        self.snap_radius = SS.CAPTURE_PX
         self.construction = False
         self.selection: list = []          # ids of points / entities / constraints
         self.hover = None
@@ -157,9 +163,11 @@ class Sketcher:
         self.dim_first = None
         self.dim_second = None
         self._infer_src = []    # points / line midpoints hovered recently (alignment sources)
-        self._first_cons = []   # inference constraints of the first click of a two-click tool
         self.infer_hits = []
         self._infer_cons = []
+        self._snap_disabled = False
+        self._snap_sources = []
+        self._rectangle_snap_cache = None
 
     def set_tool(self, tool):
         self._end_editor()
@@ -171,6 +179,8 @@ class Sketcher:
             keep = list(self.selection) if (tool in CONSTRAINT_TOOLS or tool in PICK_FIRST_TOOLS) else []
         self.tool = tool
         self._reset_tool_state()
+        self.snap_info = None
+        self.cursor_uv = None
         self.cons_picks = keep if tool in CONSTRAINT_TOOLS else []
         self.selection = keep
         if self.on_tool_changed:
@@ -208,11 +218,17 @@ class Sketcher:
         self.selection = []
         self._reset_tool_state()
         self.sk.solve()
-        self.on_change(True)
+        self._notify_change(True)
+
+    def _notify_change(self, final):
+        # Dragging and dimension edits already solve the sketch before notifying.
+        # Invalidate here as well as for normal edits and undo/redo.
+        self._rectangle_snap_cache = None
+        self.on_change(final)
 
     def changed(self, final=True):
         self.sk.solve()
-        self.on_change(final)
+        self._notify_change(final)
 
     # ================================================================== coordinates & hits
     def uv(self, vp, x, y):
@@ -299,28 +315,46 @@ class Sketcher:
         self.infer_tan = None       # circle / arc the line being drawn is tangent to
         self.model_hover = None     # (part id, edge index) of the part edge being snapped to
         self._snap_vp = vp
+        self._snap_sources = []
+        if getattr(self, "_snap_disabled", False) or not self.snap_enabled:
+            return uv, None
         if uv is None:
             return None, None
         h = self.hit(vp, x, y, kinds=("point",), exclude=exclude)
         if h:
             self._acquire_source(h[1], anchor_uv)
+            self._snap_sources = [eid for eid in self.sk.entities
+                                  if h[1] in self.sk.entity_points(eid)]
             return np.array(self.sk.points[h[1]]), h
-        mid = self._hit_midpoint(vp, x, y, exclude)
-        if mid:
-            self._acquire_source(("mid", mid[0]), anchor_uv)
-            return mid[1], ("mid", mid[0])
+        screen = lambda q: self.scr(vp, q)
+        xy = np.array([x, y], float)
+        if self.snap_points and self._rectangle_snap_cache is None:
+            self._rectangle_snap_cache = list(SS.rectangle_centres(self.sk))
+        target = SS.direct_targets(self.sk, screen, xy, exclude, self.snap_radius,
+                                   self._rectangle_snap_cache,
+                                   affine=not getattr(vp.cam, "perspective", False)) if self.snap_points else None
+        if target and self.snap_relations and self.tool == "line" and anchor_uv is not None and target[1][0] == "quadrant":
+            tangent = self._tangent_infer(vp, x, y, uv, np.asarray(anchor_uv, float), exclude)
+            if tangent and np.linalg.norm(screen(tangent[0])-xy) < np.linalg.norm(screen(target[0])-xy):
+                target = None
+        if target:
+            q, ref = target
+            self._acquire_source(ref, anchor_uv)
+            self._snap_sources = self._ref_entities(ref)
+            return q, ref
         mp = self._model_point_hit(vp, x, y)
         if mp:
             m_uv, key = mp
             self.model_hover = key
             return m_uv, ("mpt", tuple(m_uv), key)
-        if self.tool == "line" and anchor_uv is not None:
+        if self.snap_relations and self.tool == "line" and anchor_uv is not None:
             tan = self._tangent_infer(vp, x, y, uv, np.asarray(anchor_uv, float), exclude)
             if tan:
                 t_uv, eid, kind = tan
                 self.infer_tan = eid
                 self.infer_hits.append((np.asarray(anchor_uv, float), "T"))
                 return t_uv, (("tan", eid) if kind == "on" else None)
+        curve_hit = self.hit(vp, x, y, kinds=("entity",), exclude=exclude)
         # candidate alignment sources: the line's start point first, then points/midpoints hovered earlier
         cands = []
         if anchor_uv is not None:
@@ -330,10 +364,12 @@ class Sketcher:
             if s_uv is not None:
                 cands.append((ref, s_uv))
         pick = {}
-        for ref, s_uv in cands:
+        for ref, s_uv in cands if self.snap_guides else ():
             axis = self._axis_hit(vp, s_uv, x, y)
-            if axis and axis not in pick:
-                pick[axis] = (ref, s_uv)
+            if axis:
+                distance = SS.axis_distance(screen, s_uv, xy, axis)
+                if axis not in pick or distance < SS.axis_distance(screen, pick[axis][1], xy, axis):
+                    pick[axis] = (ref, s_uv)
         if pick:
             u, v = uv
             if "H" in pick:
@@ -347,10 +383,20 @@ class Sketcher:
                     self.infer = axis       # the line being drawn gets its own horizontal/vertical constraint
                 else:
                     self._infer_cons.append(("horizontal" if axis == "H" else "vertical", ref))
-        h = self.hit(vp, x, y, kinds=("entity",), exclude=exclude)
-        if h and self.sk.entities[h[1]]["type"] != "point" and not pick:
+        h = curve_hit
+        if pick and len(pick) == 1 and h:
+            axis = next(iter(pick))
+            qs = SS.guide_crossings(self.sk, h[1], uv, axis)
+            if qs:
+                q = min(qs, key=lambda q: np.linalg.norm(screen(q) - xy))
+                if np.linalg.norm(screen(q) - xy) <= 12:
+                    self._snap_sources = [h[1]]
+                    return q, ("on", h[1])
+        if h and self.sk.entities[h[1]]["type"] in ("line", "circle", "arc") and not pick:
             uv = self._project_on(h[1], uv)
-            return uv, ("on", h[1])
+            if SS.contains(self.sk, h[1], uv):
+                self._snap_sources = [h[1]]
+                return uv, ("on", h[1])
         me = self._model_edge_hit(vp, x, y) if not pick else (
             self._model_edge_on_guide(vp, x, y, uv, pick) if len(pick) == 1 else None)
         if me:
@@ -529,60 +575,41 @@ class Sketcher:
         if ref in self._infer_src:
             self._infer_src.remove(ref)
         self._infer_src.append(ref)
-        del self._infer_src[:-3]
+        del self._infer_src[:-8]
+
+    def _ref_entities(self, ref):
+        if ref[0] == "intersection":
+            return list(ref[1])
+        if ref[0] == "rect_center":
+            return list(ref[2])
+        return [ref[1]]
 
     def _src_uv(self, ref):
-        sk = self.sk
-        if isinstance(ref, tuple):
-            e = sk.entities.get(ref[1])
-            if not e or e["type"] != "line":
-                return None
-            return (sk.P(e["p1"]) + sk.P(e["p2"])) / 2
-        return sk.P(ref) if ref in sk.points else None
+        return SS.ref_position(self.sk, ref)
 
     def _axis_hit(self, vp, src_uv, x, y):
-        """'H' / 'V' when the cursor is (on screen) nearly horizontal / vertical from src_uv."""
-        sa = self.scr(vp, src_uv)
-        m = np.array([x - sa[0], y - sa[1]])
-        nm = np.linalg.norm(m)
-        if nm <= 12:
+        """Fixed-pixel alignment tolerance, independent of guide length and zoom."""
+        screen = lambda q: self.scr(vp, q)
+        xy = np.array([x, y])
+        if np.linalg.norm(screen(src_uv) - xy) <= 12:
             return None
-        su = self.scr(vp, src_uv + np.array([1.0, 0])) - sa
-        sv = self.scr(vp, src_uv + np.array([0, 1.0])) - sa
-        if abs(_cross2(su / np.linalg.norm(su), m / nm)) < 0.06:
-            return "H"
-        if abs(_cross2(sv / np.linalg.norm(sv), m / nm)) < 0.06:
-            return "V"
-        return None
-
-    def _hit_midpoint(self, vp, x, y, exclude=()):
-        best = (8.0, None)
-        for eid, e in self.sk.entities.items():
-            if eid in exclude or e["type"] != "line":
-                continue
-            m = (self.sk.P(e["p1"]) + self.sk.P(e["p2"])) / 2
-            s = self.scr(vp, m)
-            d = math.hypot(s[0] - x, s[1] - y)
-            if d < best[0]:
-                best = (d, (eid, m))
-        return best[1]
+        d, axis = min((SS.axis_distance(screen, src_uv, xy, a), a) for a in ("H", "V"))
+        return axis if d <= self.snap_radius * SS.GUIDE_PX / SS.CAPTURE_PX else None
 
     def _source_point(self, ref):
-        """The sketch point behind an inference source; a line midpoint gets a construction point."""
-        sk = self.sk
-        if isinstance(ref, tuple):
-            eid = ref[1]
-            e = sk.entities.get(eid)
-            if not e:
-                return None
-            for c in sk.constraints:
-                if c["type"] == "midpoint" and c["refs"][1] == eid:
+        """Materialize an awakened virtual point only on commit."""
+        if isinstance(ref, str):
+            return ref if ref in self.sk.points else None
+        q = self._src_uv(ref)
+        if q is None:
+            return None
+        if ref[0] == "mid":
+            for c in self.sk.constraints:
+                if c["type"] == self._midpoint_type(ref[1]) and c["refs"][1] == ref[1]:
                     return c["refs"][0]
-            m = sk.add_point(*((sk.P(e["p1"]) + sk.P(e["p2"])) / 2))
-            sk.add_constraint("midpoint", m, eid)
-            sk.add_point_entity(m)
-            return m
-        return ref if ref in sk.points else None
+        pid = self._point_at(q, ref)
+        self.sk.add_point_entity(pid)
+        return pid
 
     def _project_on(self, eid, uv):
         e = self.sk.entities[eid]
@@ -599,7 +626,10 @@ class Sketcher:
             return c + (v / n * r if n > 1e-12 else np.array([r, 0]))
         return uv
 
-    def _point_at(self, uv, snap, cons=None):
+    def _midpoint_type(self, eid):
+        return "arc_midpoint" if self.sk.entities[eid]["type"] == "arc" else "midpoint"
+
+    def _point_at(self, uv, snap, cons=()):
         """Create (or reuse) a point for a click; returns pid. `cons` are the horizontal/vertical
         inferences (from snap) to apply to a newly created point."""
         if snap and snap[0] == "point":
@@ -615,7 +645,23 @@ class Sketcher:
         if snap and snap[0] in ("on", "tan"):
             self.sk.add_constraint("point_on", pid, snap[1])
         elif snap and snap[0] == "mid":
-            self.sk.add_constraint("midpoint", pid, snap[1])
+            self.sk.add_constraint(self._midpoint_type(snap[1]), pid, snap[1])
+        elif snap and snap[0] == "intersection":
+            for eid in snap[1]:
+                self.sk.add_constraint("point_on", pid, eid)
+        elif snap and snap[0] == "quadrant":
+            eid, axis = snap[1:3]
+            self.sk.add_constraint("point_on", pid, eid)
+            self.sk.add_constraint(axis, self.sk.entities[eid]["c"], pid)
+        elif snap and snap[0] == "rect_center":
+            a, b = snap[1]
+            diag = next((eid for eid, e in self.sk.entities.items()
+                         if e["type"] == "line" and e.get("helper")
+                         and {e["p1"], e["p2"]} == {a, b}), None)
+            if diag is None:
+                diag = self.sk.add_line(a, b, True)
+                self.sk.entities[diag]["helper"] = True
+            self.sk.add_constraint("midpoint", pid, diag)
         for ctype, ref in (cons or []):
             src = self._source_point(ref)
             if src and src != pid:
@@ -630,6 +676,7 @@ class Sketcher:
             self._prompt_label = None
         t = self.tool
         mods = e.modifiers()
+        self._snap_disabled = bool(mods & Qt.ShiftModifier) and t in DRAW_TOOLS | {"slot"}
         if t == "select":
             h = self.hit(vp, x, y)
             if h is None:
@@ -750,7 +797,7 @@ class Sketcher:
             for c in sk.constraints:
                 if c["id"] == i:
                     c["pos"] = uv.tolist()
-            self.on_change(False)
+            self._notify_change(False)
             return
         # restore original then apply the drag delta (avoids drift)
         base = Sketch.from_dict(d["orig"])
@@ -785,7 +832,7 @@ class Sketcher:
                 if eid in sk.entities and "r" in ent:
                     sk.entities[eid]["r"] = ent["r"]
             sk.solve(ignore=d.get("bad0", ()))
-        self.on_change(False)
+        self._notify_change(False)
 
     def _box_pick(self, vp, box, additive):
         """Select the curves and loose points inside a dragged box: left-to-right takes what is fully enclosed,
@@ -832,6 +879,7 @@ class Sketcher:
                     self.selection.remove(d["id"])
         if self.tool in DRAW_TOOLS and moved and self.temp and self.tool in ("circle", "rect", "center_rect", "hexagon", "line"):
             # click-drag-release drawing
+            self._snap_disabled = bool(e is not None and e.modifiers() & Qt.ShiftModifier)
             self._draw_click(vp, x, y)
 
     PASSIVE_TOOLS = ("select", "sk_fillet", "sk_chamfer", "offset", "sk_split", "sk_extend", "sk_mirror",
@@ -847,6 +895,7 @@ class Sketcher:
         return True
 
     def _mouse_move(self, vp, x, y, e):
+        self._snap_disabled = bool(e is not None and e.modifiers() & Qt.ShiftModifier) and self.tool in DRAW_TOOLS | {"slot"}
         anchor = None
         if self.tool == "line" and self.chain_anchor is not None:
             anchor = self.sk.P(self.chain_anchor) if isinstance(self.chain_anchor, str) else self.chain_anchor
@@ -1219,20 +1268,19 @@ class Sketcher:
             return True
         if t in ("rect", "center_rect"):
             if not self.temp:
-                self.temp = [(uv, snap)]
-                self._first_cons = icons
+                self.temp = [(uv, snap, tuple(icons))]
                 return True
-            (u0, s0) = self.temp[0]
+            (u0, s0, first_cons) = self.temp[0]
             if np.linalg.norm(uv - u0) < 1e-9:
                 return True
             self.push_undo()
             if t == "rect":
-                a = self._point_at(u0, s0, self._first_cons)
+                a = self._point_at(u0, s0, first_cons)
                 c = self._point_at(uv, snap, icons)
                 b = sk.add_point(uv[0], u0[1])
                 d = sk.add_point(u0[0], uv[1])
             else:
-                ctr = self._point_at(u0, s0, self._first_cons)
+                ctr = self._point_at(u0, s0, first_cons)
                 half = uv - u0
                 a = sk.add_point(*(u0 - half))
                 c = self._point_at(uv, snap, icons)
@@ -1262,16 +1310,15 @@ class Sketcher:
             return True
         if t == "hexagon":
             if not self.temp:
-                self.temp = [(uv, snap)]
-                self._first_cons = icons
+                self.temp = [(uv, snap, tuple(icons))]
                 return True
-            c_uv, cs = self.temp[0]
+            c_uv, cs, first_cons = self.temp[0]
             r = float(np.linalg.norm(uv - c_uv))
             if r < 1e-6:
                 return True
             ang, level = _hexagon_angle(uv - c_uv)
             self.push_undo()
-            ctr = self._point_at(c_uv, cs, self._first_cons)
+            ctr = self._point_at(c_uv, cs, first_cons)
             corner_uv = np.asarray(c_uv, float) + r * np.array([math.cos(ang), math.sin(ang)])
             pts = [self._point_at(corner_uv, snap, icons) if level is None else sk.add_point(*corner_uv)]
             for k in range(1, 6):
@@ -1297,15 +1344,14 @@ class Sketcher:
             return True
         if t == "line_mid":
             if not self.temp:
-                self.temp = [(uv, snap)]
-                self._first_cons = icons
+                self.temp = [(uv, snap, tuple(icons))]
                 return True
-            m_uv, ms = self.temp[0]
+            m_uv, ms, first_cons = self.temp[0]
             if np.linalg.norm(uv - m_uv) < 1e-9:
                 return True
             self.temp = []
             self.push_undo()
-            mid = self._point_at(m_uv, ms, self._first_cons)
+            mid = self._point_at(m_uv, ms, first_cons)
             b = self._point_at(uv, snap, icons)
             a = sk.add_point(*(2 * np.asarray(m_uv, float) - uv))
             lid = sk.add_line(a, b, cons)
@@ -1324,13 +1370,11 @@ class Sketcher:
             if len(self.temp) < 2:
                 if self.temp and np.linalg.norm(uv - self.temp[0][0]) < 1e-9:
                     return True
-                if not self.temp:
-                    self._first_cons = icons
-                else:
+                if self.temp:
                     self._rect3_level = self.infer       # the first side snapped horizontal / vertical
-                self.temp.append((uv, snap))
+                self.temp.append((uv, snap, tuple(icons)))
                 return True
-            (u0, s0), (u1, s1) = self.temp
+            (u0, s0, first_cons), (u1, s1, second_cons) = self.temp
             side = u1 - u0
             L = float(np.linalg.norm(side))
             nrm = np.array([-side[1], side[0]]) / L
@@ -1339,8 +1383,8 @@ class Sketcher:
                 return True
             self.temp = []
             self.push_undo()
-            a = self._point_at(u0, s0, self._first_cons)
-            b = self._point_at(u1, s1)
+            a = self._point_at(u0, s0, first_cons)
+            b = self._point_at(u1, s1, second_cons)
             c = sk.add_point(*(u1 + nrm * w))
             d = sk.add_point(*(u0 + nrm * w))
             l1, l2, l3, l4 = (sk.add_line(a, b, cons), sk.add_line(b, c, cons), sk.add_line(c, d, cons),
@@ -1365,7 +1409,7 @@ class Sketcher:
                 if not (snap and snap[0] == "point" and OPS.end_direction(sk, snap[1])):
                     self._flash(vp, "Click the end of a line or arc to carry on from")
                     return True
-                self.temp = [(uv, snap)]
+                self.temp = [(uv, snap, tuple(icons))]
                 return True
             start = self.temp[0][1][1]
             if np.linalg.norm(uv - sk.P(start)) < 1e-9:
@@ -1382,33 +1426,28 @@ class Sketcher:
             self._offer_arc(vp, aid)
             return True
         if t == "conic":
-            self.temp.append((uv, snap))
-            if len(self.temp) == 1:
-                self._first_cons = icons
+            self.temp.append((uv, snap, tuple(icons)))
             if len(self.temp) < 3:
                 return True
-            (au, as_), (bu, bs), (su, _ss) = self.temp
+            (au, as_, first_cons), (bu, bs, second_cons), (su, _ss, _) = self.temp
             self.temp = []
             if np.linalg.norm(bu - au) < 1e-9:
                 return True
-            first_cons = self._first_cons
             made = {}
 
             def make(rho, au=au, as_=as_, bu=bu, bs=bs, su=su):
                 pa = self._point_at(au, as_, first_cons)
-                pb = self._point_at(bu, bs)
+                pb = self._point_at(bu, bs, second_cons)
                 made["id"] = OPS.conic(self.sk, au, bu, su, rho, cons, pa, pb)
             self._prompt(vp, su, "Conic rho (a number from 0 to 1)", 0.5, make, minimum=1e-6)
             return True
         if t == "ellipse_arc":
             if len(self.temp) == 1 and np.linalg.norm(uv - self.temp[0][0]) < 1e-9:
                 return True
-            self.temp.append((uv, snap))
-            if len(self.temp) == 1:
-                self._first_cons = icons
+            self.temp.append((uv, snap, tuple(icons)))
             if len(self.temp) < 5:
                 return True
-            (cu, cs), (au, as_), (wu, _ws), (s1u, s1), (s2u, s2) = self.temp
+            (cu, cs, first_cons), (au, as_, second_cons), (wu, _ws, _), (s1u, s1, c1), (s2u, s2, c2) = self.temp
             self.temp = []
             ax = au - cu
             A = float(np.linalg.norm(ax))
@@ -1425,10 +1464,10 @@ class Sketcher:
             if np.linalg.norm(q1 - q2) < 1e-9:
                 self.undo_stack.pop()
                 return True
-            c = self._point_at(cu, cs, self._first_cons)
-            a = self._point_at(au, as_)
-            p1 = self._point_at(q1, s1 if s1 and s1[0] == "point" else None)
-            p2 = self._point_at(q2, s2 if s2 and s2[0] == "point" else None)
+            c = self._point_at(cu, cs, first_cons)
+            a = self._point_at(au, as_, second_cons)
+            p1 = self._point_at(q1, s1 if s1 and s1[0] == "point" else None, c1 if np.linalg.norm(q1 - s1u) < 1e-7 else ())
+            p2 = self._point_at(q2, s2 if s2 and s2[0] == "point" else None, c2 if np.linalg.norm(q2 - s2u) < 1e-7 else ())
             eid = sk.add_ellipse_arc(c, a, r, p1, p2, cons)
             sk.add_line(c, a, True)                 # the long axis, as construction (as the Ellipse tool)
             self.changed(True)
@@ -1436,17 +1475,15 @@ class Sketcher:
             return True
         if t in ("polygon", "polygon_out"):
             if not self.temp:
-                self.temp = [(uv, snap)]
-                self._first_cons = icons
+                self.temp = [(uv, snap, tuple(icons))]
                 return True
-            c_uv, cs = self.temp[0]
+            c_uv, cs, first_cons = self.temp[0]
             c_uv = np.asarray(c_uv, float)
             size = float(np.linalg.norm(uv - c_uv))
             if size < 1e-6:
                 return True
             self.temp = []
             inscribed = t == "polygon"
-            first_cons = self._first_cons
             made = {}
 
             def make(n, c_uv=c_uv, cs=cs, d=uv - c_uv):
@@ -1466,41 +1503,46 @@ class Sketcher:
             return True
         if t == "circle":
             if not self.temp:
-                self.temp = [(uv, snap)]
-                self._first_cons = icons
+                self.temp = [(uv, snap, tuple(icons))]
                 return True
-            c_uv, cs = self.temp[0]
+            c_uv, cs, first_cons = self.temp[0]
             r = float(np.linalg.norm(uv - c_uv))
             if r < 1e-6:
                 return True
             self.push_undo()
-            c = self._point_at(c_uv, cs, self._first_cons)
+            c = self._point_at(c_uv, cs, first_cons)
             cid = sk.add_circle(c, r, cons)
+            if snap and snap[0] in ("point", "mid", "intersection", "quadrant", "rect_center", "on"):
+                rim = self._point_at(uv, snap, icons)
+                if rim != c:
+                    sk.add_constraint("point_on", rim, cid)
+                    if not any(rim in sk.entity_points(eid) for eid in sk.entities):
+                        sk.add_point_entity(rim)
             self.temp = []
             self.changed(True)
             ctr = sk.P(c)
             self._offer_dims(vp, [("diameter", [cid], 2 * sk.radius(cid), ctr + np.array([r, r]) * 0.9)])
             return True
         if t == "arc3":
-            self.temp.append((uv, snap))
+            self.temp.append((uv, snap, tuple(icons)))
             if len(self.temp) < 3:
                 return True
-            (p1, s1), (p2, s2), (p3, s3) = self.temp
+            (p1, s1, c1), (p2, s2, c2), (p3, s3, c3) = self.temp
             ctr = _circumcenter(p1, p2, p3)
             self.temp = []
             if ctr is None:
                 return True
             self.push_undo()
             if not _ccw_contains(ctr, p1, p2, p3):
-                p1, s1, p2, s2 = p2, s2, p1, s1
+                p1, s1, c1, p2, s2, c2 = p2, s2, c2, p1, s1, c1
             c = sk.add_point(*ctr)
-            a = self._point_at(p1, s1)
-            b = self._point_at(p2, s2)
+            a = self._point_at(p1, s1, c1)
+            b = self._point_at(p2, s2, c2)
             aid = sk.add_arc(c, a, b, cons)
             # keep the third point: a real point on the arc, so it can be dragged, attached to other geometry
             # or dimensioned, and the arc follows (the arc is defined by its three points, not just two + radius)
             if not (s3 and s3[0] == "point" and s3[1] in (a, b)):
-                m = self._point_at(p3, s3)
+                m = self._point_at(p3, s3, c3)
                 if m not in (a, b, c):
                     sk.add_constraint("point_on", m, aid)
                     if m not in sk.points or not any(m in sk.entity_points(e) for e in sk.entities):
@@ -1517,15 +1559,13 @@ class Sketcher:
                 if math.hypot(last[0] - x, last[1] - y) < 4:
                     self._finish_spline(vp)                       # the last point clicked again: done
                     return True
-            self.temp.append((uv, snap))
+            self.temp.append((uv, snap, tuple(icons)))
             return True
         if t == "ellipse":
-            self.temp.append((uv, snap))
-            if len(self.temp) == 1:
-                self._first_cons = icons
+            self.temp.append((uv, snap, tuple(icons)))
             if len(self.temp) < 3:
                 return True
-            (cu, cs), (au, as_), _ = self.temp
+            (cu, cs, first_cons), (au, as_, second_cons), _ = self.temp
             self.temp = []
             ax = au - cu
             A = float(np.linalg.norm(ax))
@@ -1536,8 +1576,8 @@ class Sketcher:
             if r < 1e-9:
                 return True
             self.push_undo()
-            c = self._point_at(cu, cs, self._first_cons)
-            a = self._point_at(au, as_)
+            c = self._point_at(cu, cs, first_cons)
+            a = self._point_at(au, as_, second_cons)
             eid = sk.add_ellipse(c, a, r, cons)
             sk.add_line(c, a, True)                 # the long axis, as construction: dimension or align it
             self.changed(True)
@@ -1552,14 +1592,14 @@ class Sketcher:
                 self.changed(True)
             return True
         if t == "arc_center":
-            self.temp.append((uv, snap))
+            self.temp.append((uv, snap, tuple(icons)))
             if len(self.temp) == 2:
                 c = self.temp[0][0]
                 self._last_ang = math.atan2(uv[1] - c[1], uv[0] - c[0])
                 self.arc_sweep = 0.0
             if len(self.temp) < 3:
                 return True
-            (cu, cs), (p1, s1), (p2, s2) = self.temp
+            (cu, cs, first_cons), (p1, s1, c1), (p2, s2, c2) = self.temp
             r = np.linalg.norm(p1 - cu)
             v = p2 - cu
             if np.linalg.norm(v) > 1e-9:
@@ -1568,9 +1608,14 @@ class Sketcher:
             if r < 1e-9:
                 return True
             self.push_undo()
-            c = self._point_at(cu, cs)
-            a = self._point_at(p1, s1)
-            b = sk.add_point(*p2) if not (s2 and s2[0] == "point") else s2[1]
+            c = self._point_at(cu, cs, first_cons)
+            a = self._point_at(p1, s1, c1)
+            # Only retain an external endpoint if the radius-projected point still matches it.
+            q2 = self._src_uv(s2[1]) if s2 and s2[0] == "point" else None
+            if q2 is not None and np.linalg.norm(q2 - p2) <= 1e-7 * max(1., r):
+                b = s2[1]
+            else:
+                b = sk.add_point(*p2)
             if self.arc_sweep < 0:
                 a, b = b, a
             aid = sk.add_arc(c, a, b, cons)
@@ -1612,8 +1657,8 @@ class Sketcher:
             return False
         self.push_undo()
         ids = []
-        for uv, snap in pts:
-            pid = self._point_at(uv, snap)
+        for uv, snap, inferences in pts:
+            pid = self._point_at(uv, snap, inferences)
             if not ids or ids[-1] != pid:
                 ids.append(pid)
         if len(ids) < (3 if closed else 2):
@@ -1776,9 +1821,9 @@ class Sketcher:
             if vp is not None:
                 self._flash(vp, "Can't add that dimension — this is already set by other dimensions or "
                                 "constraints (it would over-define the sketch)")
-            self.on_change(True)
+            self._notify_change(True)
             return None
-        self.on_change(True)
+        self._notify_change(True)
         return c
 
     def _restore_geometry(self, saved):
@@ -1910,17 +1955,18 @@ class Sketcher:
         if t == "slot":
             _uv, snap = self.snap(vp, x, y, self.temp[0][0] if self.temp else None)
             if not self.temp:
-                self.temp = [(_uv, snap)]
+                self.temp = [(_uv, snap, tuple(self._infer_cons))]
                 return True
-            (a, sa), b = self.temp[0], _uv
+            second_cons = list(self._infer_cons)
+            (a, sa, first_cons), b = self.temp[0], _uv
             self.temp = []
             if np.linalg.norm(b - a) < 1e-9:
                 return True
             cons = self.construction
 
             def make(width, a=a, b=b, sa=sa, sb=snap):
-                pa = self._point_at(a, sa) if sa else None
-                pb = self._point_at(b, sb) if sb else None
+                pa = self._point_at(a, sa, first_cons) if sa or first_cons else None
+                pb = self._point_at(b, sb, second_cons) if sb or second_cons else None
                 OPS.slot(self.sk, a, b, width, cons, pa, pb)
             self._prompt(vp, (a + b) / 2, "Slot width", round(max(np.linalg.norm(b - a) / 3, 1e-3), 3), make,
                          expr_target=lambda: self._last_radius_constraint(), expr_scale=0.5)
@@ -2033,7 +2079,7 @@ class Sketcher:
                 state["ok"] = False
                 self._prompt_label = f"⚠ {err}"
             vp.status_text = self._prompt_label
-            self.on_change(False)
+            self._notify_change(False)
             vp.update()
 
         def valid(v):
@@ -2133,7 +2179,7 @@ class Sketcher:
                     self.sk.constraints.remove(c)      # would over-constrain: drop it quietly
                     self.sk.solve(ignore=bad0)
                     self.undo_stack.pop()
-                self.on_change(True)
+                self._notify_change(True)
             vp.update()
             vp.setFocus()
             if rest:
@@ -2233,7 +2279,7 @@ class Sketcher:
                 self.undo_stack.pop()
                 self._flash(vp, f"Can't make that {fmt(v)} — it doesn't fit with the other dimensions and "
                                 "constraints")
-            self.on_change(True)
+            self._notify_change(True)
             vp.update()
 
         ed.returnPressed.connect(commit)
@@ -2684,7 +2730,7 @@ class Sketcher:
             a = self.temp[0][0]
             strip([a, cur])
         elif t in ("spline", "spline_cp") and self.temp:
-            pts = [q for q, _s in self.temp] + [cur]
+            pts = [q for q, _s, _c in self.temp] + [cur]
             strip(K.spline_sample(pts, False, 48, poles=t == "spline_cp") if len(pts) >= 2 else pts)
             if t == "spline_cp":
                 GL.glEnable(GL.GL_LINE_STIPPLE)
@@ -2695,7 +2741,7 @@ class Sketcher:
             arc = self._tangent_preview(cur)
             strip(arc if arc is not None else [self.temp[0][0], cur])
         elif t == "conic" and self.temp:
-            pts = [np.asarray(q, float) for q, _s in self.temp] + [cur]
+            pts = [np.asarray(q, float) for q, _s, _c in self.temp] + [cur]
             if len(pts) == 2:
                 strip(pts)
             else:
@@ -2796,6 +2842,87 @@ class Sketcher:
             GL.glVertex3f(*pl.to_world(*cur))
             GL.glEnd()
 
+    def _draw_snap_overlay(self, vp, p):
+        if self._snap_disabled or not self.snap_enabled:
+            return
+        ref = self.snap_info
+        if not ref and not self.infer_hits:
+            return
+        xy = self.scr(vp, self.cursor_uv)
+        kind = ref[0] if ref else ""
+        labels = {"mid": ("△", "Midpoint"), "intersection": ("×", "Intersection"),
+                  "quadrant": ("◇", "Quadrant"), "rect_center": ("⊕", "Rectangle centre"),
+                  "on": ("○", "Point on curve"), "tan": ("T", "Tangent"),
+                  "medge": ("○", "Point on edge"), "mpt": ("□", "Model point"),
+                  "point": ("□", "Endpoint")}
+        if kind == "point":
+            pid = ref[1]
+            if pid == ORIGIN:
+                labels["point"] = ("⊕", "Origin")
+            elif any(e.get("c") == pid for e in self.sk.entities.values()):
+                labels["point"] = ("⊕", "Curve centre")
+            elif any(c["type"] == "midpoint" and c["refs"][0] == pid
+                     and self.sk.entities.get(c["refs"][1], {}).get("helper")
+                     for c in self.sk.constraints):
+                labels["point"] = ("⊕", "Rectangle centre")
+            elif any(c["type"] in ("midpoint", "arc_midpoint") and c["refs"][0] == pid for c in self.sk.constraints):
+                labels["point"] = ("△", "Midpoint")
+        if kind == "mpt":
+            typ = ref[2][2]
+            labels["mpt"] = {"mid": ("△", "Midpoint"), "centre": ("⊕", "Curve centre")}.get(typ, labels["mpt"])
+        glyph, name = labels.get(kind, ("", ""))
+        hints = {"H": "Horizontal", "V": "Vertical", "T": "Tangent"}
+        names = [name] if name else []
+        for _q, code in self.infer_hits:
+            h = hints.get(code, code)
+            if h not in names and code != "=":
+                names.append(h)
+        p.save()
+        gold = QColor(theme.SNAP_MARKER)
+        p.setPen(QPen(gold, 2))
+        p.setBrush(Qt.NoBrush)
+        for eid in self._snap_sources:
+            if eid not in self.sk.entities:
+                continue
+            for poly in self.sk.polylines(eid, 40):
+                if len(poly) > 1:
+                    pts = self.scr_many(vp, poly)
+                    p.drawPolyline(QPolygonF([QPointF(float(q[0]), float(q[1])) for q in pts]))
+        for q, code in self.infer_hits:
+            if code in ("H", "V"):
+                ss = self.scr(vp, q)
+                p.drawEllipse(QRectF(float(ss[0])-4,float(ss[1])-4,8,8))
+        x,y = float(xy[0]),float(xy[1])
+        r = QRectF(x-6,y-6,12,12)
+        if glyph == "△":
+            p.drawPolygon(QPolygonF([QPointF(x,y-7),QPointF(x-7,y+6),QPointF(x+7,y+6)]))
+        elif glyph == "◇" or glyph == "×":
+            p.drawPolygon(QPolygonF([QPointF(x,y-7),QPointF(x+7,y),QPointF(x,y+7),QPointF(x-7,y)]))
+            if glyph == "×":
+                p.drawLine(QPointF(x-4,y-4),QPointF(x+4,y+4))
+                p.drawLine(QPointF(x-4,y+4),QPointF(x+4,y-4))
+        elif glyph == "□":
+            p.drawRect(r)
+        else:
+            p.drawEllipse(r)
+            p.drawLine(QPointF(x-9,y),QPointF(x+9,y))
+            p.drawLine(QPointF(x,y-9),QPointF(x,y+9))
+        label = " · ".join(names)
+        if label:
+            width = QFontMetricsF(p.font()).horizontalAdvance(label) + 14
+            rect = QRectF(x+12, y+12, width, 22)
+            window = p.viewport()
+            if rect.right() > window.right():
+                rect.moveRight(x-12)
+            if rect.bottom() > window.bottom():
+                rect.moveBottom(y-12)
+            p.setBrush(QColor(theme.SNAP_LABEL_BG))
+            p.setPen(QPen(gold, 1))
+            p.drawRoundedRect(rect, 4, 4)
+            p.setPen(QColor(theme.SNAP_LABEL_TEXT))
+            p.drawText(rect, Qt.AlignCenter, label)
+        p.restore()
+
     def draw_overlay(self, vp, p):
         self._dim_rects = {}
         self._glyph_rects = []
@@ -2853,15 +2980,9 @@ class Sketcher:
                     p.setPen(QColor(theme.ERROR if bad else "#374151"))
                     p.drawText(r, Qt.AlignCenter, CONSTRAINT_GLYPHS.get(t, "?"))
                     self._glyph_rects.append((r, c["id"]))
-        # ---- inference marker near cursor
-        if self.infer_hits and self.cursor_uv is not None and self.tool in DRAW_TOOLS | {"slot"}:
-            s = self.scr(vp, self.cursor_uv)
-            label = "".join(sorted({a for _u, a in self.infer_hits}))
-            r = QRectF(s[0] + 12, s[1] + 10, 16 * len(label), 16)
-            p.setPen(QPen(QColor(theme.ACCENT), 1))
-            p.setBrush(QColor("#eaf2fd"))
-            p.drawRoundedRect(r, 3, 3)
-            p.drawText(r, Qt.AlignCenter, label)
+        # ---- smart snap overlay (independent of saved constraint visibility)
+        if self.cursor_uv is not None and self.tool in DRAW_TOOLS | {"slot"}:
+            self._draw_snap_overlay(vp, p)
         # ---- live length readout while drawing
         if self.cursor_uv is not None:
             txt = None
