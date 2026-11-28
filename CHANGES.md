@@ -1,5 +1,14 @@
 # FreeShape revisions
 
+## Unreleased
+
+- **Plugins can run alongside the app** (plugin API version 2). `api.on_ready` and `api.on_shutdown` let a plugin
+  start and stop a server or listener at the right time, including on **Reload**. `api.host` gives it the open
+  documents: list them, find the active one, switch tabs, open a file, or start a new Part Studio or assembly.
+  This is for bridges such as [FreeShapeBridge](https://github.com/pardeike/FreeShapeBridge) (#62). See PLUGINS.md.
+- **Saving a script's project keeps its links**: the assemblies and drawings it writes now point at its Part
+  Studio files by relative path, so they stay connected after the folder is moved (#63).
+
 ## 2.6.0
 
 Selecting in the feature and parts lists works as in Onshape; Check interference for parts; Fill and Constrained

@@ -158,3 +158,113 @@ def test_script_adds_a_part(tmp_path):
     import math
     assert not Main.doc.errors and Main.doc.features[-1]["name"] == "Plate"
     assert abs(_vol(Main.doc) - (24000 - math.pi * 250)) < 1e-6
+
+
+# ---------------------------------------------------------------------- the host API (api.host, on_ready / on_shutdown)
+BRIDGE = '''
+import hostlog
+def register(api):
+    api.on_ready(lambda host: hostlog.events.append(("ready", host.ready, len(host.documents()))))
+    api.on_shutdown(lambda host: hostlog.events.append(("shutdown", host.ready)))
+    hostlog.api = api
+'''
+
+BAD_HOOK = '''
+def register(api):
+    def boom(host):
+        raise RuntimeError("no port")
+    api.on_ready(boom)
+'''
+
+
+@pytest.fixture()
+def hostlog():
+    import types
+    mod = types.ModuleType("hostlog")
+    mod.events = []
+    sys.modules["hostlog"] = mod
+    yield mod
+    P._unload()
+    P._HOST["main"], P._HOST["ready"] = None, False
+    sys.modules.pop("hostlog", None)
+
+
+def _window():
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+    from freeshape.ui.mainwindow import MainWindow
+    return app, MainWindow()
+
+
+def test_host_without_a_window(tmp_path, hostlog):
+    P._HOST["main"], P._HOST["ready"] = None, False
+    (tmp_path / "bridge.py").write_text(BRIDGE)
+    P.load_all([str(tmp_path)])
+    assert hostlog.events == []                        # nothing to be ready for yet
+    host = hostlog.api.host
+    assert not host.ready and host.documents() == [] and host.active_document() is None
+    with pytest.raises(RuntimeError):
+        host.new_document()
+
+
+def test_ready_and_shutdown_hooks_and_document_access(tmp_path, hostlog):
+    (tmp_path / "bridge.py").write_text(BRIDGE)
+    (tmp_path / "zz_bad.py").write_text(BAD_HOOK)
+    app, w = _window()
+    P.load_all([str(tmp_path)])                        # loaded with the window, before it's ready
+    assert hostlog.events == []
+    app.processEvents()
+    assert hostlog.events == [("ready", True, 1)]      # called once, with the first document open
+    bad = next(i for i in P.PLUGINS if i.name == "zz_bad")
+    assert "no port" in bad.error and bad.error_label == "on_ready failed"   # reported, not fatal
+
+    host = hostlog.api.host
+    first = host.active_document()
+    assert host.ready and first.kind == "studio" and host.documents() == [first]
+
+    asm = host.new_document("assembly", name="Bridge asm")
+    assert asm.name == "Bridge asm" and host.active_document() is asm
+    assert host.documents("assembly") == [asm] and host.documents("studio") == [first]
+    assert host.activate(first) is first and host.active_document() is first
+    with pytest.raises(ValueError):
+        host.activate(Document())
+    with pytest.raises(ValueError):
+        host.documents("sketch")
+    with pytest.raises(ValueError):
+        host.new_document("drawing")
+
+    # open a file: returned, made active, and the same object when opened again
+    src = Document()
+    v = src.make_feature("variable")
+    v["params"].update(name="w", expr="12")
+    src.add_feature(v)
+    path = tmp_path / "block.fshape"
+    src.save(str(path))
+    opened = host.open(str(path))
+    assert opened.path and os.path.samefile(opened.path, path)
+    assert host.active_document() is opened and opened in host.documents()
+    assert first not in host.documents()               # an untouched empty Part Studio tab is reused, as in the app
+    host.activate(asm)
+    assert host.open(str(path)) is opened and host.active_document() is opened
+    with pytest.raises(FileNotFoundError):
+        host.open(str(tmp_path / "missing.fshape"))
+    (tmp_path / "junk.fshape").write_text("not a document")
+    with pytest.raises(Exception):
+        host.open(str(tmp_path / "junk.fshape"))       # raised, not a message box
+    (tmp_path / "notes.txt").write_text("x")
+    with pytest.raises(ValueError):
+        host.open(str(tmp_path / "notes.txt"))
+    assert host.context().doc is opened
+
+    # reloading while running: stop, then start again
+    hostlog.events.clear()
+    P.load_all([str(tmp_path)])
+    assert hostlog.events == [("shutdown", True), ("ready", True, len(host.documents()))]
+
+    # closing the window
+    hostlog.events.clear()
+    for d in host.documents():
+        d.dirty = False
+    w.close()
+    assert hostlog.events == [("shutdown", True)]
+    assert not host.ready and host.documents() == []

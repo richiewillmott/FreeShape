@@ -152,7 +152,8 @@ class PluginsDialog(QDialog):
             h.append(f"<p>{info.description}</p>")
         if info.error:
             tr = getattr(info, "trace", "").replace("&", "&amp;").replace("<", "&lt;")
-            h.append(f"<p style='color:#d93025'><b>Didn't load:</b> {info.error}</p><pre style='font-size:9pt'>{tr}"
+            label = getattr(info, "error_label", "") or "Didn't load"
+            h.append(f"<p style='color:#d93025'><b>{label}:</b> {info.error}</p><pre style='font-size:9pt'>{tr}"
                      "</pre>")
         if info.features:
             h.append("<p><b>Features</b> (Plugins button on the toolbar):</p><ul>" + "".join(

@@ -37,7 +37,7 @@ from dataclasses import dataclass, field
 from . import api as geom
 from . import kernel as K
 
-API_VERSION = 1
+API_VERSION = 2            # 2: on_ready / on_shutdown and api.host
 PREFIX = "plugin:"
 
 FEATURES: dict = {}        # feature type ("plugin:<id>") -> FeatureSpec
@@ -46,6 +46,7 @@ PLUGINS: list = []         # PluginInfo, in load order
 LAST_BODIES: dict = {}     # (document uid, feature id, raw stamp) -> (full stamp, [shape] or saved copy)
 CURRENT_DOC = [""]         # uid of the document being rebuilt (set by Document.compute)
 _listeners: list = []      # called after (re)loading, e.g. to rebuild menus
+_HOST = {"main": None, "ready": False}   # the main window, once there is one, and whether it's ready
 
 
 @dataclass
@@ -91,6 +92,8 @@ class PluginInfo:
     error: str = ""
     features: list = field(default_factory=list)
     commands: list = field(default_factory=list)
+    ready_hooks: list = field(default_factory=list)       # on_ready callbacks
+    shutdown_hooks: list = field(default_factory=list)    # on_shutdown callbacks
 
 
 # ---------------------------------------------------------------------- folders
@@ -199,6 +202,23 @@ class Api:
         self._info.commands.append(c)
         return c
 
+    # -- living alongside the app
+    def on_ready(self, callback):
+        """callback(host) once the main window is up and its first document is open — or straight away, if the
+        plugin is (re)loaded later. Start servers, listeners and timers here, not in register()."""
+        self._info.ready_hooks.append(callback)
+        return callback
+
+    def on_shutdown(self, callback):
+        """callback(host) when FreeShape closes, or before the plugin is reloaded: stop what on_ready started."""
+        self._info.shutdown_hooks.append(callback)
+        return callback
+
+    @property
+    def host(self) -> "Host":
+        """The running app: its open documents (see Host). Only useful once on_ready has been called."""
+        return Host()
+
 
 def _register_feature_type(spec: FeatureSpec):
     from . import features as F
@@ -208,8 +228,25 @@ def _register_feature_type(spec: FeatureSpec):
 
 
 # ---------------------------------------------------------------------- loading
+def _call_hooks(info, which):
+    """Run a plugin's on_ready / on_shutdown callbacks. One that fails is reported, and doesn't stop the rest."""
+    for cb in list(getattr(info, which)):
+        try:
+            cb(Host())
+        except Exception as e:
+            if not info.error:
+                name = "on_ready" if which == "ready_hooks" else "on_shutdown"
+                info.error = f"{type(e).__name__} in {name}: {e}"
+                info.error_label = f"{name} failed"        # it loaded; its callback didn't work
+                info.trace = traceback.format_exc()
+            traceback.print_exc()
+
+
 def _unload():
     from . import features as F
+    if _HOST["ready"]:
+        for info in reversed(PLUGINS):       # let plugins stop their listeners before they go
+            _call_hooks(info, "shutdown_hooks")
     for ftype in list(FEATURES):
         F.FEATURE_LABELS.pop(ftype, None)
         F.RUNNERS.pop(ftype, None)
@@ -251,6 +288,10 @@ def load_file(path) -> PluginInfo:
             if c in COMMANDS:
                 COMMANDS.remove(c)
         info.features, info.commands = [], []
+        info.ready_hooks, info.shutdown_hooks = [], []
+        return info
+    if _HOST["ready"]:
+        _call_hooks(info, "ready_hooks")      # (re)loaded while the app is running
     return info
 
 
@@ -555,3 +596,111 @@ def run_script(path, main=None):
         code = compile(fh.read(), path, "exec")
     exec(code, g)
     return g
+
+
+# ---------------------------------------------------------------------- the host: the running app
+DOC_KINDS = ("studio", "assembly", "drawing")
+
+
+class Host:
+    """The running FreeShape window, as plugins see it (api.host, and the argument of on_ready / on_shutdown).
+
+    Documents are the app's own objects (a Part Studio `Document`, an `AssemblyDoc` or a `DrawingDoc`, told apart
+    by `.kind`). The same object is returned for as long as its tab is open, so it identifies that open document
+    (`.uid` is saved in the file and is shared by copies of it)."""
+
+    @property
+    def ready(self) -> bool:
+        """True from just before on_ready until just after on_shutdown."""
+        return bool(_HOST["ready"]) and _HOST["main"] is not None
+
+    def _main(self):
+        main = _HOST["main"]
+        if main is None:
+            raise RuntimeError("FreeShape's window isn't open")
+        return main
+
+    def documents(self, kind=None) -> list:
+        """The open documents, in tab order; only Part Studios / assemblies / drawings with kind=."""
+        if kind is not None and kind not in DOC_KINDS:
+            raise ValueError(f"kind must be one of {', '.join(DOC_KINDS)}")
+        main = _HOST["main"]
+        if main is None:
+            return []
+        docs = [main.docs.get(main.tabs.tabData(i)) for i in range(main.tabs.count())]
+        return [d for d in docs if d is not None and (kind is None or d.kind == kind)]
+
+    def active_document(self):
+        """The document in the current tab (None before the window is up)."""
+        main = _HOST["main"]
+        return getattr(main, "doc", None) if main is not None else None
+
+    def activate(self, doc):
+        """Switch to the tab of an open document; returns it."""
+        main = self._main()
+        i = main._tab_index(doc)
+        if i < 0:
+            raise ValueError("That document isn't open")
+        main.show_workspace()
+        if main.tabs.currentIndex() != i:
+            main._leave_modes()
+            main.tabs.setCurrentIndex(i)
+        return doc
+
+    def open(self, path):
+        """Open a .fshape / .fasm / .fdwg file in a tab (or switch to it if it's open already) and return it.
+        Raises an error instead of showing a message box."""
+        main = self._main()
+        path = os.path.abspath(path)
+        if not os.path.exists(path):
+            raise FileNotFoundError(path)
+        if os.path.splitext(path)[1].lower() not in (".fshape", ".fcad", ".fasm", ".fdwg"):
+            raise ValueError("FreeShape opens .fshape, .fasm and .fdwg documents")
+        main._leave_modes()
+        doc = main.open_file(path, quiet=True)
+        main.show_workspace()
+        return doc
+
+    def new_document(self, kind="studio", name=None):
+        """A new, empty Part Studio or assembly in a tab of its own; returns it. (Drawings need a source, so
+        make those from the app.)"""
+        main = self._main()
+        main._leave_modes()
+        if kind == "studio":
+            doc = main._new_document(name)
+        elif kind == "assembly":
+            from .assembly import AssemblyDoc
+            main._asm_counter = getattr(main, "_asm_counter", 0) + 1
+            doc = AssemblyDoc()
+            doc.name = name or f"Assembly {main._asm_counter}"
+            doc.units = main.default_units()
+        else:
+            raise ValueError("kind must be 'studio' or 'assembly'")
+        main._add_tab(doc)
+        return doc
+
+    def context(self) -> CommandContext:
+        """What a command gets (doc, state, selection, add_feature …), for the current tab."""
+        return CommandContext(self._main())
+
+
+def attach_host(main):
+    """Called by the main window as it's created (before it's ready)."""
+    _HOST["main"], _HOST["ready"] = main, False
+
+
+def host_ready():
+    """Called once the main window is up and its first document is open: runs every plugin's on_ready."""
+    if _HOST["main"] is None or _HOST["ready"]:
+        return
+    _HOST["ready"] = True
+    for info in list(PLUGINS):
+        _call_hooks(info, "ready_hooks")
+
+
+def host_shutdown():
+    """Called when the main window closes: runs every plugin's on_shutdown (newest first)."""
+    if _HOST["ready"]:
+        for info in reversed(PLUGINS):
+            _call_hooks(info, "shutdown_hooks")
+    _HOST["main"], _HOST["ready"] = None, False

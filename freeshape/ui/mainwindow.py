@@ -140,8 +140,9 @@ class MainWindow(QMainWindow):
         self.settings = QSettings("FreeShape", "FreeShape")
         F.LINKER = self._derived_link              # derived parts find their source studios through the window
         F.LINK_SOURCE_STAMP = self._derived_source_stamp
+        from .. import plugins as _plugins
+        _plugins.attach_host(self)                 # api.host: what plugins see of this window
         if not os.environ.get("FREESHAPE_NO_PLUGINS"):
-            from .. import plugins as _plugins
             _plugins.load_all()
         self._build_ui()
         self._bind_shortcuts()
@@ -162,6 +163,12 @@ class MainWindow(QMainWindow):
         elif not os.environ.get("FREESHAPE_NO_HOME"):
             self.show_home()
         QTimer.singleShot(50, self._fresh_view)
+        QTimer.singleShot(0, self._plugins_ready)      # once the event loop runs: shown, first document open
+
+    def _plugins_ready(self):
+        from .. import plugins as _plugins
+        if _plugins._HOST["main"] is self:
+            _plugins.host_ready()
 
     # ================================================================== UI construction
     def _build_ui(self):
@@ -4140,18 +4147,22 @@ class MainWindow(QMainWindow):
         if path:
             self.open_any(path)
 
-    def open_file(self, path):
+    def open_file(self, path, quiet=False):
+        """Open a document in a tab and return it (None if it couldn't be). quiet: raise errors instead of showing
+        them (for plugins)."""
         # already open? just switch to it
         for key, d in self.docs.items():
             if d.path and os.path.abspath(d.path) == os.path.abspath(path):
                 self.tabs.setCurrentIndex(self._tab_index(d))
-                return
+                return d
         from .progress import ImportProgress
         prog = ImportProgress(self, f"Opening {os.path.basename(path)}")
         try:
             if not path.lower().endswith((".fasm", ".fdwg")) and not self._prefetch_imports(path, prog):
                 self.status.showMessage("Opening cancelled", 5000)
-                return
+                if quiet:
+                    raise RuntimeError("Opening was cancelled")
+                return None
             prog.stage("Rebuilding the model…")
             self.viewport.progress_cb = prog.step
             from .. import document as _D
@@ -4168,8 +4179,10 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 prog.close()
                 prog = None
+                if quiet:
+                    raise
                 QMessageBox.critical(self, APP_NAME, f"Could not open {path}:\n{e}")
-                return
+                return None
             doc.name = os.path.splitext(os.path.basename(path))[0]
             self._open_in_tab(doc)
             QTimer.singleShot(400, lambda d=doc: self._update_thumbnail(d))
@@ -4180,6 +4193,7 @@ class MainWindow(QMainWindow):
             if prog is not None:
                 prog.close()
         self._add_recent(path)
+        return doc
 
     def _open_in_tab(self, doc):
         """New tab — or reuse the current one if it's still empty."""
@@ -4662,6 +4676,9 @@ class MainWindow(QMainWindow):
             os.rmdir(self.autosave_dir())        # only succeeds if it's empty
         except OSError:
             pass
+        from .. import plugins as _plugins
+        if _plugins._HOST["main"] is self:
+            _plugins.host_shutdown()               # plugins' on_shutdown: stop listeners and timers
         e.accept()
 
     def keyPressEvent(self, e):

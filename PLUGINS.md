@@ -71,8 +71,10 @@ def register(api):
 | `api.info(name, version, description)` | What the Plugins window shows. |
 | `api.add_feature(id, label, build, fields=[], boolean=True, help="")` | A parametric feature. `build(ctx)` returns a solid or a list of solids, which are added to the model with the chosen New / Add / Remove / Intersect. With `boolean=False` the result is always new parts. If `build` changed parts itself (see `ctx.replace_part`), return `None`. |
 | `api.add_command(label, run)` | A menu command. `run(ctx)` gets a command context (below). |
+| `api.on_ready(callback)`, `api.on_shutdown(callback)` | Run alongside the app (below). |
+| `api.host` | The running app: its open documents (below). |
 | `api.geom` | The geometry functions (`freeshape.api`, below). |
-| `api.version` | The plugin API version (1). |
+| `api.version` | The plugin API version (2). |
 
 ### Dialog fields
 
@@ -111,6 +113,47 @@ def register(api):
 | `ctx.message(text)`, `ctx.ask_number(label, value)` | Talk to the user. Messages can be simple HTML. |
 | `ctx.add_shape(shape, name)` | Put a solid into the Part Studio. It is added as an imported feature, so it can be undone and is saved. |
 | `ctx.add_feature(type, **params)` | Add any feature, built-in or a plugin's: `ctx.add_feature("washer", od=30)`. |
+
+### Running alongside the app: `on_ready`, `on_shutdown` and `api.host`
+
+Some plugins do more than add features and commands. They might run a small server that other programs (or an
+AI assistant) talk to. Start that kind of thing in `on_ready`, never in `register()`, and stop it in `on_shutdown`:
+
+```python
+def register(api):
+    server = MyServer()
+
+    @api.on_ready
+    def start(host):
+        server.start()             # the window is up and its first document is open
+
+    @api.on_shutdown
+    def stop(host):
+        server.stop()              # FreeShape is closing, or the plugin is being reloaded
+```
+
+`on_ready` runs once the main window is showing and its first document is open. If the plugin is installed or
+reloaded while FreeShape is running, it runs straight away. **Reload** calls every `on_shutdown` first, then
+loads the plugins again. If a callback raises an error, the Plugins window shows it and the other plugins carry on.
+
+Callbacks run on the app's main (Qt) thread, like everything else that touches documents. A server running on
+its own thread has to hand its work back to the main thread, for example with a `QTimer.singleShot(0, …)`.
+
+`host`, also available as `api.host`:
+
+| | |
+|---|---|
+| `host.ready` | True between `on_ready` and `on_shutdown`. |
+| `host.documents(kind=None)` | The open documents, in tab order. `kind` can be `"studio"`, `"assembly"` or `"drawing"`. |
+| `host.active_document()` | The document in the current tab. |
+| `host.activate(doc)` | Switch to that document's tab. |
+| `host.open(path)` | Open a `.fshape`, `.fasm` or `.fdwg` file, or switch to it if it's already open. Returns the document. Problems raise an error rather than showing a message. |
+| `host.new_document(kind="studio", name=None)` | A new empty Part Studio or assembly in its own tab. |
+| `host.context()` | A command context (above) for the current tab, with `add_feature`, `add_shape`, the selection and so on. |
+
+A document is the same object for as long as its tab is open, so you can keep hold of it and compare with `is`.
+Its `.uid` is saved in the file, so two copies of one file share it. Opening a file while the current tab is an
+untouched, empty Part Studio reuses that tab, just as **Open** does in the app.
 
 ## Geometry (`freeshape.api`)
 
