@@ -131,6 +131,32 @@ def test_saving_writes_the_three_files(tmp_path):
     assert _sig(again) == _sig(studio)
 
 
+def test_saved_project_keeps_live_links_after_moving_folder(tmp_path):
+    studio, asm, dwg = _hinge()
+    _, workspace = _roundtrip([studio, asm, dwg], tmp_path)
+    out = tmp_path / "out"
+    paths = workspace.save(str(out))
+    moved = out.rename(tmp_path / "moved")
+    studio_path, asm_path, drawing_path = (moved / os.path.basename(path) for path in paths)
+
+    def linked_studio(source):
+        assert source["relpath"] == studio_path.name
+        assert source["path"] == str(studio_path)
+        return Document.load(source["path"])
+
+    def resolve_instance(source):
+        part_studio = linked_studio(source)
+        return part_studio.state.parts[part_studio.part_id(source["part"])]
+
+    opened_assembly = AssemblyDoc.load(str(asm_path), resolver=resolve_instance)
+    assert not opened_assembly.errors and opened_assembly.bom() == asm.bom()
+    opened_drawing = DrawingDoc.load(
+        str(drawing_path),
+        resolver=lambda source: K.compound([p.shape for p in linked_studio(source).state.parts.values()]),
+    )
+    assert opened_drawing.error is None and opened_drawing.shape is not None
+
+
 def test_a_part_studio_not_in_the_script_keeps_a_copy(tmp_path):
     studio, asm, _dwg = _hinge()
     text, ws = _roundtrip([asm], tmp_path)                    # the assembly alone

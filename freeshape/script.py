@@ -302,14 +302,26 @@ class Workspace:
         """Write every document as a file in `folder` (Name.fshape / .fasm / .fdwg); returns the paths."""
         os.makedirs(folder, exist_ok=True)
         ext = {"studio": ".fshape", "assembly": ".fasm", "drawing": ".fdwg"}
-        paths = []
+        files = []
         for b in sorted(self.items, key=lambda b: {"studio": 0, "assembly": 1, "drawing": 2}[b.kind]):
             safe = re.sub(r'[\\/:*?"<>|]+', "_", b.name).strip() or b.kind
-            path = os.path.join(folder, safe + ext[b.kind])
+            files.append((b, os.path.join(folder, safe + ext[b.kind])))
+
+        targets = {(b.kind, b.uid): os.path.abspath(path) for b, path in files}
+        for b, path in files:
             doc = b.document
+            if b.kind == "assembly":
+                sources = [i["source"] for i in doc.instances if i["source"].get("kind") == "studio"]
+            elif b.kind == "drawing" and doc.source:
+                sources = [doc.source]
+            else:
+                sources = []
+            for source in sources:
+                target = targets.get((source.get("kind"), source.get("uid")))
+                if target:
+                    source["path"] = target
             doc.save(path) if b.kind != "studio" else doc.save(path, version=False)
-            paths.append(path)
-        return paths
+        return [path for _, path in files]
 
 
 def run(build, folder=None) -> Workspace:
