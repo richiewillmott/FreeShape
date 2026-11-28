@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **SVG icons when running from source with the Microsoft Store Python**: your own .svg icons and the checkbox
+  tick now show. Qt's SVG support quietly failed to load there.
 - **Plugins can run alongside the app** (plugin API version 2). `api.on_ready` and `api.on_shutdown` let a plugin
   start and stop a server or listener at the right time, including on **Reload**. `api.host` gives it the open
   documents: list them, find the active one, switch tabs, open a file, or start a new Part Studio or assembly.
