@@ -5,7 +5,7 @@ import math
 
 import numpy as np
 from OpenGL import GL
-from PySide6.QtCore import Qt, QPointF, QRectF, QCoreApplication
+from PySide6.QtCore import Qt, QPointF, QRectF
 from PySide6.QtGui import QColor, QFont, QPen, QPainterPath, QPolygonF, QFontMetricsF
 from PySide6.QtWidgets import QLineEdit
 
@@ -218,12 +218,17 @@ class Sketcher:
         self.selection = []
         self._reset_tool_state()
         self.sk.solve()
-        self.on_change(True)
+        self._notify_change(True)
+
+    def _notify_change(self, final):
+        # Dragging and dimension edits already solve the sketch before notifying.
+        # Invalidate here as well as for normal edits and undo/redo.
+        self._rectangle_snap_cache = None
+        self.on_change(final)
 
     def changed(self, final=True):
-        self._rectangle_snap_cache = None
         self.sk.solve()
-        self.on_change(final)
+        self._notify_change(final)
 
     # ================================================================== coordinates & hits
     def uv(self, vp, x, y):
@@ -792,7 +797,7 @@ class Sketcher:
             for c in sk.constraints:
                 if c["id"] == i:
                     c["pos"] = uv.tolist()
-            self.on_change(False)
+            self._notify_change(False)
             return
         # restore original then apply the drag delta (avoids drift)
         base = Sketch.from_dict(d["orig"])
@@ -827,7 +832,7 @@ class Sketcher:
                 if eid in sk.entities and "r" in ent:
                     sk.entities[eid]["r"] = ent["r"]
             sk.solve(ignore=d.get("bad0", ()))
-        self.on_change(False)
+        self._notify_change(False)
 
     def _box_pick(self, vp, box, additive):
         """Select the curves and loose points inside a dragged box: left-to-right takes what is fully enclosed,
@@ -1816,9 +1821,9 @@ class Sketcher:
             if vp is not None:
                 self._flash(vp, "Can't add that dimension — this is already set by other dimensions or "
                                 "constraints (it would over-define the sketch)")
-            self.on_change(True)
+            self._notify_change(True)
             return None
-        self.on_change(True)
+        self._notify_change(True)
         return c
 
     def _restore_geometry(self, saved):
@@ -2074,7 +2079,7 @@ class Sketcher:
                 state["ok"] = False
                 self._prompt_label = f"⚠ {err}"
             vp.status_text = self._prompt_label
-            self.on_change(False)
+            self._notify_change(False)
             vp.update()
 
         def valid(v):
@@ -2174,7 +2179,7 @@ class Sketcher:
                     self.sk.constraints.remove(c)      # would over-constrain: drop it quietly
                     self.sk.solve(ignore=bad0)
                     self.undo_stack.pop()
-                self.on_change(True)
+                self._notify_change(True)
             vp.update()
             vp.setFocus()
             if rest:
@@ -2274,7 +2279,7 @@ class Sketcher:
                 self.undo_stack.pop()
                 self._flash(vp, f"Can't make that {fmt(v)} — it doesn't fit with the other dimensions and "
                                 "constraints")
-            self.on_change(True)
+            self._notify_change(True)
             vp.update()
 
         ed.returnPressed.connect(commit)
@@ -2845,28 +2850,28 @@ class Sketcher:
             return
         xy = self.scr(vp, self.cursor_uv)
         kind = ref[0] if ref else ""
-        labels = {"mid": ("△", QCoreApplication.translate("FreeShape", "Midpoint")), "intersection": ("×", QCoreApplication.translate("FreeShape", "Intersection")),
-                  "quadrant": ("◇", QCoreApplication.translate("FreeShape", "Quadrant")), "rect_center": ("⊕", QCoreApplication.translate("FreeShape", "Rectangle centre")),
-                  "on": ("○", QCoreApplication.translate("FreeShape", "Point on curve")), "tan": ("T", QCoreApplication.translate("FreeShape", "Tangent")),
-                  "medge": ("○", QCoreApplication.translate("FreeShape", "Point on edge")), "mpt": ("□", QCoreApplication.translate("FreeShape", "Model point")),
-                  "point": ("□", QCoreApplication.translate("FreeShape", "Endpoint"))}
+        labels = {"mid": ("△", "Midpoint"), "intersection": ("×", "Intersection"),
+                  "quadrant": ("◇", "Quadrant"), "rect_center": ("⊕", "Rectangle centre"),
+                  "on": ("○", "Point on curve"), "tan": ("T", "Tangent"),
+                  "medge": ("○", "Point on edge"), "mpt": ("□", "Model point"),
+                  "point": ("□", "Endpoint")}
         if kind == "point":
             pid = ref[1]
             if pid == ORIGIN:
-                labels["point"] = ("⊕", QCoreApplication.translate("FreeShape", "Origin"))
+                labels["point"] = ("⊕", "Origin")
             elif any(e.get("c") == pid for e in self.sk.entities.values()):
-                labels["point"] = ("⊕", QCoreApplication.translate("FreeShape", "Curve centre"))
+                labels["point"] = ("⊕", "Curve centre")
             elif any(c["type"] == "midpoint" and c["refs"][0] == pid
                      and self.sk.entities.get(c["refs"][1], {}).get("helper")
                      for c in self.sk.constraints):
-                labels["point"] = ("⊕", QCoreApplication.translate("FreeShape", "Rectangle centre"))
+                labels["point"] = ("⊕", "Rectangle centre")
             elif any(c["type"] in ("midpoint", "arc_midpoint") and c["refs"][0] == pid for c in self.sk.constraints):
-                labels["point"] = ("△", QCoreApplication.translate("FreeShape", "Midpoint"))
+                labels["point"] = ("△", "Midpoint")
         if kind == "mpt":
             typ = ref[2][2]
-            labels["mpt"] = {"mid": ("△", QCoreApplication.translate("FreeShape", "Midpoint")), "centre": ("⊕", QCoreApplication.translate("FreeShape", "Curve centre"))}.get(typ, labels["mpt"])
+            labels["mpt"] = {"mid": ("△", "Midpoint"), "centre": ("⊕", "Curve centre")}.get(typ, labels["mpt"])
         glyph, name = labels.get(kind, ("", ""))
-        hints = {"H": QCoreApplication.translate("FreeShape", "Horizontal"), "V": QCoreApplication.translate("FreeShape", "Vertical"), "T": QCoreApplication.translate("FreeShape", "Tangent")}
+        hints = {"H": "Horizontal", "V": "Vertical", "T": "Tangent"}
         names = [name] if name else []
         for _q, code in self.infer_hits:
             h = hints.get(code, code)

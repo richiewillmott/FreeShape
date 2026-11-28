@@ -240,3 +240,86 @@ def test_affine_prefilter_preserves_candidates_with_skewed_projection():
             assert actual is not None
             assert actual[1] == expected[1]
             assert np.allclose(actual[0],expected[0])
+
+
+def test_split_arc_preserves_original_midpoint_and_parametric_span():
+    from freeshape import sketch_ops as OPS
+
+    # Split away from the midpoint, including a major arc across the angle seam.
+    for sweep in (90, 270):
+        sk = Sketch()
+        def on_arc(angle, radius=10):
+            t = np.deg2rad(angle)
+            return radius * np.array([np.cos(t), np.sin(t)])
+
+        c = sk.add_point(0, 0)
+        a = sk.add_point(*on_arc(0))
+        b = sk.add_point(*on_arc(sweep))
+        arc = sk.add_arc(c, a, b)
+        m = sk.add_point(*on_arc(sweep / 2))
+        for pid in (c, a, b):
+            sk.add_constraint("fix", pid, value=list(sk.P(pid)))
+        mid = sk.add_constraint("arc_midpoint", m, arc)
+        assert sk.solve()
+        first, second = OPS.split(sk, arc, on_arc(sweep / 3))
+        helper = mid["refs"][1]
+        assert helper not in (first, second)
+        assert sk.entities[helper] == {
+            "type": "arc", "c": c, "p1": a, "p2": b,
+            "construction": True, "helper": True,
+        }
+        assert sk.entities[first]["p2"] == sk.entities[second]["p1"]
+        assert np.allclose(sk.P(m), on_arc(sweep / 2), atol=1e-6)
+        # The saved sketch retains a live constraint to the original span.
+        restored = Sketch.from_dict(sk.to_dict())
+        for con in restored.constraints:
+            if con["type"] == "fix" and con["refs"] == [b]:
+                con["value"] = on_arc(sweep - 20).tolist()
+        assert restored.solve()
+        assert np.allclose(restored.P(m), on_arc((sweep - 20) / 2), atol=1e-5)
+
+
+def _cached_rectangle():
+    sk = Sketch()
+    ids = [sk.add_point(*q) for q in [(10,10),(30,10),(30,26),(10,26)]]
+    lines = [sk.add_line(a,b) for a,b in zip(ids,ids[1:]+ids[:1])]
+    for i, line in enumerate(lines):
+        sk.add_constraint("horizontal" if i % 2 == 0 else "vertical", line)
+    s = _sketcher(sk)
+    s.set_tool("point")
+    s.mouse_move(VP, *_at(s, [20,18]), _Ev())
+    assert s.snap_info[0] == "rect_center"
+    assert s._rectangle_snap_cache is not None
+    return s, ids, lines
+
+
+def test_rectangle_snap_cache_invalidated_during_drag_and_undo():
+    s, ids, _ = _cached_rectangle()
+    s.set_tool("select")
+    s.mouse_press(VP, *_at(s, s.sk.P(ids[2])), _Ev())
+    s.mouse_drag(VP, *_at(s, [40,36]), _Ev())
+    assert s._rectangle_snap_cache is None
+    s.mouse_release(VP, *_at(s, [40,36]), _Ev(), True)
+    centres = list(SS.rectangle_centres(s.sk))
+    assert len(centres) == 1
+    new = centres[0][0]
+    assert not np.allclose(new, [20,18])
+    s.set_tool("point")
+    s.mouse_move(VP, *_at(s, new), _Ev())
+    assert s.snap_info[0] == "rect_center"
+    assert np.allclose(s.cursor_uv, new)
+    s.undo()
+    assert s._rectangle_snap_cache is None
+    s.mouse_move(VP, *_at(s, [20,18]), _Ev())
+    assert s.snap_info[0] == "rect_center"
+
+
+def test_rectangle_snap_cache_invalidated_by_dimension(monkeypatch):
+    s, _, lines = _cached_rectangle()
+    monkeypatch.setattr(s, "_dim_spec", lambda *args: ("distance", [lines[0]], 30.0))
+    assert s._create_dimension(None, None, None) is not None
+    assert s._rectangle_snap_cache is None
+    centre = list(SS.rectangle_centres(s.sk))[0][0]
+    s.mouse_move(VP, *_at(s, centre), _Ev())
+    assert s.snap_info[0] == "rect_center"
+    assert np.allclose(s.cursor_uv, centre)
